@@ -1,5 +1,7 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { LayoutDashboard, Package, ShoppingBag, Settings } from "lucide-react";
+import { LayoutDashboard, Package, ShoppingBag, Settings, LogOut } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
+import { Button } from "@/components/ui/button";
 
 const items = [
   { label: "Dashboard", to: "/dashboard", icon: LayoutDashboard },
@@ -43,24 +45,37 @@ export function Sidebar() {
         })}
       </nav>
       <div className="p-4 text-[11px] text-white/40 border-t border-white/10">
-        v0.1 — fase 1
+        v0.2 — fase 2
       </div>
     </aside>
   );
 }
 
 export function Header() {
+  const { profile, isAdmin, signOut } = useAuth();
+  const nome = profile?.nome ?? "—";
+  const inicial = nome.charAt(0).toUpperCase();
+
   return (
     <header className="h-14 border-b bg-card flex items-center justify-end px-6 gap-3">
       <div className="text-right">
-        <div className="text-sm font-medium leading-tight">Vinicius</div>
+        <div className="text-sm font-medium leading-tight">{nome}</div>
         <div className="text-[11px] text-muted-foreground leading-tight">
-          Operador
+          {isAdmin ? "Administrador" : "Operador"}
         </div>
       </div>
       <div className="w-9 h-9 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-semibold">
-        V
+        {inicial}
       </div>
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => signOut()}
+        className="ml-2"
+        title="Sair"
+      >
+        <LogOut className="h-4 w-4" />
+      </Button>
     </header>
   );
 }

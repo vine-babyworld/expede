@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Search, X, CheckCircle2, XCircle, Sparkles } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -351,6 +352,7 @@ function BipagemModal({
   onClose: () => void;
   onRegistered: () => void;
 }) {
+  const { user, profile } = useAuth();
   const [valor, setValor] = useState("");
   const [status, setStatus] = useState<ResultadoStatus>(null);
   const [mensagem, setMensagem] = useState<string>("");
@@ -380,7 +382,8 @@ function BipagemModal({
       pedido_item_id: item.id,
       codigo_bipado: codigo,
       resultado,
-      usuario: "Vinicius",
+      usuario: profile?.nome ?? user?.email ?? null,
+      user_id: user?.id ?? null,
     });
   };
 
