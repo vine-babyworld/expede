@@ -115,7 +115,7 @@ function NovoUsuarioDialog({
   createFn,
   onCreated,
 }: {
-  createFn: ReturnType<typeof useServerFn<typeof createUser>>;
+  createFn: (args: { data: { nome: string; email: string; password: string; role: "admin" | "operador" } }) => Promise<{ id: string }>;
   onCreated: () => void;
 }) {
   const [open, setOpen] = useState(false);
