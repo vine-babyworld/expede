@@ -216,13 +216,6 @@ export type Database = {
             referencedRelation: "pedidos"
             referencedColumns: ["id"]
           },
-          {
-            foreignKeyName: "pedido_itens_produto_id_fkey"
-            columns: ["produto_id"]
-            isOneToOne: false
-            referencedRelation: "produtos"
-            referencedColumns: ["id"]
-          },
         ]
       }
       pedidos: {
@@ -293,47 +286,87 @@ export type Database = {
       }
       produtos: {
         Row: {
-          bling_product_id: string | null
+          altura: number | null
+          ativo: boolean
+          bipavel: boolean
+          bling_connection_id: string
+          bling_parent_id: number | null
+          bling_product_id: number
           created_at: string
-          ean_principal: string | null
-          eans_alternativos: string[]
-          empresa_id: string | null
-          foto_url: string | null
+          estoque: number | null
+          gtin: string | null
           id: string
-          localizacao: string | null
+          imagem_url: string | null
+          largura: number | null
           nome: string
+          peso_bruto: number | null
+          peso_liquido: number | null
+          profundidade: number | null
+          raw_data: Json | null
           sku: string
+          synced_at: string
+          tipo: string
+          updated_at: string
         }
         Insert: {
-          bling_product_id?: string | null
+          altura?: number | null
+          ativo?: boolean
+          bipavel?: boolean
+          bling_connection_id: string
+          bling_parent_id?: number | null
+          bling_product_id: number
           created_at?: string
-          ean_principal?: string | null
-          eans_alternativos?: string[]
-          empresa_id?: string | null
-          foto_url?: string | null
+          estoque?: number | null
+          gtin?: string | null
           id?: string
-          localizacao?: string | null
+          imagem_url?: string | null
+          largura?: number | null
           nome: string
+          peso_bruto?: number | null
+          peso_liquido?: number | null
+          profundidade?: number | null
+          raw_data?: Json | null
           sku: string
+          synced_at?: string
+          tipo?: string
+          updated_at?: string
         }
         Update: {
-          bling_product_id?: string | null
+          altura?: number | null
+          ativo?: boolean
+          bipavel?: boolean
+          bling_connection_id?: string
+          bling_parent_id?: number | null
+          bling_product_id?: number
           created_at?: string
-          ean_principal?: string | null
-          eans_alternativos?: string[]
-          empresa_id?: string | null
-          foto_url?: string | null
+          estoque?: number | null
+          gtin?: string | null
           id?: string
-          localizacao?: string | null
+          imagem_url?: string | null
+          largura?: number | null
           nome?: string
+          peso_bruto?: number | null
+          peso_liquido?: number | null
+          profundidade?: number | null
+          raw_data?: Json | null
           sku?: string
+          synced_at?: string
+          tipo?: string
+          updated_at?: string
         }
         Relationships: [
           {
-            foreignKeyName: "produtos_empresa_id_fkey"
-            columns: ["empresa_id"]
+            foreignKeyName: "produtos_bling_connection_id_fkey"
+            columns: ["bling_connection_id"]
             isOneToOne: false
-            referencedRelation: "empresas"
+            referencedRelation: "bling_connections"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "produtos_bling_connection_id_fkey"
+            columns: ["bling_connection_id"]
+            isOneToOne: false
+            referencedRelation: "bling_connections_status"
             referencedColumns: ["id"]
           },
         ]
@@ -367,6 +400,79 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      sync_jobs: {
+        Row: {
+          bling_connection_id: string
+          erros: Json
+          finalizado_em: string | null
+          id: string
+          iniciado_em: string
+          iniciado_por: string | null
+          pagina_atual: number
+          proxima_execucao_em: string | null
+          status: string
+          tipo: string
+          total_erros: number
+          total_paginas: number | null
+          total_processados: number
+          ultima_execucao_em: string | null
+        }
+        Insert: {
+          bling_connection_id: string
+          erros?: Json
+          finalizado_em?: string | null
+          id?: string
+          iniciado_em?: string
+          iniciado_por?: string | null
+          pagina_atual?: number
+          proxima_execucao_em?: string | null
+          status?: string
+          tipo?: string
+          total_erros?: number
+          total_paginas?: number | null
+          total_processados?: number
+          ultima_execucao_em?: string | null
+        }
+        Update: {
+          bling_connection_id?: string
+          erros?: Json
+          finalizado_em?: string | null
+          id?: string
+          iniciado_em?: string
+          iniciado_por?: string | null
+          pagina_atual?: number
+          proxima_execucao_em?: string | null
+          status?: string
+          tipo?: string
+          total_erros?: number
+          total_paginas?: number | null
+          total_processados?: number
+          ultima_execucao_em?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sync_jobs_bling_connection_id_fkey"
+            columns: ["bling_connection_id"]
+            isOneToOne: false
+            referencedRelation: "bling_connections"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sync_jobs_bling_connection_id_fkey"
+            columns: ["bling_connection_id"]
+            isOneToOne: false
+            referencedRelation: "bling_connections_status"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sync_jobs_iniciado_por_fkey"
+            columns: ["iniciado_por"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       user_roles: {
         Row: {
@@ -455,6 +561,8 @@ export type Database = {
         }
         Returns: boolean
       }
+      show_limit: { Args: never; Returns: number }
+      show_trgm: { Args: { "": string }; Returns: string[] }
     }
     Enums: {
       app_role: "admin" | "operador"
