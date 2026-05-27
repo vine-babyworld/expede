@@ -1,21 +1,42 @@
 import { createServerFn } from "@tanstack/react-start";
+import { createCipheriv, createDecipheriv, randomBytes, createHash } from "node:crypto";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 
 const BLING_AUTH_URL = "https://www.bling.com.br/Api/v3/oauth/authorize";
 const BLING_TOKEN_URL = "https://www.bling.com.br/Api/v3/oauth/token";
 
-// Dynamic imports com path via variável + @vite-ignore — impedem Rollup/Vite
-// de seguir e empacotar node:crypto / bling-crypto.server no bundle do client.
-async function loadCrypto() {
-  const p = "./bling-crypto.server";
-  const mod: any = await import(/* @vite-ignore */ p);
-  return { encryptToken: mod.encryptToken, decryptToken: mod.decryptToken };
+// ---- Crypto helpers (server-only; usados apenas dentro dos .handler()) ----
+function getKey(): Buffer {
+  const raw = process.env.BLING_ENCRYPTION_KEY;
+  if (!raw) throw new Error("BLING_ENCRYPTION_KEY não configurado");
+  return createHash("sha256").update(raw, "utf8").digest();
 }
-async function loadRandomBytes() {
-  const p = "node:crypto";
-  const mod: any = await import(/* @vite-ignore */ p);
-  return mod.randomBytes as (n: number) => Buffer;
+
+function encryptToken(plain: string): Buffer {
+  const key = getKey();
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", key, iv);
+  const ct = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return Buffer.concat([iv, tag, ct]);
+}
+
+function decryptToken(buf: Buffer | Uint8Array | string): string {
+  const key = getKey();
+  let b: Buffer;
+  if (typeof buf === "string") {
+    const hex = buf.startsWith("\\x") ? buf.slice(2) : buf;
+    b = Buffer.from(hex, "hex");
+  } else {
+    b = Buffer.from(buf);
+  }
+  const iv = b.subarray(0, 12);
+  const tag = b.subarray(12, 28);
+  const ct = b.subarray(28);
+  const decipher = createDecipheriv("aes-256-gcm", key, iv);
+  decipher.setAuthTag(tag);
+  return Buffer.concat([decipher.update(ct), decipher.final()]).toString("utf8");
 }
 
 function basicAuthHeader(): string {
@@ -46,7 +67,6 @@ export const blingOAuthStart = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const { userId } = context;
-    const randomBytes = await loadRandomBytes();
     const state = randomBytes(24).toString("hex");
 
     const { error } = await supabaseAdmin
@@ -54,7 +74,6 @@ export const blingOAuthStart = createServerFn({ method: "POST" })
       .insert({ state, user_id: userId });
     if (error) throw new Error("Falha ao gerar state: " + error.message);
 
-    // Limpeza oportunística
     try { await supabaseAdmin.rpc("cleanup_oauth_states"); } catch { /* ignore */ }
 
     const params = new URLSearchParams({
@@ -109,8 +128,6 @@ export async function refreshConnectionById(
     .eq("id", connectionId)
     .maybeSingle();
   if (errConn || !conn) return { ok: false, error: "Conexão não encontrada" };
-
-  const { encryptToken, decryptToken } = await loadCrypto();
 
   let refreshPlain: string;
   try {
@@ -184,7 +201,6 @@ export async function exchangeCodeAndStore(params: {
   code: string;
   state: string;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
-  // Valida state
   const { data: st, error: stErr } = await supabaseAdmin
     .from("oauth_states")
     .select("state, user_id, used, created_at")
@@ -195,7 +211,6 @@ export async function exchangeCodeAndStore(params: {
   const ageMs = Date.now() - new Date(st.created_at).getTime();
   if (ageMs > 10 * 60 * 1000) return { ok: false, error: "state expirado" };
 
-  // Troca code por token
   const body = new URLSearchParams({
     grant_type: "authorization_code",
     code: params.code,
@@ -222,8 +237,6 @@ export async function exchangeCodeAndStore(params: {
   const now = Date.now();
   const accessExp = new Date(now + (tj.expires_in ?? 21600) * 1000);
   const refreshExp = new Date(now + (tj.refresh_expires_in ?? 30 * 24 * 3600) * 1000);
-
-  const { encryptToken } = await loadCrypto();
 
   const insertPayload: any = {
     user_id: st.user_id,
