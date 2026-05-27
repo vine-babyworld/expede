@@ -67,10 +67,14 @@ function BlingPage() {
   const updateNameMut = useMutation({
     mutationFn: (id: string) => updateNameFn({ data: { connectionId: id } }),
     onSuccess: (r) => {
-      toast.success(`Nome atualizado: ${r.name}`);
-      qc.invalidateQueries({ queryKey: ["bling-connection"] });
+      if (r.ok) {
+        toast.success(`Nome atualizado: ${r.name}`);
+        qc.invalidateQueries({ queryKey: ["bling-connection"] });
+      } else {
+        toast.error(r.message, { duration: 8000 });
+      }
     },
-    onError: () => toast.error("Não foi possível obter nome do Bling. Verifique escopos do app."),
+    onError: () => toast.error("Falha de comunicação. Tente novamente."),
   });
 
   const disconnectMut = useMutation({
