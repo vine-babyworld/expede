@@ -16,6 +16,9 @@ import { Route as AppProdutosRouteImport } from './routes/_app/produtos'
 import { Route as AppExpedicaoRouteImport } from './routes/_app/expedicao'
 import { Route as AppDashboardRouteImport } from './routes/_app/dashboard'
 import { Route as AppConfiguracoesRouteImport } from './routes/_app/configuracoes'
+import { Route as AppConfiguracoesIndexRouteImport } from './routes/_app/configuracoes.index'
+import { Route as OauthBlingCallbackRouteImport } from './routes/oauth/bling/callback'
+import { Route as AppConfiguracoesBlingRouteImport } from './routes/_app/configuracoes.bling'
 
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
@@ -51,32 +54,55 @@ const AppConfiguracoesRoute = AppConfiguracoesRouteImport.update({
   path: '/configuracoes',
   getParentRoute: () => AppRoute,
 } as any)
+const AppConfiguracoesIndexRoute = AppConfiguracoesIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppConfiguracoesRoute,
+} as any)
+const OauthBlingCallbackRoute = OauthBlingCallbackRouteImport.update({
+  id: '/oauth/bling/callback',
+  path: '/oauth/bling/callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AppConfiguracoesBlingRoute = AppConfiguracoesBlingRouteImport.update({
+  id: '/bling',
+  path: '/bling',
+  getParentRoute: () => AppConfiguracoesRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
-  '/configuracoes': typeof AppConfiguracoesRoute
+  '/configuracoes': typeof AppConfiguracoesRouteWithChildren
   '/dashboard': typeof AppDashboardRoute
   '/expedicao': typeof AppExpedicaoRoute
   '/produtos': typeof AppProdutosRoute
+  '/configuracoes/bling': typeof AppConfiguracoesBlingRoute
+  '/oauth/bling/callback': typeof OauthBlingCallbackRoute
+  '/configuracoes/': typeof AppConfiguracoesIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
-  '/configuracoes': typeof AppConfiguracoesRoute
   '/dashboard': typeof AppDashboardRoute
   '/expedicao': typeof AppExpedicaoRoute
   '/produtos': typeof AppProdutosRoute
+  '/configuracoes/bling': typeof AppConfiguracoesBlingRoute
+  '/oauth/bling/callback': typeof OauthBlingCallbackRoute
+  '/configuracoes': typeof AppConfiguracoesIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/_app': typeof AppRouteWithChildren
   '/login': typeof LoginRoute
-  '/_app/configuracoes': typeof AppConfiguracoesRoute
+  '/_app/configuracoes': typeof AppConfiguracoesRouteWithChildren
   '/_app/dashboard': typeof AppDashboardRoute
   '/_app/expedicao': typeof AppExpedicaoRoute
   '/_app/produtos': typeof AppProdutosRoute
+  '/_app/configuracoes/bling': typeof AppConfiguracoesBlingRoute
+  '/oauth/bling/callback': typeof OauthBlingCallbackRoute
+  '/_app/configuracoes/': typeof AppConfiguracoesIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -87,14 +113,19 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/expedicao'
     | '/produtos'
+    | '/configuracoes/bling'
+    | '/oauth/bling/callback'
+    | '/configuracoes/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/login'
-    | '/configuracoes'
     | '/dashboard'
     | '/expedicao'
     | '/produtos'
+    | '/configuracoes/bling'
+    | '/oauth/bling/callback'
+    | '/configuracoes'
   id:
     | '__root__'
     | '/'
@@ -104,12 +135,16 @@ export interface FileRouteTypes {
     | '/_app/dashboard'
     | '/_app/expedicao'
     | '/_app/produtos'
+    | '/_app/configuracoes/bling'
+    | '/oauth/bling/callback'
+    | '/_app/configuracoes/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AppRoute: typeof AppRouteWithChildren
   LoginRoute: typeof LoginRoute
+  OauthBlingCallbackRoute: typeof OauthBlingCallbackRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -163,18 +198,52 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppConfiguracoesRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/configuracoes/': {
+      id: '/_app/configuracoes/'
+      path: '/'
+      fullPath: '/configuracoes/'
+      preLoaderRoute: typeof AppConfiguracoesIndexRouteImport
+      parentRoute: typeof AppConfiguracoesRoute
+    }
+    '/oauth/bling/callback': {
+      id: '/oauth/bling/callback'
+      path: '/oauth/bling/callback'
+      fullPath: '/oauth/bling/callback'
+      preLoaderRoute: typeof OauthBlingCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_app/configuracoes/bling': {
+      id: '/_app/configuracoes/bling'
+      path: '/bling'
+      fullPath: '/configuracoes/bling'
+      preLoaderRoute: typeof AppConfiguracoesBlingRouteImport
+      parentRoute: typeof AppConfiguracoesRoute
+    }
   }
 }
 
+interface AppConfiguracoesRouteChildren {
+  AppConfiguracoesBlingRoute: typeof AppConfiguracoesBlingRoute
+  AppConfiguracoesIndexRoute: typeof AppConfiguracoesIndexRoute
+}
+
+const AppConfiguracoesRouteChildren: AppConfiguracoesRouteChildren = {
+  AppConfiguracoesBlingRoute: AppConfiguracoesBlingRoute,
+  AppConfiguracoesIndexRoute: AppConfiguracoesIndexRoute,
+}
+
+const AppConfiguracoesRouteWithChildren =
+  AppConfiguracoesRoute._addFileChildren(AppConfiguracoesRouteChildren)
+
 interface AppRouteChildren {
-  AppConfiguracoesRoute: typeof AppConfiguracoesRoute
+  AppConfiguracoesRoute: typeof AppConfiguracoesRouteWithChildren
   AppDashboardRoute: typeof AppDashboardRoute
   AppExpedicaoRoute: typeof AppExpedicaoRoute
   AppProdutosRoute: typeof AppProdutosRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
-  AppConfiguracoesRoute: AppConfiguracoesRoute,
+  AppConfiguracoesRoute: AppConfiguracoesRouteWithChildren,
   AppDashboardRoute: AppDashboardRoute,
   AppExpedicaoRoute: AppExpedicaoRoute,
   AppProdutosRoute: AppProdutosRoute,
@@ -186,7 +255,18 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AppRoute: AppRouteWithChildren,
   LoginRoute: LoginRoute,
+  OauthBlingCallbackRoute: OauthBlingCallbackRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
