@@ -43,6 +43,7 @@ export const blingOAuthStart = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const { userId } = context;
+    const randomBytes = await loadRandomBytes();
     const state = randomBytes(24).toString("hex");
 
     const { error } = await supabaseAdmin
