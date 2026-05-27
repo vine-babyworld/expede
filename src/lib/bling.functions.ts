@@ -32,20 +32,19 @@ function hexToBytes(hex: string): Uint8Array {
   return out;
 }
 
-async function encryptToken(plain: string): Promise<Uint8Array> {
+async function encryptToken(plain: string): Promise<string> {
   const key = await getCryptoKey();
   const iv = globalThis.crypto.getRandomValues(new Uint8Array(12));
-  const ct = new Uint8Array(
-    await globalThis.crypto.subtle.encrypt(
-      { name: "AES-GCM", iv },
-      key,
-      new TextEncoder().encode(plain),
-    ),
+  const ctBuf = await globalThis.crypto.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    key,
+    new TextEncoder().encode(plain),
   );
+  const ct = new Uint8Array(ctBuf);
   const out = new Uint8Array(iv.length + ct.length);
   out.set(iv, 0);
   out.set(ct, iv.length);
-  return out;
+  return "\\x" + bytesToHex(out);
 }
 
 async function decryptToken(buf: Uint8Array | string): Promise<string> {
@@ -57,27 +56,19 @@ async function decryptToken(buf: Uint8Array | string): Promise<string> {
   } else {
     b = buf;
   }
-  const iv = b.subarray(0, 12);
-  const ct = b.subarray(12);
+  // Copia para ArrayBuffer próprio para satisfazer BufferSource estrito.
+  const iv = b.slice(0, 12);
+  const ct = b.slice(12);
   const pt = await globalThis.crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ct);
   return new TextDecoder().decode(pt);
-}
-
-// Bytea para Postgres via supabase-js: enviar como string hex "\x...."
-function bytesToBytea(b: Uint8Array): string {
-  return "\\x" + bytesToHex(b);
-}
-
-function b64encode(s: string): string {
-  // btoa funciona em Workers e browser
-  return btoa(s);
 }
 
 function basicAuthHeader(): string {
   const id = process.env.BLING_CLIENT_ID!;
   const secret = process.env.BLING_CLIENT_SECRET!;
-  return "Basic " + Buffer.from(`${id}:${secret}`).toString("base64");
+  return "Basic " + btoa(`${id}:${secret}`);
 }
+
 
 async function fetchAccountInfo(accessToken: string): Promise<{ id?: string; name?: string }> {
   try {
