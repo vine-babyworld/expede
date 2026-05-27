@@ -263,6 +263,7 @@ export type Database = {
           ativo: boolean
           created_at: string
           email: string
+          empresa_id: string | null
           id: string
           nome: string
           updated_at: string
@@ -271,6 +272,7 @@ export type Database = {
           ativo?: boolean
           created_at?: string
           email: string
+          empresa_id?: string | null
           id: string
           nome: string
           updated_at?: string
@@ -279,6 +281,7 @@ export type Database = {
           ativo?: boolean
           created_at?: string
           email?: string
+          empresa_id?: string | null
           id?: string
           nome?: string
           updated_at?: string
@@ -311,6 +314,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      current_empresa_id: { Args: never; Returns: string }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
