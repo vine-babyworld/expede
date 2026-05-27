@@ -43,7 +43,7 @@ export const blingOAuthStart = createServerFn({ method: "POST" })
     if (error) throw new Error("Falha ao gerar state: " + error.message);
 
     // Limpeza oportunística
-    await supabaseAdmin.rpc("cleanup_oauth_states").catch(() => {});
+    try { await supabaseAdmin.rpc("cleanup_oauth_states"); } catch { /* ignore */ }
 
     const params = new URLSearchParams({
       response_type: "code",
@@ -117,18 +117,19 @@ export const blingRefreshToken = createServerFn({ method: "POST" })
     const accessExp = new Date(now + (tokenJson.expires_in ?? 21600) * 1000);
     const refreshExp = new Date(now + (tokenJson.refresh_expires_in ?? 30 * 24 * 3600) * 1000);
 
+    const updatePayload: any = {
+      access_token: encryptToken(tokenJson.access_token),
+      refresh_token: encryptToken(tokenJson.refresh_token ?? refreshPlain),
+      access_expires_at: accessExp.toISOString(),
+      refresh_expires_at: refreshExp.toISOString(),
+      scope: tokenJson.scope ?? null,
+      status: "connected",
+      last_refresh_at: new Date().toISOString(),
+      last_error: null,
+    };
     const { error: updErr } = await supabaseAdmin
       .from("bling_connections")
-      .update({
-        access_token: encryptToken(tokenJson.access_token),
-        refresh_token: encryptToken(tokenJson.refresh_token ?? refreshPlain),
-        access_expires_at: accessExp.toISOString(),
-        refresh_expires_at: refreshExp.toISOString(),
-        scope: tokenJson.scope ?? null,
-        status: "connected",
-        last_refresh_at: new Date().toISOString(),
-        last_error: null,
-      })
+      .update(updatePayload)
       .eq("id", conn.id);
     if (updErr) throw new Error(updErr.message);
     return { ok: true };
@@ -193,7 +194,7 @@ export async function exchangeCodeAndStore(params: {
   const accessExp = new Date(now + (tj.expires_in ?? 21600) * 1000);
   const refreshExp = new Date(now + (tj.refresh_expires_in ?? 30 * 24 * 3600) * 1000);
 
-  const { error: insErr } = await supabaseAdmin.from("bling_connections").insert({
+  const insertPayload: any = {
     user_id: st.user_id,
     bling_account_id: account.id ?? null,
     bling_account_name: account.name ?? "Conta Bling",
@@ -204,7 +205,8 @@ export async function exchangeCodeAndStore(params: {
     scope: tj.scope ?? null,
     status: "connected",
     last_refresh_at: new Date().toISOString(),
-  });
+  };
+  const { error: insErr } = await supabaseAdmin.from("bling_connections").insert(insertPayload);
   if (insErr) return { ok: false, error: insErr.message };
   return { ok: true };
 }

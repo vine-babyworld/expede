@@ -125,8 +125,8 @@ function BlingPage() {
           <Button
             variant="outline"
             size="sm"
-            disabled={refreshMut.isPending}
-            onClick={() => refreshMut.mutate(conn.id)}
+            disabled={refreshMut.isPending || !conn.id}
+            onClick={() => conn.id && refreshMut.mutate(conn.id)}
           >
             {refreshMut.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
             Forçar renovação
@@ -146,7 +146,7 @@ function BlingPage() {
               </AlertDialogHeader>
               <AlertDialogFooter>
                 <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                <AlertDialogAction onClick={() => disconnectMut.mutate(conn.id)}>
+                <AlertDialogAction onClick={() => conn.id && disconnectMut.mutate(conn.id)}>
                   Desconectar
                 </AlertDialogAction>
               </AlertDialogFooter>
