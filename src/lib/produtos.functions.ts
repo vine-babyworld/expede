@@ -305,8 +305,8 @@ async function runListagemJob(job: any): Promise<{ done: boolean; status: string
 
     // Dispara fase de detalhes
     try {
-      const origin = new URL(getRequest().url).origin;
-      await createAndFireDetalhesJob(job.bling_connection_id, origin, job.iniciado_por ?? null);
+      const origin = await getServerOrigin();
+      if (origin) await createAndFireDetalhesJob(job.bling_connection_id, origin, job.iniciado_por ?? null);
     } catch { /* ignore */ }
 
     return { done: true, status: "concluido" };
