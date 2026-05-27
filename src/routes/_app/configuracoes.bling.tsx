@@ -90,6 +90,17 @@ function BlingPage() {
     },
     onError: (e: Error) => toast.error(e.message),
   });
+  const diagnoseMut = useMutation({
+    mutationFn: (id: string) => diagnoseFn({ data: { connectionId: id } }),
+    onSuccess: (r) => {
+      setDiagnoseResult(r);
+      // eslint-disable-next-line no-console
+      console.log("[DIAGNÓSTICO BLING EMPRESA]", r);
+      toast.success("Diagnóstico concluído — veja console e bloco abaixo");
+    },
+    onError: (e: Error) => toast.error("Falha no diagnóstico: " + e.message),
+  });
+
 
   if (isLoading) {
     return (
