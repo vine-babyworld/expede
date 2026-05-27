@@ -34,6 +34,9 @@ function BlingPage() {
   const refreshFn = useServerFn(blingRefreshToken);
   const updateNameFn = useServerFn(updateBlingAccountName);
   const disconnectFn = useServerFn(blingDisconnect);
+  const diagnoseFn = useServerFn(diagnoseBlingEmpresaEndpoint);
+  const [diagnoseResult, setDiagnoseResult] = useState<unknown>(null);
+
 
   const { data: conn, isLoading } = useQuery({
     queryKey: ["bling-connection"],
