@@ -1,10 +1,13 @@
-// Server-only helpers. Blocked from client bundle by *.server.ts filename rule.
-import { getRequest } from "@tanstack/react-start/server";
+import { createIsomorphicFn } from "@tanstack/react-start";
 
-export function getServerOrigin(): string {
-  try {
-    return new URL(getRequest().url).origin;
-  } catch {
-    return "";
-  }
-}
+export const getServerOrigin = createIsomorphicFn()
+  .client(() => "")
+  .server(() => {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { getRequest } = require("@tanstack/react-start/server");
+      return new URL(getRequest().url).origin;
+    } catch {
+      return "";
+    }
+  });
