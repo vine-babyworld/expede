@@ -220,6 +220,8 @@ export async function exchangeCodeAndStore(params: {
   const accessExp = new Date(now + (tj.expires_in ?? 21600) * 1000);
   const refreshExp = new Date(now + (tj.refresh_expires_in ?? 30 * 24 * 3600) * 1000);
 
+  const { encryptToken } = await loadCrypto();
+
   const insertPayload: any = {
     user_id: st.user_id,
     bling_account_id: account.id ?? null,
