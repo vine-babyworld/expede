@@ -268,8 +268,9 @@ export async function exchangeCodeAndStore(params: {
     user_id: st.user_id,
     bling_account_id: account.id ?? null,
     bling_account_name: account.name ?? "Conta Bling",
-    access_token: encryptToken(tj.access_token),
-    refresh_token: encryptToken(tj.refresh_token),
+    access_token: await encryptToken(tj.access_token),
+    refresh_token: await encryptToken(tj.refresh_token),
+
     access_expires_at: accessExp.toISOString(),
     refresh_expires_at: refreshExp.toISOString(),
     scope: tj.scope ?? null,
