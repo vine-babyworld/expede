@@ -64,13 +64,18 @@ function ProdutosPage() {
   const bannerJob = activeJob ?? recentCompletedJob ?? errorJob;
 
   const bannerState = (job: any) => {
+    const isDetalhes = job.fase === "detalhes";
+    const faseLabel = isDetalhes
+      ? "Enriquecendo dados (EAN, peso, dimensões)"
+      : "Importando lista de produtos";
+
     if (job.status === "pendente") {
       return {
         box: "border-blue-200 bg-blue-50",
         text: "text-blue-800",
         barTrack: "bg-blue-100",
         bar: "bg-blue-500",
-        message: "Sincronização em fila, aguardando processamento...",
+        message: `${faseLabel}... em fila`,
       };
     }
     if (job.status === "pausado") {
@@ -79,19 +84,22 @@ function ProdutosPage() {
         text: "text-amber-800",
         barTrack: "bg-amber-100",
         bar: "bg-amber-500",
-        message: `Sincronização pausada, retomando em breve... (${job.total_processados} processados)`,
+        message: `${faseLabel}... pausado, retomando em breve (${job.total_processados} processados)`,
       };
     }
     if (job.status === "concluido") {
       const hasProducts = Number(job.total_processados ?? 0) > 0;
+      const concluidoMsg = isDetalhes
+        ? `Enriquecimento concluído: ${job.total_processados} produtos detalhados`
+        : `Importação de lista concluída: ${job.total_processados} produtos · enriquecimento iniciando…`;
       return {
         box: hasProducts ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50",
         text: hasProducts ? "text-emerald-800" : "text-amber-800",
         barTrack: hasProducts ? "bg-emerald-100" : "bg-amber-100",
         bar: hasProducts ? "bg-emerald-500" : "bg-amber-500",
         message: hasProducts
-          ? `Sincronização concluída: ${job.total_processados} produtos atualizados`
-          : "Sincronização concluída, mas nenhum produto foi importado. Verifique se a conta Bling tem produtos cadastrados e se o escopo do app inclui produtos.",
+          ? concluidoMsg
+          : "Sincronização concluída, mas nenhum produto foi processado. Verifique escopo do app Bling.",
       };
     }
     if (job.status === "erro") {
@@ -101,7 +109,7 @@ function ProdutosPage() {
         text: "text-rose-800",
         barTrack: "bg-rose-100",
         bar: "bg-rose-500",
-        message: `Erro na sincronização: ${firstError ?? "erro desconhecido"}. Veja detalhes no console.`,
+        message: `Erro em ${faseLabel.toLowerCase()}: ${firstError ?? "erro desconhecido"}.`,
       };
     }
     return {
@@ -109,7 +117,7 @@ function ProdutosPage() {
       text: "text-blue-800",
       barTrack: "bg-blue-100",
       bar: "bg-blue-500",
-      message: `Sincronizando produtos de ${connName(job.bling_connection_id)}: ${job.total_processados} processados (${job.total_erros} erros)`,
+      message: `${faseLabel}... ${job.total_processados} processados${job.total_erros ? ` (${job.total_erros} erros)` : ""}`,
     };
   };
 
