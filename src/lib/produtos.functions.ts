@@ -154,8 +154,8 @@ export const syncProductsStart = createServerFn({ method: "POST" })
     if (insErr || !job) throw new Error(insErr?.message ?? "Falha ao criar job");
 
     try {
-      const origin = new URL(getRequest().url).origin;
-      await fireAndForgetRun(job.id, origin);
+      const origin = await getServerOrigin();
+      if (origin) await fireAndForgetRun(job.id, origin);
     } catch { /* ignore */ }
 
     return { jobId: job.id, status: job.status, reused: false };
