@@ -281,3 +281,114 @@ export async function exchangeCodeAndStore(params: {
   if (insErr) return { ok: false, error: insErr.message };
   return { ok: true };
 }
+
+// =====================================================
+// Helpers expostos para o módulo de produtos / callback
+// =====================================================
+
+/**
+ * Retorna access token plaintext da conexão. Se já expirou (ou expira em < 60s),
+ * tenta refresh antes. Lança em caso de falha definitiva.
+ */
+export async function getDecryptedAccessToken(connectionId: string): Promise<string> {
+  const { data: conn, error } = await supabaseAdmin
+    .from("bling_connections")
+    .select("id, access_token, access_expires_at, status")
+    .eq("id", connectionId)
+    .maybeSingle();
+  if (error || !conn) throw new Error("Conexão Bling não encontrada");
+
+  const exp = conn.access_expires_at ? new Date(conn.access_expires_at).getTime() : 0;
+  if (exp <= Date.now() + 60_000 || conn.status !== "connected") {
+    const r = await refreshConnectionById(connectionId);
+    if (!r.ok) throw new Error("Falha ao renovar token Bling: " + r.error);
+    const { data: refreshed } = await supabaseAdmin
+      .from("bling_connections")
+      .select("access_token")
+      .eq("id", connectionId)
+      .maybeSingle();
+    if (!refreshed?.access_token) throw new Error("Token indisponível após refresh");
+    return decryptToken(refreshed.access_token as unknown as string);
+  }
+  return decryptToken(conn.access_token as unknown as string);
+}
+
+/**
+ * Best-effort: descobre o nome real da empresa Bling e atualiza
+ * `bling_account_name` / `bling_account_id`. Nunca lança — retorna ok=false em erro.
+ */
+export async function updateBlingAccountNameInternal(
+  connectionId: string,
+): Promise<{ ok: boolean; name?: string; error?: string }> {
+  try {
+    const token = await getDecryptedAccessToken(connectionId);
+    // Tenta endpoints conhecidos na ordem
+    const endpoints = [
+      "https://www.bling.com.br/Api/v3/empresas/me",
+      "https://www.bling.com.br/Api/v3/empresa",
+    ];
+    let info: { id?: string; name?: string } = {};
+    for (const url of endpoints) {
+      try {
+        const res = await fetch(url, {
+          headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+        });
+        if (!res.ok) continue;
+        const json: any = await res.json();
+        const d = json?.data ?? json;
+        const arr = Array.isArray(d) ? d[0] : d;
+        const name = arr?.nome ?? arr?.razaoSocial ?? arr?.fantasia;
+        const id = arr?.id?.toString?.() ?? arr?.numeroDocumento;
+        if (name) { info = { id, name }; break; }
+      } catch { /* tenta próximo */ }
+    }
+    if (!info.name) return { ok: false, error: "nome não retornado pelo Bling" };
+    const update: any = { bling_account_name: info.name };
+    if (info.id) update.bling_account_id = info.id;
+    const { error } = await supabaseAdmin
+      .from("bling_connections")
+      .update(update)
+      .eq("id", connectionId);
+    if (error) return { ok: false, error: error.message };
+    return { ok: true, name: info.name };
+  } catch (e: any) {
+    return { ok: false, error: String(e?.message ?? e) };
+  }
+}
+
+/** Server fn pública para o botão "Atualizar nome" na tela /configuracoes/bling. */
+export const updateBlingAccountName = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { connectionId: string }) => d)
+  .handler(async ({ data, context }) => {
+    const { userId } = context;
+    const { data: conn } = await supabaseAdmin
+      .from("bling_connections")
+      .select("user_id")
+      .eq("id", data.connectionId)
+      .maybeSingle();
+    if (!conn) throw new Error("Conexão não encontrada");
+    if (conn.user_id !== userId) throw new Error("Sem permissão");
+    const r = await updateBlingAccountNameInternal(data.connectionId);
+    if (!r.ok) throw new Error(r.error ?? "Falha desconhecida");
+    return { ok: true, name: r.name };
+  });
+
+/** Helper: dado um state recém-usado, encontra a conexão recém-criada para o user. */
+export async function findLatestConnectionByState(state: string): Promise<string | null> {
+  const { data: st } = await supabaseAdmin
+    .from("oauth_states")
+    .select("user_id")
+    .eq("state", state)
+    .maybeSingle();
+  if (!st?.user_id) return null;
+  const { data: c } = await supabaseAdmin
+    .from("bling_connections")
+    .select("id")
+    .eq("user_id", st.user_id)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return c?.id ?? null;
+}
+
