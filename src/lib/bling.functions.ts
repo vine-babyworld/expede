@@ -156,7 +156,7 @@ export async function refreshConnectionById(
 
   let refreshPlain: string;
   try {
-    refreshPlain = decryptToken(conn.refresh_token as unknown as string);
+    refreshPlain = await decryptToken(conn.refresh_token as unknown as string);
   } catch {
     return { ok: false, error: "Falha ao decriptar refresh_token" };
   }
