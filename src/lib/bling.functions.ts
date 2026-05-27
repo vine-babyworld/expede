@@ -1,42 +1,76 @@
 import { createServerFn } from "@tanstack/react-start";
-import { createCipheriv, createDecipheriv, randomBytes, createHash } from "node:crypto";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 
 const BLING_AUTH_URL = "https://www.bling.com.br/Api/v3/oauth/authorize";
 const BLING_TOKEN_URL = "https://www.bling.com.br/Api/v3/oauth/token";
 
-// ---- Crypto helpers (server-only; usados apenas dentro dos .handler()) ----
-function getKey(): Buffer {
+// ---- Crypto via Web Crypto API (Cloudflare Workers + browser, sem node:*) ----
+// Formato bytea: [12-byte IV][ciphertext + 16-byte authTag concatenado pelo WebCrypto]
+async function getCryptoKey(): Promise<CryptoKey> {
   const raw = process.env.BLING_ENCRYPTION_KEY;
   if (!raw) throw new Error("BLING_ENCRYPTION_KEY não configurado");
-  return createHash("sha256").update(raw, "utf8").digest();
+  const enc = new TextEncoder();
+  const hash = await globalThis.crypto.subtle.digest("SHA-256", enc.encode(raw));
+  return globalThis.crypto.subtle.importKey(
+    "raw",
+    hash,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt", "decrypt"],
+  );
 }
 
-function encryptToken(plain: string): Buffer {
-  const key = getKey();
-  const iv = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", key, iv);
-  const ct = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
-  const tag = cipher.getAuthTag();
-  return Buffer.concat([iv, tag, ct]);
+function bytesToHex(b: Uint8Array): string {
+  let s = "";
+  for (let i = 0; i < b.length; i++) s += b[i].toString(16).padStart(2, "0");
+  return s;
+}
+function hexToBytes(hex: string): Uint8Array {
+  const out = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.substr(i * 2, 2), 16);
+  return out;
 }
 
-function decryptToken(buf: Buffer | Uint8Array | string): string {
-  const key = getKey();
-  let b: Buffer;
+async function encryptToken(plain: string): Promise<Uint8Array> {
+  const key = await getCryptoKey();
+  const iv = globalThis.crypto.getRandomValues(new Uint8Array(12));
+  const ct = new Uint8Array(
+    await globalThis.crypto.subtle.encrypt(
+      { name: "AES-GCM", iv },
+      key,
+      new TextEncoder().encode(plain),
+    ),
+  );
+  const out = new Uint8Array(iv.length + ct.length);
+  out.set(iv, 0);
+  out.set(ct, iv.length);
+  return out;
+}
+
+async function decryptToken(buf: Uint8Array | string): Promise<string> {
+  const key = await getCryptoKey();
+  let b: Uint8Array;
   if (typeof buf === "string") {
     const hex = buf.startsWith("\\x") ? buf.slice(2) : buf;
-    b = Buffer.from(hex, "hex");
+    b = hexToBytes(hex);
   } else {
-    b = Buffer.from(buf);
+    b = buf;
   }
   const iv = b.subarray(0, 12);
-  const tag = b.subarray(12, 28);
-  const ct = b.subarray(28);
-  const decipher = createDecipheriv("aes-256-gcm", key, iv);
-  decipher.setAuthTag(tag);
-  return Buffer.concat([decipher.update(ct), decipher.final()]).toString("utf8");
+  const ct = b.subarray(12);
+  const pt = await globalThis.crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ct);
+  return new TextDecoder().decode(pt);
+}
+
+// Bytea para Postgres via supabase-js: enviar como string hex "\x...."
+function bytesToBytea(b: Uint8Array): string {
+  return "\\x" + bytesToHex(b);
+}
+
+function b64encode(s: string): string {
+  // btoa funciona em Workers e browser
+  return btoa(s);
 }
 
 function basicAuthHeader(): string {
