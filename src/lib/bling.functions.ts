@@ -69,71 +69,86 @@ export const getBlingConnection = createServerFn({ method: "GET" })
     return data;
   });
 
-/** Renova um token específico. */
+/** Renova um token específico (com checagem de dono). */
 export const blingRefreshToken = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: { connectionId: string }) => d)
   .handler(async ({ data, context }) => {
     const { userId } = context;
-    const { data: conn, error: errConn } = await supabaseAdmin
+    const { data: conn } = await supabaseAdmin
       .from("bling_connections")
-      .select("id, user_id, refresh_token")
+      .select("user_id")
       .eq("id", data.connectionId)
       .maybeSingle();
-    if (errConn || !conn) throw new Error("Conexão não encontrada");
+    if (!conn) throw new Error("Conexão não encontrada");
     if (conn.user_id !== userId) throw new Error("Sem permissão");
-
-    let refreshPlain: string;
-    try {
-      refreshPlain = decryptToken(conn.refresh_token as unknown as string);
-    } catch {
-      throw new Error("Falha ao decriptar refresh_token");
-    }
-
-    const body = new URLSearchParams({
-      grant_type: "refresh_token",
-      refresh_token: refreshPlain,
-    });
-    const res = await fetch(BLING_TOKEN_URL, {
-      method: "POST",
-      headers: {
-        Authorization: basicAuthHeader(),
-        "Content-Type": "application/x-www-form-urlencoded",
-        Accept: "application/json",
-      },
-      body,
-    });
-    const tokenJson: any = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      const msg = tokenJson?.error_description ?? tokenJson?.error ?? `HTTP ${res.status}`;
-      await supabaseAdmin
-        .from("bling_connections")
-        .update({ status: "expired", last_error: String(msg) })
-        .eq("id", conn.id);
-      throw new Error("Falha ao renovar: " + msg);
-    }
-
-    const now = Date.now();
-    const accessExp = new Date(now + (tokenJson.expires_in ?? 21600) * 1000);
-    const refreshExp = new Date(now + (tokenJson.refresh_expires_in ?? 30 * 24 * 3600) * 1000);
-
-    const updatePayload: any = {
-      access_token: encryptToken(tokenJson.access_token),
-      refresh_token: encryptToken(tokenJson.refresh_token ?? refreshPlain),
-      access_expires_at: accessExp.toISOString(),
-      refresh_expires_at: refreshExp.toISOString(),
-      scope: tokenJson.scope ?? null,
-      status: "connected",
-      last_refresh_at: new Date().toISOString(),
-      last_error: null,
-    };
-    const { error: updErr } = await supabaseAdmin
-      .from("bling_connections")
-      .update(updatePayload)
-      .eq("id", conn.id);
-    if (updErr) throw new Error(updErr.message);
+    const r = await refreshConnectionById(data.connectionId);
+    if (!r.ok) throw new Error(r.error);
     return { ok: true };
   });
+
+/** Helper interno: renova um token por id (sem checagem de auth). */
+export async function refreshConnectionById(
+  connectionId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { data: conn, error: errConn } = await supabaseAdmin
+    .from("bling_connections")
+    .select("id, refresh_token")
+    .eq("id", connectionId)
+    .maybeSingle();
+  if (errConn || !conn) return { ok: false, error: "Conexão não encontrada" };
+
+  let refreshPlain: string;
+  try {
+    refreshPlain = decryptToken(conn.refresh_token as unknown as string);
+  } catch {
+    return { ok: false, error: "Falha ao decriptar refresh_token" };
+  }
+
+  const body = new URLSearchParams({
+    grant_type: "refresh_token",
+    refresh_token: refreshPlain,
+  });
+  const res = await fetch(BLING_TOKEN_URL, {
+    method: "POST",
+    headers: {
+      Authorization: basicAuthHeader(),
+      "Content-Type": "application/x-www-form-urlencoded",
+      Accept: "application/json",
+    },
+    body,
+  });
+  const tokenJson: any = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const msg = tokenJson?.error_description ?? tokenJson?.error ?? `HTTP ${res.status}`;
+    await supabaseAdmin
+      .from("bling_connections")
+      .update({ status: "expired", last_error: String(msg) } as any)
+      .eq("id", conn.id);
+    return { ok: false, error: String(msg) };
+  }
+
+  const now = Date.now();
+  const accessExp = new Date(now + (tokenJson.expires_in ?? 21600) * 1000);
+  const refreshExp = new Date(now + (tokenJson.refresh_expires_in ?? 30 * 24 * 3600) * 1000);
+
+  const updatePayload: any = {
+    access_token: encryptToken(tokenJson.access_token),
+    refresh_token: encryptToken(tokenJson.refresh_token ?? refreshPlain),
+    access_expires_at: accessExp.toISOString(),
+    refresh_expires_at: refreshExp.toISOString(),
+    scope: tokenJson.scope ?? null,
+    status: "connected",
+    last_refresh_at: new Date().toISOString(),
+    last_error: null,
+  };
+  const { error: updErr } = await supabaseAdmin
+    .from("bling_connections")
+    .update(updatePayload)
+    .eq("id", conn.id);
+  if (updErr) return { ok: false, error: updErr.message };
+  return { ok: true };
+}
 
 /** Desconecta (apaga conexão). */
 export const blingDisconnect = createServerFn({ method: "POST" })

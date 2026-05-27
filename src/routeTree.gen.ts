@@ -19,6 +19,7 @@ import { Route as AppConfiguracoesRouteImport } from './routes/_app/configuracoe
 import { Route as AppConfiguracoesIndexRouteImport } from './routes/_app/configuracoes.index'
 import { Route as OauthBlingCallbackRouteImport } from './routes/oauth/bling/callback'
 import { Route as AppConfiguracoesBlingRouteImport } from './routes/_app/configuracoes.bling'
+import { Route as ApiPublicHooksBlingRefreshRouteImport } from './routes/api/public/hooks/bling-refresh'
 
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
@@ -69,6 +70,12 @@ const AppConfiguracoesBlingRoute = AppConfiguracoesBlingRouteImport.update({
   path: '/bling',
   getParentRoute: () => AppConfiguracoesRoute,
 } as any)
+const ApiPublicHooksBlingRefreshRoute =
+  ApiPublicHooksBlingRefreshRouteImport.update({
+    id: '/api/public/hooks/bling-refresh',
+    path: '/api/public/hooks/bling-refresh',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -80,6 +87,7 @@ export interface FileRoutesByFullPath {
   '/configuracoes/bling': typeof AppConfiguracoesBlingRoute
   '/oauth/bling/callback': typeof OauthBlingCallbackRoute
   '/configuracoes/': typeof AppConfiguracoesIndexRoute
+  '/api/public/hooks/bling-refresh': typeof ApiPublicHooksBlingRefreshRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -90,6 +98,7 @@ export interface FileRoutesByTo {
   '/configuracoes/bling': typeof AppConfiguracoesBlingRoute
   '/oauth/bling/callback': typeof OauthBlingCallbackRoute
   '/configuracoes': typeof AppConfiguracoesIndexRoute
+  '/api/public/hooks/bling-refresh': typeof ApiPublicHooksBlingRefreshRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -103,6 +112,7 @@ export interface FileRoutesById {
   '/_app/configuracoes/bling': typeof AppConfiguracoesBlingRoute
   '/oauth/bling/callback': typeof OauthBlingCallbackRoute
   '/_app/configuracoes/': typeof AppConfiguracoesIndexRoute
+  '/api/public/hooks/bling-refresh': typeof ApiPublicHooksBlingRefreshRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -116,6 +126,7 @@ export interface FileRouteTypes {
     | '/configuracoes/bling'
     | '/oauth/bling/callback'
     | '/configuracoes/'
+    | '/api/public/hooks/bling-refresh'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -126,6 +137,7 @@ export interface FileRouteTypes {
     | '/configuracoes/bling'
     | '/oauth/bling/callback'
     | '/configuracoes'
+    | '/api/public/hooks/bling-refresh'
   id:
     | '__root__'
     | '/'
@@ -138,6 +150,7 @@ export interface FileRouteTypes {
     | '/_app/configuracoes/bling'
     | '/oauth/bling/callback'
     | '/_app/configuracoes/'
+    | '/api/public/hooks/bling-refresh'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -145,6 +158,7 @@ export interface RootRouteChildren {
   AppRoute: typeof AppRouteWithChildren
   LoginRoute: typeof LoginRoute
   OauthBlingCallbackRoute: typeof OauthBlingCallbackRoute
+  ApiPublicHooksBlingRefreshRoute: typeof ApiPublicHooksBlingRefreshRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -219,6 +233,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppConfiguracoesBlingRouteImport
       parentRoute: typeof AppConfiguracoesRoute
     }
+    '/api/public/hooks/bling-refresh': {
+      id: '/api/public/hooks/bling-refresh'
+      path: '/api/public/hooks/bling-refresh'
+      fullPath: '/api/public/hooks/bling-refresh'
+      preLoaderRoute: typeof ApiPublicHooksBlingRefreshRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -256,7 +277,18 @@ const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRouteWithChildren,
   LoginRoute: LoginRoute,
   OauthBlingCallbackRoute: OauthBlingCallbackRoute,
+  ApiPublicHooksBlingRefreshRoute: ApiPublicHooksBlingRefreshRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
