@@ -293,6 +293,7 @@ export type Database = {
           bling_parent_id: number | null
           bling_product_id: number
           created_at: string
+          detail_synced_at: string | null
           estoque: number | null
           gtin: string | null
           id: string
@@ -316,6 +317,7 @@ export type Database = {
           bling_parent_id?: number | null
           bling_product_id: number
           created_at?: string
+          detail_synced_at?: string | null
           estoque?: number | null
           gtin?: string | null
           id?: string
@@ -339,6 +341,7 @@ export type Database = {
           bling_parent_id?: number | null
           bling_product_id?: number
           created_at?: string
+          detail_synced_at?: string | null
           estoque?: number | null
           gtin?: string | null
           id?: string
@@ -405,6 +408,7 @@ export type Database = {
         Row: {
           bling_connection_id: string
           erros: Json
+          fase: string
           finalizado_em: string | null
           id: string
           iniciado_em: string
@@ -421,6 +425,7 @@ export type Database = {
         Insert: {
           bling_connection_id: string
           erros?: Json
+          fase?: string
           finalizado_em?: string | null
           id?: string
           iniciado_em?: string
@@ -437,6 +442,7 @@ export type Database = {
         Update: {
           bling_connection_id?: string
           erros?: Json
+          fase?: string
           finalizado_em?: string | null
           id?: string
           iniciado_em?: string

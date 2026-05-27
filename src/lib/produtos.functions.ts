@@ -1,14 +1,24 @@
 import { createServerFn } from "@tanstack/react-start";
-import { getRequest } from "@tanstack/react-start/server";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { getDecryptedAccessToken, refreshConnectionById } from "@/lib/bling.functions";
 
+// Dynamic import: evita import-protection do client bundle.
+async function getServerOrigin(): Promise<string> {
+  try {
+    const mod = await import("@tanstack/react-start/server");
+    return new URL(mod.getRequest().url).origin;
+  } catch {
+    return "";
+  }
+}
+
 const BLING_PRODUTOS_URL = "https://www.bling.com.br/Api/v3/produtos";
 const PAGES_PER_RUN = 5;
 const PAGE_LIMIT = 100;
 const REQUEST_DELAY_MS = 350;
+const DETAIL_BATCH_SIZE = 40; // produtos enriquecidos por execução
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -23,7 +33,6 @@ async function assertAdmin(supabase: any, userId: string) {
   if (!data) throw new Error("Apenas administradores podem executar esta ação.");
 }
 
-/** Determina tipo e bipavel a partir do payload do Bling. */
 function classifyProduct(p: any): { tipo: "simples" | "pai" | "filho"; bipavel: boolean; parentId: number | null } {
   const variacoes = p?.variacoes;
   const hasVariacoes = Array.isArray(variacoes) && variacoes.length > 0;
@@ -34,10 +43,10 @@ function classifyProduct(p: any): { tipo: "simples" | "pai" | "filho"; bipavel: 
   return { tipo: "simples", bipavel: true, parentId: null };
 }
 
-function mapProduct(p: any, connectionId: string) {
+function mapProduct(p: any, connectionId: string, opts?: { detail?: boolean }) {
   const cls = classifyProduct(p);
   const dim = p?.dimensoes ?? {};
-  return {
+  const row: any = {
     bling_connection_id: connectionId,
     bling_product_id: Number(p.id),
     bling_parent_id: cls.parentId,
@@ -60,11 +69,11 @@ function mapProduct(p: any, connectionId: string) {
     synced_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
+  if (opts?.detail) row.detail_synced_at = new Date().toISOString();
+  return row;
 }
 
-/** Dispara `syncProductsRun` em background (fire-and-forget) via fetch interno. */
 async function fireAndForgetRun(jobId: string, origin: string) {
-  // Importante: usar URL absoluta pra Cloudflare Workers fetch interno
   fetch(`${origin}/api/public/hooks/bling-sync-products-run`, {
     method: "POST",
     headers: {
@@ -75,7 +84,37 @@ async function fireAndForgetRun(jobId: string, origin: string) {
   }).catch(() => { /* ignore */ });
 }
 
-/** Cria (ou retorna existente) job de sync para uma conexão. Admin only. */
+async function createAndFireDetalhesJob(connectionId: string, origin: string, userId: string | null) {
+  // Reusa job ativo de detalhes se existir
+  const { data: existing } = await supabaseAdmin
+    .from("sync_jobs")
+    .select("id")
+    .eq("bling_connection_id", connectionId)
+    .eq("tipo", "produtos")
+    .eq("fase", "detalhes")
+    .in("status", ["pendente", "rodando", "pausado"])
+    .limit(1)
+    .maybeSingle();
+  if (existing) return existing.id;
+
+  const { data: job } = await supabaseAdmin
+    .from("sync_jobs")
+    .insert({
+      bling_connection_id: connectionId,
+      tipo: "produtos",
+      fase: "detalhes",
+      status: "pendente",
+      iniciado_por: userId,
+    })
+    .select("id")
+    .single();
+  if (job) {
+    fireAndForgetRun(job.id, origin).catch(() => {});
+    return job.id;
+  }
+  return null;
+}
+
 export const syncProductsStart = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: { connectionId: string }) => d)
@@ -90,10 +129,9 @@ export const syncProductsStart = createServerFn({ method: "POST" })
       .maybeSingle();
     if (!conn) throw new Error("Conexão Bling não encontrada");
 
-    // Job ativo já existente?
     const { data: existing } = await supabaseAdmin
       .from("sync_jobs")
-      .select("id, status")
+      .select("id, status, fase")
       .eq("bling_connection_id", data.connectionId)
       .eq("tipo", "produtos")
       .in("status", ["pendente", "rodando", "pausado"])
@@ -107,6 +145,7 @@ export const syncProductsStart = createServerFn({ method: "POST" })
       .insert({
         bling_connection_id: data.connectionId,
         tipo: "produtos",
+        fase: "listagem",
         status: "pendente",
         iniciado_por: userId,
       })
@@ -114,19 +153,15 @@ export const syncProductsStart = createServerFn({ method: "POST" })
       .single();
     if (insErr || !job) throw new Error(insErr?.message ?? "Falha ao criar job");
 
-    // Disparar run (fire-and-forget)
     try {
-      const origin = new URL(getRequest().url).origin;
-      await fireAndForgetRun(job.id, origin);
+      const origin = await getServerOrigin();
+      if (origin) await fireAndForgetRun(job.id, origin);
     } catch { /* ignore */ }
 
     return { jobId: job.id, status: job.status, reused: false };
   });
 
-/**
- * Workhorse de importação. Roda até 5 páginas e, se houver mais, agenda continuação.
- * Não exige auth (usado pelo cron e pelo fire-and-forget); seguro por idempotência.
- */
+/** Workhorse: roteia entre listagem e detalhes. */
 export async function runSyncJob(jobId: string): Promise<{ done: boolean; status: string }> {
   const { data: job, error: jobErr } = await supabaseAdmin
     .from("sync_jobs")
@@ -143,6 +178,15 @@ export async function runSyncJob(jobId: string): Promise<{ done: boolean; status
     .update({ status: "rodando", ultima_execucao_em: new Date().toISOString() })
     .eq("id", jobId);
 
+  const fase = (job as any).fase ?? "listagem";
+  if (fase === "detalhes") return runDetalhesJob(job);
+  return runListagemJob(job);
+}
+
+// ============================================================
+// FASE 1: LISTAGEM
+// ============================================================
+async function runListagemJob(job: any): Promise<{ done: boolean; status: string }> {
   let token: string;
   try {
     token = await getDecryptedAccessToken(job.bling_connection_id);
@@ -151,7 +195,7 @@ export async function runSyncJob(jobId: string): Promise<{ done: boolean; status
       .from("sync_jobs")
       .update({ status: "erro", finalizado_em: new Date().toISOString(),
         erros: [...(job.erros as any[] ?? []), { mensagem: String(e?.message ?? e) }] })
-      .eq("id", jobId);
+      .eq("id", job.id);
     return { done: true, status: "erro" };
   }
 
@@ -167,18 +211,13 @@ export async function runSyncJob(jobId: string): Promise<{ done: boolean; status
     const url = `${BLING_PRODUTOS_URL}?pagina=${pagina}&limite=${PAGE_LIMIT}&criterio=2`;
     let res: Response;
     try {
-      res = await fetch(url, {
-        headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
-      });
+      res = await fetch(url, { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } });
     } catch (e: any) {
       erros.push({ pagina, mensagem: String(e?.message ?? e) });
       await supabaseAdmin.from("sync_jobs").update({
-        status: "pausado",
-        pagina_atual: pagina - 1,
-        total_erros: totalErros + 1,
-        erros,
+        status: "pausado", pagina_atual: pagina - 1, total_erros: totalErros + 1, erros,
         proxima_execucao_em: new Date(Date.now() + 30_000).toISOString(),
-      }).eq("id", jobId);
+      }).eq("id", job.id);
       return { done: false, status: "pausado" };
     }
 
@@ -186,57 +225,48 @@ export async function runSyncJob(jobId: string): Promise<{ done: boolean; status
       const r = await refreshConnectionById(job.bling_connection_id);
       if (!r.ok) {
         await supabaseAdmin.from("sync_jobs").update({
-          status: "erro",
-          pagina_atual: pagina - 1,
-          finalizado_em: new Date().toISOString(),
+          status: "erro", pagina_atual: pagina - 1, finalizado_em: new Date().toISOString(),
           erros: [...erros, { pagina, mensagem: "401 e refresh falhou: " + r.error }],
-        }).eq("id", jobId);
+        }).eq("id", job.id);
         return { done: true, status: "erro" };
       }
       try { token = await getDecryptedAccessToken(job.bling_connection_id); }
       catch (e: any) {
         await supabaseAdmin.from("sync_jobs").update({
-          status: "erro", pagina_atual: pagina - 1,
-          finalizado_em: new Date().toISOString(),
+          status: "erro", pagina_atual: pagina - 1, finalizado_em: new Date().toISOString(),
           erros: [...erros, { pagina, mensagem: String(e?.message ?? e) }],
-        }).eq("id", jobId);
+        }).eq("id", job.id);
         return { done: true, status: "erro" };
       }
-      pagina -= 1; // retry mesma página
+      pagina -= 1;
       await sleep(REQUEST_DELAY_MS);
       continue;
     }
 
     if (res.status === 429) {
       await supabaseAdmin.from("sync_jobs").update({
-        status: "pausado",
-        pagina_atual: pagina - 1,
+        status: "pausado", pagina_atual: pagina - 1,
         proxima_execucao_em: new Date(Date.now() + 60_000).toISOString(),
         erros: [...erros, { pagina, mensagem: "429 rate limit" }],
-      }).eq("id", jobId);
+      }).eq("id", job.id);
       return { done: false, status: "pausado" };
     }
 
     if (res.status >= 500) {
       erros.push({ pagina, mensagem: `HTTP ${res.status}` });
       await supabaseAdmin.from("sync_jobs").update({
-        status: "pausado",
-        pagina_atual: pagina - 1,
-        total_erros: totalErros + 1,
-        erros,
+        status: "pausado", pagina_atual: pagina - 1, total_erros: totalErros + 1, erros,
         proxima_execucao_em: new Date(Date.now() + 30_000).toISOString(),
-      }).eq("id", jobId);
+      }).eq("id", job.id);
       return { done: false, status: "pausado" };
     }
 
     if (!res.ok) {
       const txt = await res.text().catch(() => "");
       await supabaseAdmin.from("sync_jobs").update({
-        status: "erro",
-        pagina_atual: pagina - 1,
-        finalizado_em: new Date().toISOString(),
+        status: "erro", pagina_atual: pagina - 1, finalizado_em: new Date().toISOString(),
         erros: [...erros, { pagina, mensagem: `HTTP ${res.status}: ${txt.slice(0, 200)}` }],
-      }).eq("id", jobId);
+      }).eq("id", job.id);
       return { done: true, status: "erro" };
     }
 
@@ -249,52 +279,214 @@ export async function runSyncJob(jobId: string): Promise<{ done: boolean; status
         const { error: upErr } = await supabaseAdmin
           .from("produtos")
           .upsert(row as any, { onConflict: "bling_connection_id,bling_product_id" });
-        if (upErr) {
-          totalErros += 1;
-          erros.push({ pagina, produto_id: p.id, mensagem: upErr.message });
-        } else {
-          totalProcessados += 1;
-        }
+        if (upErr) { totalErros += 1; erros.push({ pagina, produto_id: p.id, mensagem: upErr.message }); }
+        else { totalProcessados += 1; }
       } catch (e: any) {
         totalErros += 1;
         erros.push({ pagina, produto_id: p?.id, mensagem: String(e?.message ?? e) });
       }
     }
 
-    // Fim quando página vem vazia ou parcial
     if (produtos.length < PAGE_LIMIT) {
       finalizado = true;
       totalPaginas = pagina;
       break;
     }
-
     await sleep(REQUEST_DELAY_MS);
   }
 
   if (finalizado) {
     await supabaseAdmin.from("sync_jobs").update({
-      status: "concluido",
-      pagina_atual: pagina,
-      total_paginas: totalPaginas,
-      total_processados: totalProcessados,
-      total_erros: totalErros,
+      status: "concluido", pagina_atual: pagina, total_paginas: totalPaginas,
+      total_processados: totalProcessados, total_erros: totalErros,
       erros: erros.slice(-50),
-      finalizado_em: new Date().toISOString(),
-      proxima_execucao_em: null,
-    }).eq("id", jobId);
+      finalizado_em: new Date().toISOString(), proxima_execucao_em: null,
+    }).eq("id", job.id);
+
+    // Dispara fase de detalhes
+    try {
+      const origin = await getServerOrigin();
+      if (origin) await createAndFireDetalhesJob(job.bling_connection_id, origin, job.iniciado_por ?? null);
+    } catch { /* ignore */ }
+
     return { done: true, status: "concluido" };
   }
 
   await supabaseAdmin.from("sync_jobs").update({
-    status: "pausado",
-    pagina_atual: pagina,
-    total_paginas: totalPaginas,
-    total_processados: totalProcessados,
-    total_erros: totalErros,
+    status: "pausado", pagina_atual: pagina, total_paginas: totalPaginas,
+    total_processados: totalProcessados, total_erros: totalErros,
     erros: erros.slice(-50),
     proxima_execucao_em: new Date(Date.now() + 3_000).toISOString(),
-  }).eq("id", jobId);
+  }).eq("id", job.id);
   return { done: false, status: "pausado" };
+}
+
+// ============================================================
+// FASE 2: DETALHES (enriquecimento)
+// ============================================================
+async function runDetalhesJob(job: any): Promise<{ done: boolean; status: string }> {
+  let token: string;
+  try {
+    token = await getDecryptedAccessToken(job.bling_connection_id);
+  } catch (e: any) {
+    await supabaseAdmin.from("sync_jobs").update({
+      status: "erro", finalizado_em: new Date().toISOString(),
+      erros: [...(job.erros as any[] ?? []), { mensagem: String(e?.message ?? e) }],
+    }).eq("id", job.id);
+    return { done: true, status: "erro" };
+  }
+
+  let totalProcessados = job.total_processados ?? 0;
+  let totalErros = job.total_erros ?? 0;
+  const erros: any[] = Array.isArray(job.erros) ? [...(job.erros as any[])] : [];
+
+  // Seleciona próximo lote de produtos sem detail_synced_at (ou desatualizados)
+  const { data: pendentes, error: selErr } = await supabaseAdmin
+    .from("produtos")
+    .select("id, bling_product_id, tipo")
+    .eq("bling_connection_id", job.bling_connection_id)
+    .is("detail_synced_at", null)
+    .limit(DETAIL_BATCH_SIZE);
+  if (selErr) {
+    await supabaseAdmin.from("sync_jobs").update({
+      status: "pausado", erros: [...erros, { mensagem: selErr.message }],
+      proxima_execucao_em: new Date(Date.now() + 30_000).toISOString(),
+    }).eq("id", job.id);
+    return { done: false, status: "pausado" };
+  }
+
+  // Total restante (pra barra de progresso)
+  const { count: pendingCount } = await supabaseAdmin
+    .from("produtos")
+    .select("id", { count: "exact", head: true })
+    .eq("bling_connection_id", job.bling_connection_id)
+    .is("detail_synced_at", null);
+
+  if (!pendentes || pendentes.length === 0) {
+    await supabaseAdmin.from("sync_jobs").update({
+      status: "concluido", total_processados: totalProcessados, total_erros: totalErros,
+      erros: erros.slice(-50),
+      finalizado_em: new Date().toISOString(), proxima_execucao_em: null,
+    }).eq("id", job.id);
+    return { done: true, status: "concluido" };
+  }
+
+  for (const pend of pendentes) {
+    const url = `${BLING_PRODUTOS_URL}/${pend.bling_product_id}`;
+    let res: Response;
+    try {
+      res = await fetch(url, { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } });
+    } catch (e: any) {
+      totalErros += 1;
+      erros.push({ produto_id: pend.bling_product_id, mensagem: String(e?.message ?? e) });
+      continue;
+    }
+
+    if (res.status === 401) {
+      const r = await refreshConnectionById(job.bling_connection_id);
+      if (!r.ok) {
+        await supabaseAdmin.from("sync_jobs").update({
+          status: "erro", finalizado_em: new Date().toISOString(),
+          erros: [...erros, { mensagem: "401 e refresh falhou: " + r.error }],
+        }).eq("id", job.id);
+        return { done: true, status: "erro" };
+      }
+      try { token = await getDecryptedAccessToken(job.bling_connection_id); }
+      catch (e: any) {
+        await supabaseAdmin.from("sync_jobs").update({
+          status: "erro", finalizado_em: new Date().toISOString(),
+          erros: [...erros, { mensagem: String(e?.message ?? e) }],
+        }).eq("id", job.id);
+        return { done: true, status: "erro" };
+      }
+      // pula este e segue (será reprocessado na próxima run)
+      await sleep(REQUEST_DELAY_MS);
+      continue;
+    }
+
+    if (res.status === 429) {
+      await supabaseAdmin.from("sync_jobs").update({
+        status: "pausado",
+        total_processados: totalProcessados, total_erros: totalErros,
+        erros: [...erros, { mensagem: "429 rate limit" }].slice(-50),
+        total_paginas: pendingCount ?? null,
+        pagina_atual: totalProcessados,
+        proxima_execucao_em: new Date(Date.now() + 60_000).toISOString(),
+      }).eq("id", job.id);
+      return { done: false, status: "pausado" };
+    }
+
+    if (!res.ok) {
+      totalErros += 1;
+      const txt = await res.text().catch(() => "");
+      erros.push({ produto_id: pend.bling_product_id, mensagem: `HTTP ${res.status}: ${txt.slice(0, 150)}` });
+      // marca como sincronizado mesmo assim pra não travar (raw_data preservado)
+      await supabaseAdmin.from("produtos")
+        .update({ detail_synced_at: new Date().toISOString() })
+        .eq("id", pend.id);
+      await sleep(REQUEST_DELAY_MS);
+      continue;
+    }
+
+    const payload: any = await res.json().catch(() => ({}));
+    const produto: any = payload?.data ?? payload;
+
+    try {
+      const row = mapProduct(produto, job.bling_connection_id, { detail: true });
+      const { error: upErr } = await supabaseAdmin
+        .from("produtos")
+        .upsert(row as any, { onConflict: "bling_connection_id,bling_product_id" });
+      if (upErr) {
+        totalErros += 1;
+        erros.push({ produto_id: pend.bling_product_id, mensagem: upErr.message });
+      } else {
+        totalProcessados += 1;
+      }
+
+      // Trata variações: se produto-pai tem array `variacoes`, insere filhos
+      const variacoes: any[] = Array.isArray(produto?.variacoes) ? produto.variacoes : [];
+      for (const v of variacoes) {
+        try {
+          const variacaoCompleta = { ...v, produtoPai: { id: produto.id } };
+          const childRow = mapProduct(variacaoCompleta, job.bling_connection_id, { detail: true });
+          await supabaseAdmin
+            .from("produtos")
+            .upsert(childRow as any, { onConflict: "bling_connection_id,bling_product_id" });
+        } catch (e: any) {
+          erros.push({ produto_id: v?.id, mensagem: "variação: " + String(e?.message ?? e) });
+        }
+      }
+    } catch (e: any) {
+      totalErros += 1;
+      erros.push({ produto_id: pend.bling_product_id, mensagem: String(e?.message ?? e) });
+    }
+
+    await sleep(REQUEST_DELAY_MS);
+  }
+
+  // Continua se ainda há pendentes
+  const restantes = (pendingCount ?? 0) - pendentes.length;
+  if (restantes > 0) {
+    await supabaseAdmin.from("sync_jobs").update({
+      status: "pausado",
+      total_processados: totalProcessados, total_erros: totalErros,
+      erros: erros.slice(-50),
+      total_paginas: pendingCount ?? null,
+      pagina_atual: totalProcessados,
+      proxima_execucao_em: new Date(Date.now() + 3_000).toISOString(),
+    }).eq("id", job.id);
+    return { done: false, status: "pausado" };
+  }
+
+  await supabaseAdmin.from("sync_jobs").update({
+    status: "concluido",
+    total_processados: totalProcessados, total_erros: totalErros,
+    erros: erros.slice(-50),
+    total_paginas: pendingCount ?? null,
+    pagina_atual: totalProcessados,
+    finalizado_em: new Date().toISOString(), proxima_execucao_em: null,
+  }).eq("id", job.id);
+  return { done: true, status: "concluido" };
 }
 
 // =====================================================
@@ -351,7 +543,7 @@ export const getActiveSyncJobs = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     let q = supabaseAdmin
       .from("sync_jobs")
-      .select("id, bling_connection_id, status, pagina_atual, total_paginas, total_processados, total_erros, erros, iniciado_em, finalizado_em")
+      .select("id, bling_connection_id, status, fase, pagina_atual, total_paginas, total_processados, total_erros, erros, iniciado_em, finalizado_em")
       .order("iniciado_em", { ascending: false })
       .limit(10);
     if (data?.connectionId) q = q.eq("bling_connection_id", data.connectionId);
