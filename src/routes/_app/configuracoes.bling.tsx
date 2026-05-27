@@ -137,7 +137,9 @@ function BlingPage() {
   const fmt = (d?: string | null) => d ? new Date(d).toLocaleString("pt-BR") : "—";
 
   return (
+    <>
     <div className="bg-card border rounded-xl shadow-sm overflow-hidden">
+
       <div className="p-6 border-b flex items-start justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 mb-2">
