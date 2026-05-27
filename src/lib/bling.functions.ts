@@ -1,11 +1,19 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import { encryptToken, decryptToken } from "./bling-crypto.server";
-import { randomBytes } from "node:crypto";
 
 const BLING_AUTH_URL = "https://www.bling.com.br/Api/v3/oauth/authorize";
 const BLING_TOKEN_URL = "https://www.bling.com.br/Api/v3/oauth/token";
+
+// Dynamic imports — evitam que node:crypto / bling-crypto.server entrem no bundle do client.
+async function loadCrypto() {
+  const mod = await import("./bling-crypto.server");
+  return { encryptToken: mod.encryptToken, decryptToken: mod.decryptToken };
+}
+async function loadRandomBytes() {
+  const { randomBytes } = await import("node:crypto");
+  return randomBytes;
+}
 
 function basicAuthHeader(): string {
   const id = process.env.BLING_CLIENT_ID!;
@@ -35,6 +43,7 @@ export const blingOAuthStart = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const { userId } = context;
+    const randomBytes = await loadRandomBytes();
     const state = randomBytes(24).toString("hex");
 
     const { error } = await supabaseAdmin
@@ -97,6 +106,8 @@ export async function refreshConnectionById(
     .eq("id", connectionId)
     .maybeSingle();
   if (errConn || !conn) return { ok: false, error: "Conexão não encontrada" };
+
+  const { encryptToken, decryptToken } = await loadCrypto();
 
   let refreshPlain: string;
   try {
@@ -208,6 +219,8 @@ export async function exchangeCodeAndStore(params: {
   const now = Date.now();
   const accessExp = new Date(now + (tj.expires_in ?? 21600) * 1000);
   const refreshExp = new Date(now + (tj.refresh_expires_in ?? 30 * 24 * 3600) * 1000);
+
+  const { encryptToken } = await loadCrypto();
 
   const insertPayload: any = {
     user_id: st.user_id,
