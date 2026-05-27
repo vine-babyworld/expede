@@ -209,8 +209,50 @@ function BlingPage() {
         </div>
       )}
     </div>
+
+    {/* Bloco temporário de diagnóstico */}
+    <div className="mt-8 border border-dashed border-muted-foreground/40 rounded-xl p-6 bg-muted/30">
+      <div className="flex items-center gap-3 flex-wrap">
+        <Button
+          variant="secondary"
+          size="sm"
+          className="bg-gray-200 hover:bg-gray-300 text-gray-800"
+          disabled={diagnoseMut.isPending || !conn.id}
+          onClick={() => conn.id && diagnoseMut.mutate(conn.id)}
+        >
+          {diagnoseMut.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Bug className="h-4 w-4 mr-2" />}
+          Diagnosticar empresa (debug)
+        </Button>
+        {diagnoseResult != null && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(JSON.stringify(diagnoseResult, null, 2));
+                toast.success("Resultado copiado");
+              } catch {
+                toast.error("Falha ao copiar");
+              }
+            }}
+          >
+            <Copy className="h-4 w-4 mr-2" /> Copiar resultado
+          </Button>
+        )}
+      </div>
+      <p className="text-xs text-muted-foreground mt-2">
+        Botão temporário de diagnóstico — será removido
+      </p>
+      {diagnoseResult != null && (
+        <pre className="mt-4 max-h-[500px] overflow-auto text-xs bg-background border rounded-md p-3 whitespace-pre-wrap break-all">
+{JSON.stringify(diagnoseResult, null, 2)}
+        </pre>
+      )}
+    </div>
+    </>
   );
 }
+
 
 function Field({ label, value }: { label: string; value: string }) {
   return (
