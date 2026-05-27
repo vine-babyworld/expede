@@ -1,11 +1,19 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import { encryptToken, decryptToken } from "./bling-crypto.server";
-import { randomBytes } from "node:crypto";
 
 const BLING_AUTH_URL = "https://www.bling.com.br/Api/v3/oauth/authorize";
 const BLING_TOKEN_URL = "https://www.bling.com.br/Api/v3/oauth/token";
+
+// Dynamic imports — evitam que node:crypto / bling-crypto.server entrem no bundle do client.
+async function loadCrypto() {
+  const mod = await import("./bling-crypto.server");
+  return { encryptToken: mod.encryptToken, decryptToken: mod.decryptToken };
+}
+async function loadRandomBytes() {
+  const { randomBytes } = await import("node:crypto");
+  return randomBytes;
+}
 
 function basicAuthHeader(): string {
   const id = process.env.BLING_CLIENT_ID!;
