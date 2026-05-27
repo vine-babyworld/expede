@@ -189,8 +189,9 @@ export async function refreshConnectionById(
   const refreshExp = new Date(now + (tokenJson.refresh_expires_in ?? 30 * 24 * 3600) * 1000);
 
   const updatePayload: any = {
-    access_token: encryptToken(tokenJson.access_token),
-    refresh_token: encryptToken(tokenJson.refresh_token ?? refreshPlain),
+    access_token: await encryptToken(tokenJson.access_token),
+    refresh_token: await encryptToken(tokenJson.refresh_token ?? refreshPlain),
+
     access_expires_at: accessExp.toISOString(),
     refresh_expires_at: refreshExp.toISOString(),
     scope: tokenJson.scope ?? null,
