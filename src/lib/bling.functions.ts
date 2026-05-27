@@ -107,6 +107,8 @@ export async function refreshConnectionById(
     .maybeSingle();
   if (errConn || !conn) return { ok: false, error: "Conexão não encontrada" };
 
+  const { encryptToken, decryptToken } = await loadCrypto();
+
   let refreshPlain: string;
   try {
     refreshPlain = decryptToken(conn.refresh_token as unknown as string);
