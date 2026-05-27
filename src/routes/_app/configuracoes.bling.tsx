@@ -4,14 +4,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Loader2, Plug, RefreshCw, Trash2, CheckCircle2, AlertTriangle, XCircle } from "lucide-react";
+import { Loader2, Plug, RefreshCw, RefreshCcw, Trash2, CheckCircle2, AlertTriangle, XCircle } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import {
-  blingOAuthStart, getBlingConnection, blingRefreshToken, blingDisconnect,
+  blingOAuthStart, getBlingConnection, blingRefreshToken, blingDisconnect, updateBlingAccountName,
 } from "@/lib/bling.functions";
 
 type Search = { status?: "ok" | "error"; message?: string };
@@ -30,6 +30,7 @@ function BlingPage() {
   const getConn = useServerFn(getBlingConnection);
   const startFn = useServerFn(blingOAuthStart);
   const refreshFn = useServerFn(blingRefreshToken);
+  const updateNameFn = useServerFn(updateBlingAccountName);
   const disconnectFn = useServerFn(blingDisconnect);
 
   const { data: conn, isLoading } = useQuery({
@@ -61,6 +62,15 @@ function BlingPage() {
       qc.invalidateQueries({ queryKey: ["bling-connection"] });
     },
     onError: (e: Error) => toast.error(e.message),
+  });
+
+  const updateNameMut = useMutation({
+    mutationFn: (id: string) => updateNameFn({ data: { connectionId: id } }),
+    onSuccess: (r) => {
+      toast.success(`Nome atualizado: ${r.name}`);
+      qc.invalidateQueries({ queryKey: ["bling-connection"] });
+    },
+    onError: () => toast.error("Não foi possível obter nome do Bling. Verifique escopos do app."),
   });
 
   const disconnectMut = useMutation({
@@ -130,6 +140,15 @@ function BlingPage() {
           >
             {refreshMut.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
             Forçar renovação
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={updateNameMut.isPending || !conn.id}
+            onClick={() => conn.id && updateNameMut.mutate(conn.id)}
+          >
+            {updateNameMut.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCcw className="h-4 w-4 mr-2" />}
+            Atualizar nome
           </Button>
           <AlertDialog>
             <AlertDialogTrigger asChild>
