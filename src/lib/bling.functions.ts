@@ -464,13 +464,62 @@ export type DiagnoseResult =
 function extractTokenScopes(accessToken: string): string | null {
   try {
     const parts = accessToken.split(".");
-    if (parts.length !== 3) return null;
-    const b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
-    const padded = b64 + "===".slice((b64.length + 3) % 4);
-    const json = JSON.parse(atob(padded));
-    return json.scope || json.scopes || JSON.stringify(json);
+    if (parts.length !== 3) {
+      return null;
+    }
+    const payloadRaw = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const padded = payloadRaw + "===".slice((payloadRaw.length + 3) % 4);
+    const decoded = Buffer.from(padded, "base64").toString("utf-8");
+    const payload = JSON.parse(decoded);
+    if (typeof payload.scope === "string") {
+      return payload.scope;
+    }
+    if (Array.isArray(payload.scopes)) {
+      return payload.scopes.join(" ");
+    }
+    return JSON.stringify(payload);
   } catch {
     return null;
+  }
+}
+
+async function testEndpoint(url: string, token: string): Promise<EndpointTestResult> {
+  const start = Date.now();
+  try {
+    const res = await fetch(url, {
+      method: "GET",
+      headers: { Authorization: "Bearer " + token, Accept: "application/json" },
+    });
+    const contentType = res.headers.get("content-type") ?? "";
+    const bodyText = await res.text();
+    const bodyPreview = bodyText.length > 2000 ? bodyText.slice(0, 2000) + "…[truncado]" : bodyText;
+    const durationMs = Date.now() - start;
+    let isJson = false;
+    let parsedKeys: string[] | null = null;
+    try {
+      const parsed = JSON.parse(bodyText);
+      isJson = true;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        parsedKeys = Object.keys(parsed);
+      } else if (Array.isArray(parsed)) {
+        parsedKeys = ["<array>"];
+      }
+    } catch {
+      isJson = false;
+    }
+    return { url, status: res.status, contentType, bodyPreview, durationMs, isJson, parsedKeys };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return {
+      url,
+      status: 0,
+      contentType: "",
+      bodyPreview: "",
+      durationMs: Date.now() - start,
+      isJson: false,
+      parsedKeys: null,
+      networkError: msg,
+    };
   }
 }
 
@@ -510,47 +559,8 @@ export const diagnoseBlingEmpresaEndpoint = createServerFn({ method: "POST" })
 
       const results: EndpointTestResult[] = [];
       for (const url of urls) {
-        const t0 = Date.now();
-        try {
-          const res = await fetch(url, {
-            headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
-          });
-          const dur = Date.now() - t0;
-          const ct = res.headers.get("content-type") ?? "";
-          const txt = await res.text();
-          const preview = txt.length > 2000 ? txt.slice(0, 2000) + "…[truncado]" : txt;
-          let isJson = false;
-          let parsedKeys: string[] | null = null;
-          try {
-            const parsed = JSON.parse(txt);
-            isJson = true;
-            if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-              parsedKeys = Object.keys(parsed);
-            } else if (Array.isArray(parsed)) {
-              parsedKeys = ["<array>"];
-            }
-          } catch { /* not json */ }
-          results.push({
-            url,
-            status: res.status,
-            contentType: ct,
-            bodyPreview: preview,
-            durationMs: dur,
-            isJson,
-            parsedKeys,
-          });
-        } catch (e: any) {
-          results.push({
-            url,
-            status: 0,
-            contentType: "",
-            bodyPreview: "",
-            durationMs: Date.now() - t0,
-            isJson: false,
-            parsedKeys: null,
-            networkError: e?.message ?? String(e),
-          });
-        }
+        const r = await testEndpoint(url, token);
+        results.push(r);
       }
 
       return { ok: true, connection_id: data.connectionId, scopes_in_token: scopes, results };
