@@ -1,49 +1,74 @@
 import { createServerFn } from "@tanstack/react-start";
-import { createCipheriv, createDecipheriv, randomBytes, createHash } from "node:crypto";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 
 const BLING_AUTH_URL = "https://www.bling.com.br/Api/v3/oauth/authorize";
 const BLING_TOKEN_URL = "https://www.bling.com.br/Api/v3/oauth/token";
 
-// ---- Crypto helpers (server-only; usados apenas dentro dos .handler()) ----
-function getKey(): Buffer {
+// ---- Crypto via Web Crypto API (Cloudflare Workers + browser, sem node:*) ----
+// Formato bytea: [12-byte IV][ciphertext + 16-byte authTag concatenado pelo WebCrypto]
+async function getCryptoKey(): Promise<CryptoKey> {
   const raw = process.env.BLING_ENCRYPTION_KEY;
   if (!raw) throw new Error("BLING_ENCRYPTION_KEY não configurado");
-  return createHash("sha256").update(raw, "utf8").digest();
+  const enc = new TextEncoder();
+  const hash = await globalThis.crypto.subtle.digest("SHA-256", enc.encode(raw));
+  return globalThis.crypto.subtle.importKey(
+    "raw",
+    hash,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt", "decrypt"],
+  );
 }
 
-function encryptToken(plain: string): Buffer {
-  const key = getKey();
-  const iv = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", key, iv);
-  const ct = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
-  const tag = cipher.getAuthTag();
-  return Buffer.concat([iv, tag, ct]);
+function bytesToHex(b: Uint8Array): string {
+  let s = "";
+  for (let i = 0; i < b.length; i++) s += b[i].toString(16).padStart(2, "0");
+  return s;
+}
+function hexToBytes(hex: string): Uint8Array {
+  const out = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.substr(i * 2, 2), 16);
+  return out;
 }
 
-function decryptToken(buf: Buffer | Uint8Array | string): string {
-  const key = getKey();
-  let b: Buffer;
+async function encryptToken(plain: string): Promise<string> {
+  const key = await getCryptoKey();
+  const iv = globalThis.crypto.getRandomValues(new Uint8Array(12));
+  const ctBuf = await globalThis.crypto.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    key,
+    new TextEncoder().encode(plain),
+  );
+  const ct = new Uint8Array(ctBuf);
+  const out = new Uint8Array(iv.length + ct.length);
+  out.set(iv, 0);
+  out.set(ct, iv.length);
+  return "\\x" + bytesToHex(out);
+}
+
+async function decryptToken(buf: Uint8Array | string): Promise<string> {
+  const key = await getCryptoKey();
+  let b: Uint8Array;
   if (typeof buf === "string") {
     const hex = buf.startsWith("\\x") ? buf.slice(2) : buf;
-    b = Buffer.from(hex, "hex");
+    b = hexToBytes(hex);
   } else {
-    b = Buffer.from(buf);
+    b = buf;
   }
-  const iv = b.subarray(0, 12);
-  const tag = b.subarray(12, 28);
-  const ct = b.subarray(28);
-  const decipher = createDecipheriv("aes-256-gcm", key, iv);
-  decipher.setAuthTag(tag);
-  return Buffer.concat([decipher.update(ct), decipher.final()]).toString("utf8");
+  // Copia para ArrayBuffer próprio para satisfazer BufferSource estrito.
+  const iv = b.slice(0, 12);
+  const ct = b.slice(12);
+  const pt = await globalThis.crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ct);
+  return new TextDecoder().decode(pt);
 }
 
 function basicAuthHeader(): string {
   const id = process.env.BLING_CLIENT_ID!;
   const secret = process.env.BLING_CLIENT_SECRET!;
-  return "Basic " + Buffer.from(`${id}:${secret}`).toString("base64");
+  return "Basic " + btoa(`${id}:${secret}`);
 }
+
 
 async function fetchAccountInfo(accessToken: string): Promise<{ id?: string; name?: string }> {
   try {
@@ -67,7 +92,7 @@ export const blingOAuthStart = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const { userId } = context;
-    const state = randomBytes(24).toString("hex");
+    const state = bytesToHex(globalThis.crypto.getRandomValues(new Uint8Array(24)));
 
     const { error } = await supabaseAdmin
       .from("oauth_states")
@@ -131,7 +156,7 @@ export async function refreshConnectionById(
 
   let refreshPlain: string;
   try {
-    refreshPlain = decryptToken(conn.refresh_token as unknown as string);
+    refreshPlain = await decryptToken(conn.refresh_token as unknown as string);
   } catch {
     return { ok: false, error: "Falha ao decriptar refresh_token" };
   }
@@ -164,8 +189,9 @@ export async function refreshConnectionById(
   const refreshExp = new Date(now + (tokenJson.refresh_expires_in ?? 30 * 24 * 3600) * 1000);
 
   const updatePayload: any = {
-    access_token: encryptToken(tokenJson.access_token),
-    refresh_token: encryptToken(tokenJson.refresh_token ?? refreshPlain),
+    access_token: await encryptToken(tokenJson.access_token),
+    refresh_token: await encryptToken(tokenJson.refresh_token ?? refreshPlain),
+
     access_expires_at: accessExp.toISOString(),
     refresh_expires_at: refreshExp.toISOString(),
     scope: tokenJson.scope ?? null,
@@ -242,8 +268,9 @@ export async function exchangeCodeAndStore(params: {
     user_id: st.user_id,
     bling_account_id: account.id ?? null,
     bling_account_name: account.name ?? "Conta Bling",
-    access_token: encryptToken(tj.access_token),
-    refresh_token: encryptToken(tj.refresh_token),
+    access_token: await encryptToken(tj.access_token),
+    refresh_token: await encryptToken(tj.refresh_token),
+
     access_expires_at: accessExp.toISOString(),
     refresh_expires_at: refreshExp.toISOString(),
     scope: tj.scope ?? null,
