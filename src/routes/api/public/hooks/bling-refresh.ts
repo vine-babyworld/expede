@@ -2,14 +2,15 @@ import { createFileRoute } from "@tanstack/react-router";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { refreshConnectionById } from "@/lib/bling.functions";
 
-// Cron-hook protegido por header. O agendador (pg_cron) deve enviar
-// `x-cron-key: ${SUPABASE_SERVICE_ROLE_KEY}` para autorizar.
+// Cron-hook público. O agendador (pg_cron) envia
+// `apikey: ${SUPABASE_PUBLISHABLE_KEY}` (anon key) como confirmação simples
+// de que a chamada vem do projeto.
 export const Route = createFileRoute("/api/public/hooks/bling-refresh")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        const key = request.headers.get("x-cron-key");
-        const expected = process.env.SUPABASE_SERVICE_ROLE_KEY;
+        const key = request.headers.get("apikey");
+        const expected = process.env.SUPABASE_PUBLISHABLE_KEY;
         if (!expected || key !== expected) {
           return new Response("Unauthorized", { status: 401 });
         }
