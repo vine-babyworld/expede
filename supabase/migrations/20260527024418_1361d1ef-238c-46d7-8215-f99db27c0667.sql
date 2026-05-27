@@ -1,0 +1,1 @@
+REVOKE EXECUTE ON FUNCTION public.cleanup_oauth_states() FROM authenticated;

@@ -52,6 +52,65 @@ export type Database = {
           },
         ]
       }
+      bling_connections: {
+        Row: {
+          access_expires_at: string | null
+          access_token: string | null
+          bling_account_id: string | null
+          bling_account_name: string | null
+          created_at: string
+          id: string
+          last_error: string | null
+          last_refresh_at: string | null
+          refresh_expires_at: string | null
+          refresh_token: string | null
+          scope: string | null
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          access_expires_at?: string | null
+          access_token?: string | null
+          bling_account_id?: string | null
+          bling_account_name?: string | null
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          last_refresh_at?: string | null
+          refresh_expires_at?: string | null
+          refresh_token?: string | null
+          scope?: string | null
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          access_expires_at?: string | null
+          access_token?: string | null
+          bling_account_id?: string | null
+          bling_account_name?: string | null
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          last_refresh_at?: string | null
+          refresh_expires_at?: string | null
+          refresh_token?: string | null
+          scope?: string | null
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bling_connections_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       canais: {
         Row: {
           cor: string | null
@@ -100,6 +159,27 @@ export type Database = {
           created_at?: string
           id?: string
           nome?: string
+        }
+        Relationships: []
+      }
+      oauth_states: {
+        Row: {
+          created_at: string
+          state: string
+          used: boolean
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          state: string
+          used?: boolean
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          state?: string
+          used?: boolean
+          user_id?: string
         }
         Relationships: []
       }
@@ -311,9 +391,62 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      bling_connections_status: {
+        Row: {
+          access_expires_at: string | null
+          bling_account_id: string | null
+          bling_account_name: string | null
+          created_at: string | null
+          id: string | null
+          last_error: string | null
+          last_refresh_at: string | null
+          refresh_expires_at: string | null
+          scope: string | null
+          status: string | null
+          updated_at: string | null
+          user_id: string | null
+        }
+        Insert: {
+          access_expires_at?: string | null
+          bling_account_id?: string | null
+          bling_account_name?: string | null
+          created_at?: string | null
+          id?: string | null
+          last_error?: string | null
+          last_refresh_at?: string | null
+          refresh_expires_at?: string | null
+          scope?: string | null
+          status?: string | null
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          access_expires_at?: string | null
+          bling_account_id?: string | null
+          bling_account_name?: string | null
+          created_at?: string | null
+          id?: string | null
+          last_error?: string | null
+          last_refresh_at?: string | null
+          refresh_expires_at?: string | null
+          scope?: string | null
+          status?: string | null
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bling_connections_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
+      cleanup_oauth_states: { Args: never; Returns: undefined }
       current_empresa_id: { Args: never; Returns: string }
       has_role: {
         Args: {
