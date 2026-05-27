@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { encryptToken, decryptToken } from "./bling-crypto.server";
-import { randomBytes } from "crypto";
+import { randomBytes } from "node:crypto";
 
 const BLING_AUTH_URL = "https://www.bling.com.br/Api/v3/oauth/authorize";
 const BLING_TOKEN_URL = "https://www.bling.com.br/Api/v3/oauth/token";
