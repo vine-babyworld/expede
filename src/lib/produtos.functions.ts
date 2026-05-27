@@ -1,4 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
+import { getRequest } from "@tanstack/react-start/server";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
@@ -70,7 +71,7 @@ async function fireAndForgetRun(jobId: string, origin: string) {
       "Content-Type": "application/json",
       apikey: process.env.SUPABASE_PUBLISHABLE_KEY ?? "",
     },
-    body: JSON.stringify({ jobId }),
+    body: JSON.stringify({ job_id: jobId }),
   }).catch(() => { /* ignore */ });
 }
 
@@ -115,8 +116,7 @@ export const syncProductsStart = createServerFn({ method: "POST" })
 
     // Disparar run (fire-and-forget)
     try {
-      const origin = process.env.PUBLIC_APP_URL
-        ?? `https://project--${process.env.VITE_SUPABASE_PROJECT_ID ?? ""}.lovable.app`;
+      const origin = new URL(getRequest().url).origin;
       await fireAndForgetRun(job.id, origin);
     } catch { /* ignore */ }
 
@@ -351,7 +351,7 @@ export const getActiveSyncJobs = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     let q = supabaseAdmin
       .from("sync_jobs")
-      .select("id, bling_connection_id, status, pagina_atual, total_paginas, total_processados, total_erros, iniciado_em, finalizado_em")
+      .select("id, bling_connection_id, status, pagina_atual, total_paginas, total_processados, total_erros, erros, iniciado_em, finalizado_em")
       .order("iniciado_em", { ascending: false })
       .limit(10);
     if (data?.connectionId) q = q.eq("bling_connection_id", data.connectionId);

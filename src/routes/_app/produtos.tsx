@@ -58,6 +58,60 @@ function ProdutosPage() {
 
   const activeJob = (jobsQ.data ?? []).find((j: any) =>
     ["pendente", "rodando", "pausado"].includes(j.status));
+  const recentCompletedJob = (jobsQ.data ?? []).find((j: any) =>
+    j.status === "concluido" && j.finalizado_em && Date.now() - new Date(j.finalizado_em).getTime() <= 10_000);
+  const errorJob = (jobsQ.data ?? []).find((j: any) => j.status === "erro");
+  const bannerJob = activeJob ?? recentCompletedJob ?? errorJob;
+
+  const bannerState = (job: any) => {
+    if (job.status === "pendente") {
+      return {
+        box: "border-blue-200 bg-blue-50",
+        text: "text-blue-800",
+        barTrack: "bg-blue-100",
+        bar: "bg-blue-500",
+        message: "Sincronização em fila, aguardando processamento...",
+      };
+    }
+    if (job.status === "pausado") {
+      return {
+        box: "border-amber-200 bg-amber-50",
+        text: "text-amber-800",
+        barTrack: "bg-amber-100",
+        bar: "bg-amber-500",
+        message: `Sincronização pausada, retomando em breve... (${job.total_processados} processados)`,
+      };
+    }
+    if (job.status === "concluido") {
+      const hasProducts = Number(job.total_processados ?? 0) > 0;
+      return {
+        box: hasProducts ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50",
+        text: hasProducts ? "text-emerald-800" : "text-amber-800",
+        barTrack: hasProducts ? "bg-emerald-100" : "bg-amber-100",
+        bar: hasProducts ? "bg-emerald-500" : "bg-amber-500",
+        message: hasProducts
+          ? `Sincronização concluída: ${job.total_processados} produtos atualizados`
+          : "Sincronização concluída, mas nenhum produto foi importado. Verifique se a conta Bling tem produtos cadastrados e se o escopo do app inclui produtos.",
+      };
+    }
+    if (job.status === "erro") {
+      const firstError = Array.isArray(job.erros) ? job.erros[0]?.mensagem : undefined;
+      return {
+        box: "border-rose-200 bg-rose-50",
+        text: "text-rose-800",
+        barTrack: "bg-rose-100",
+        bar: "bg-rose-500",
+        message: `Erro na sincronização: ${firstError ?? "erro desconhecido"}. Veja detalhes no console.`,
+      };
+    }
+    return {
+      box: "border-blue-200 bg-blue-50",
+      text: "text-blue-800",
+      barTrack: "bg-blue-100",
+      bar: "bg-blue-500",
+      message: `Sincronizando produtos de ${connName(job.bling_connection_id)}: ${job.total_processados} processados (${job.total_erros} erros)`,
+    };
+  };
 
   // Quando job conclui, invalida lista
   useEffect(() => {
@@ -123,25 +177,25 @@ function ProdutosPage() {
         )}
       </div>
 
-      {activeJob && (
-        <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm">
-          <div className="flex items-center gap-2 text-blue-800">
+      {bannerJob && (() => {
+        const state = bannerState(bannerJob);
+        return (
+        <div className={`mb-4 rounded-lg border px-4 py-3 text-sm ${state.box}`}>
+          <div className={`flex items-center gap-2 ${state.text}`}>
             <Loader2 className="h-4 w-4 animate-spin" />
-            <span>
-              Sincronizando produtos de <strong>{connName(activeJob.bling_connection_id)}</strong>:{" "}
-              {activeJob.total_processados} processados ({activeJob.total_erros} erros)
-            </span>
+            <span>{state.message}</span>
           </div>
-          <div className="mt-2 h-1.5 bg-blue-100 rounded overflow-hidden">
-            {activeJob.total_paginas ? (
-              <div className="h-full bg-blue-500 transition-all"
-                style={{ width: `${Math.min(100, (activeJob.pagina_atual / activeJob.total_paginas) * 100)}%` }} />
+          <div className={`mt-2 h-1.5 rounded overflow-hidden ${state.barTrack}`}>
+            {bannerJob.total_paginas ? (
+              <div className={`h-full transition-all ${state.bar}`}
+                style={{ width: `${Math.min(100, (bannerJob.pagina_atual / bannerJob.total_paginas) * 100)}%` }} />
             ) : (
-              <div className="h-full bg-blue-500 animate-pulse w-1/3" />
+              <div className={`h-full animate-pulse w-1/3 ${state.bar}`} />
             )}
           </div>
         </div>
-      )}
+        );
+      })()}
 
       <div className="flex flex-wrap gap-3 mb-4">
         <Input
