@@ -5,14 +5,17 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 const BLING_AUTH_URL = "https://www.bling.com.br/Api/v3/oauth/authorize";
 const BLING_TOKEN_URL = "https://www.bling.com.br/Api/v3/oauth/token";
 
-// Dynamic imports — evitam que node:crypto / bling-crypto.server entrem no bundle do client.
+// Dynamic imports com path via variável + @vite-ignore — impedem Rollup/Vite
+// de seguir e empacotar node:crypto / bling-crypto.server no bundle do client.
 async function loadCrypto() {
-  const mod = await import("./bling-crypto.server");
+  const p = "./bling-crypto.server";
+  const mod: any = await import(/* @vite-ignore */ p);
   return { encryptToken: mod.encryptToken, decryptToken: mod.decryptToken };
 }
 async function loadRandomBytes() {
-  const { randomBytes } = await import("node:crypto");
-  return randomBytes;
+  const p = "node:crypto";
+  const mod: any = await import(/* @vite-ignore */ p);
+  return mod.randomBytes as (n: number) => Buffer;
 }
 
 function basicAuthHeader(): string {
