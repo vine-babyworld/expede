@@ -19,6 +19,7 @@ import { Route as AppConfiguracoesRouteImport } from './routes/_app/configuracoe
 import { Route as AppConfiguracoesIndexRouteImport } from './routes/_app/configuracoes.index'
 import { Route as OauthBlingCallbackRouteImport } from './routes/oauth/bling/callback'
 import { Route as AppConfiguracoesBlingRouteImport } from './routes/_app/configuracoes.bling'
+import { Route as ApiPublicHooksBlingSyncProductsRunRouteImport } from './routes/api/public/hooks/bling-sync-products-run'
 import { Route as ApiPublicHooksBlingRefreshRouteImport } from './routes/api/public/hooks/bling-refresh'
 
 const LoginRoute = LoginRouteImport.update({
@@ -70,6 +71,12 @@ const AppConfiguracoesBlingRoute = AppConfiguracoesBlingRouteImport.update({
   path: '/bling',
   getParentRoute: () => AppConfiguracoesRoute,
 } as any)
+const ApiPublicHooksBlingSyncProductsRunRoute =
+  ApiPublicHooksBlingSyncProductsRunRouteImport.update({
+    id: '/api/public/hooks/bling-sync-products-run',
+    path: '/api/public/hooks/bling-sync-products-run',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiPublicHooksBlingRefreshRoute =
   ApiPublicHooksBlingRefreshRouteImport.update({
     id: '/api/public/hooks/bling-refresh',
@@ -88,6 +95,7 @@ export interface FileRoutesByFullPath {
   '/oauth/bling/callback': typeof OauthBlingCallbackRoute
   '/configuracoes/': typeof AppConfiguracoesIndexRoute
   '/api/public/hooks/bling-refresh': typeof ApiPublicHooksBlingRefreshRoute
+  '/api/public/hooks/bling-sync-products-run': typeof ApiPublicHooksBlingSyncProductsRunRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -99,6 +107,7 @@ export interface FileRoutesByTo {
   '/oauth/bling/callback': typeof OauthBlingCallbackRoute
   '/configuracoes': typeof AppConfiguracoesIndexRoute
   '/api/public/hooks/bling-refresh': typeof ApiPublicHooksBlingRefreshRoute
+  '/api/public/hooks/bling-sync-products-run': typeof ApiPublicHooksBlingSyncProductsRunRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -113,6 +122,7 @@ export interface FileRoutesById {
   '/oauth/bling/callback': typeof OauthBlingCallbackRoute
   '/_app/configuracoes/': typeof AppConfiguracoesIndexRoute
   '/api/public/hooks/bling-refresh': typeof ApiPublicHooksBlingRefreshRoute
+  '/api/public/hooks/bling-sync-products-run': typeof ApiPublicHooksBlingSyncProductsRunRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -127,6 +137,7 @@ export interface FileRouteTypes {
     | '/oauth/bling/callback'
     | '/configuracoes/'
     | '/api/public/hooks/bling-refresh'
+    | '/api/public/hooks/bling-sync-products-run'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -138,6 +149,7 @@ export interface FileRouteTypes {
     | '/oauth/bling/callback'
     | '/configuracoes'
     | '/api/public/hooks/bling-refresh'
+    | '/api/public/hooks/bling-sync-products-run'
   id:
     | '__root__'
     | '/'
@@ -151,6 +163,7 @@ export interface FileRouteTypes {
     | '/oauth/bling/callback'
     | '/_app/configuracoes/'
     | '/api/public/hooks/bling-refresh'
+    | '/api/public/hooks/bling-sync-products-run'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -159,6 +172,7 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   OauthBlingCallbackRoute: typeof OauthBlingCallbackRoute
   ApiPublicHooksBlingRefreshRoute: typeof ApiPublicHooksBlingRefreshRoute
+  ApiPublicHooksBlingSyncProductsRunRoute: typeof ApiPublicHooksBlingSyncProductsRunRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -233,6 +247,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppConfiguracoesBlingRouteImport
       parentRoute: typeof AppConfiguracoesRoute
     }
+    '/api/public/hooks/bling-sync-products-run': {
+      id: '/api/public/hooks/bling-sync-products-run'
+      path: '/api/public/hooks/bling-sync-products-run'
+      fullPath: '/api/public/hooks/bling-sync-products-run'
+      preLoaderRoute: typeof ApiPublicHooksBlingSyncProductsRunRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/hooks/bling-refresh': {
       id: '/api/public/hooks/bling-refresh'
       path: '/api/public/hooks/bling-refresh'
@@ -278,6 +299,8 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   OauthBlingCallbackRoute: OauthBlingCallbackRoute,
   ApiPublicHooksBlingRefreshRoute: ApiPublicHooksBlingRefreshRoute,
+  ApiPublicHooksBlingSyncProductsRunRoute:
+    ApiPublicHooksBlingSyncProductsRunRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
