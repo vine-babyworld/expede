@@ -1,6 +1,6 @@
 // Server-only AES-256-GCM encryption helpers for Bling tokens.
 // Tokens are stored as bytea: [12-byte IV][16-byte authTag][ciphertext].
-import { createCipheriv, createDecipheriv, randomBytes, createHash } from "crypto";
+import { createCipheriv, createDecipheriv, randomBytes, createHash } from "node:crypto";
 
 function getKey(): Buffer {
   const raw = process.env.BLING_ENCRYPTION_KEY;
