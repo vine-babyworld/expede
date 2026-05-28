@@ -148,10 +148,61 @@ function BlingPage() {
               {statusBadge.label}
             </span>
           </div>
-          <h2 className="text-xl font-semibold">{conn.bling_account_name ?? "Conta Bling"}</h2>
+          {isEditingName ? (
+            <div className="flex items-center gap-2">
+              <Input
+                value={nameInput}
+                onChange={(e) => setNameInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    if (conn.id) setNameMut.mutate({ id: conn.id, name: nameInput });
+                  } else if (e.key === "Escape") {
+                    setIsEditingName(false);
+                  }
+                }}
+                autoFocus
+                disabled={setNameMut.isPending}
+                maxLength={100}
+                className="h-9 w-64"
+              />
+              <Button
+                size="sm"
+                onClick={() => conn.id && setNameMut.mutate({ id: conn.id, name: nameInput })}
+                disabled={setNameMut.isPending}
+              >
+                {setNameMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Salvar"}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setIsEditingName(false)}
+                disabled={setNameMut.isPending}
+              >
+                Cancelar
+              </Button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setNameInput(conn.bling_account_name ?? "Conta Bling");
+                setIsEditingName(true);
+              }}
+              className="group flex items-center gap-2 text-left"
+            >
+              <span className="text-xl font-semibold">
+                {conn.bling_account_name ?? "Conta Bling"}
+              </span>
+              <Pencil className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+            </button>
+          )}
+          <p className="text-xs text-muted-foreground mt-1">
+            Apelido da conta Bling. Útil quando você tiver múltiplas contas conectadas.
+          </p>
           {conn.bling_account_id && (
             <p className="text-xs text-muted-foreground mt-0.5">ID: {conn.bling_account_id}</p>
           )}
+
         </div>
         <div className="flex gap-2 shrink-0">
           <Button
