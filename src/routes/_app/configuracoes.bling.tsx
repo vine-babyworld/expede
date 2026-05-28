@@ -1,10 +1,10 @@
 import { createFileRoute, useSearch } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Loader2, Plug, RefreshCw, RefreshCcw, Trash2, CheckCircle2, AlertTriangle, XCircle, Bug, Copy } from "lucide-react";
+import { Loader2, Plug, RefreshCw, RefreshCcw, Trash2, CheckCircle2, AlertTriangle, XCircle } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -12,7 +12,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import {
   blingOAuthStart, getBlingConnection, blingRefreshToken, blingDisconnect, updateBlingAccountName,
-  diagnoseBlingEmpresaEndpoint,
 } from "@/lib/bling.functions";
 
 
@@ -34,8 +33,8 @@ function BlingPage() {
   const refreshFn = useServerFn(blingRefreshToken);
   const updateNameFn = useServerFn(updateBlingAccountName);
   const disconnectFn = useServerFn(blingDisconnect);
-  const diagnoseFn = useServerFn(diagnoseBlingEmpresaEndpoint);
-  const [diagnoseResult, setDiagnoseResult] = useState<unknown>(null);
+
+
 
 
   const { data: conn, isLoading } = useQuery({
@@ -90,16 +89,8 @@ function BlingPage() {
     },
     onError: (e: Error) => toast.error(e.message),
   });
-  const diagnoseMut = useMutation({
-    mutationFn: (id: string) => diagnoseFn({ data: { connectionId: id } }),
-    onSuccess: (r) => {
-      setDiagnoseResult(r);
-      // eslint-disable-next-line no-console
-      console.log("[DIAGNÓSTICO BLING EMPRESA]", r);
-      toast.success("Diagnóstico concluído — veja console e bloco abaixo");
-    },
-    onError: (e: Error) => toast.error("Falha no diagnóstico: " + e.message),
-  });
+
+
 
 
   if (isLoading) {
@@ -211,49 +202,10 @@ function BlingPage() {
         </div>
       )}
     </div>
-
-    {/* Bloco temporário de diagnóstico */}
-    <div className="mt-8 border border-dashed border-muted-foreground/40 rounded-xl p-6 bg-muted/30">
-      <div className="flex items-center gap-3 flex-wrap">
-        <Button
-          variant="secondary"
-          size="sm"
-          className="bg-gray-200 hover:bg-gray-300 text-gray-800"
-          disabled={diagnoseMut.isPending || !conn.id}
-          onClick={() => conn.id && diagnoseMut.mutate(conn.id)}
-        >
-          {diagnoseMut.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Bug className="h-4 w-4 mr-2" />}
-          Diagnosticar empresa (debug)
-        </Button>
-        {diagnoseResult != null && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={async () => {
-              try {
-                await navigator.clipboard.writeText(JSON.stringify(diagnoseResult, null, 2));
-                toast.success("Resultado copiado");
-              } catch {
-                toast.error("Falha ao copiar");
-              }
-            }}
-          >
-            <Copy className="h-4 w-4 mr-2" /> Copiar resultado
-          </Button>
-        )}
-      </div>
-      <p className="text-xs text-muted-foreground mt-2">
-        Botão temporário de diagnóstico — será removido
-      </p>
-      {diagnoseResult != null && (
-        <pre className="mt-4 max-h-[500px] overflow-auto text-xs bg-background border rounded-md p-3 whitespace-pre-wrap break-all">
-{JSON.stringify(diagnoseResult, null, 2)}
-        </pre>
-      )}
-    </div>
     </>
   );
 }
+
 
 
 function Field({ label, value }: { label: string; value: string }) {
