@@ -214,15 +214,6 @@ function BlingPage() {
             {refreshMut.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
             Forçar renovação
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={updateNameMut.isPending || !conn.id}
-            onClick={() => conn.id && updateNameMut.mutate(conn.id)}
-          >
-            {updateNameMut.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCcw className="h-4 w-4 mr-2" />}
-            Atualizar nome
-          </Button>
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <Button variant="outline" size="sm" className="text-rose-600 hover:text-rose-700">
