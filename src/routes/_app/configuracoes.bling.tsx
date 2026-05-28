@@ -1,18 +1,20 @@
 import { createFileRoute, useSearch } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Loader2, Plug, RefreshCw, RefreshCcw, Trash2, CheckCircle2, AlertTriangle, XCircle } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Loader2, Plug, RefreshCw, Trash2, CheckCircle2, AlertTriangle, XCircle, Pencil } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import {
-  blingOAuthStart, getBlingConnection, blingRefreshToken, blingDisconnect, updateBlingAccountName,
+  blingOAuthStart, getBlingConnection, blingRefreshToken, blingDisconnect, setBlingConnectionName,
 } from "@/lib/bling.functions";
+
 
 
 type Search = { status?: "ok" | "error"; message?: string };
