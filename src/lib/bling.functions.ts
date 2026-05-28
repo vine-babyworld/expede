@@ -70,22 +70,6 @@ function basicAuthHeader(): string {
 }
 
 
-async function fetchAccountInfo(accessToken: string): Promise<{ id?: string; name?: string }> {
-  try {
-    const res = await fetch("https://www.bling.com.br/Api/v3/empresas/me", {
-      headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
-    });
-    if (!res.ok) return {};
-    const json: any = await res.json();
-    const data = json?.data ?? json;
-    return {
-      id: data?.id?.toString?.() ?? data?.numeroDocumento ?? undefined,
-      name: data?.nome ?? data?.razaoSocial ?? data?.fantasia ?? undefined,
-    };
-  } catch {
-    return {};
-  }
-}
 
 /** Inicia o fluxo OAuth: gera state, salva e retorna a URL de autorização. */
 export const blingOAuthStart = createServerFn({ method: "POST" })
@@ -258,16 +242,14 @@ export async function exchangeCodeAndStore(params: {
 
   await supabaseAdmin.from("oauth_states").update({ used: true }).eq("state", params.state);
 
-  const account = await fetchAccountInfo(tj.access_token);
-
   const now = Date.now();
   const accessExp = new Date(now + (tj.expires_in ?? 21600) * 1000);
   const refreshExp = new Date(now + (tj.refresh_expires_in ?? 30 * 24 * 3600) * 1000);
 
   const insertPayload: any = {
     user_id: st.user_id,
-    bling_account_id: account.id ?? null,
-    bling_account_name: account.name ?? "Conta Bling",
+    bling_account_id: null,
+    bling_account_name: "Conta Bling",
     access_token: await encryptToken(tj.access_token),
     refresh_token: await encryptToken(tj.refresh_token),
 
@@ -313,182 +295,48 @@ export async function getDecryptedAccessToken(connectionId: string): Promise<str
   return decryptToken(conn.access_token as unknown as string);
 }
 
-export type UpdateNameResult =
+export type SetNameResult =
   | { ok: true; name: string }
-  | {
-      ok: false;
-      reason: "no_name" | "missing_scope" | "auth_failed" | "endpoint_error" | "unknown";
-      message: string;
-    };
+  | { ok: false; message: string };
 
-function extractEmpresaName(payload: unknown): { name: string | null; id: string | null } {
-  if (!payload || typeof payload !== "object") return { name: null, id: null };
-  const root = payload as Record<string, unknown>;
-  const dataRaw =
-    root.data && typeof root.data === "object" ? (root.data as Record<string, unknown>) : root;
-  const data = Array.isArray(dataRaw) ? (dataRaw[0] as Record<string, unknown>) : dataRaw;
-  if (!data || typeof data !== "object") return { name: null, id: null };
-
-  const candidates: Array<unknown> = [
-    data.nomeFantasia,
-    data.nome,
-    data.razaoSocial,
-    data.fantasia,
-  ];
-  if (data.empresa && typeof data.empresa === "object") {
-    const e = data.empresa as Record<string, unknown>;
-    candidates.push(e.nomeFantasia, e.nome, e.razaoSocial);
-  }
-  let name: string | null = null;
-  for (const c of candidates) {
-    if (typeof c === "string" && c.trim().length > 0) {
-      name = c.trim();
-      break;
-    }
-  }
-  const idRaw = data.id ?? data.numeroDocumento;
-  const id =
-    typeof idRaw === "string" || typeof idRaw === "number" ? String(idRaw) : null;
-  return { name, id };
-}
-
-/**
- * Best-effort: descobre o nome real da empresa Bling. Nunca lança.
- * Usa o endpoint validado: https://api.bling.com.br/Api/v3/empresas/me
- */
-export async function updateBlingAccountNameInternal(
-  connectionId: string,
-): Promise<UpdateNameResult> {
-  const url = "https://api.bling.com.br/Api/v3/empresas/me";
-
-  const doFetch = async (token: string) =>
-    fetch(url, {
-      method: "GET",
-      headers: { Authorization: "Bearer " + token, Accept: "application/json" },
-    });
-
-  try {
-    let token: string;
-    try {
-      token = await getDecryptedAccessToken(connectionId);
-    } catch (e: any) {
-      return {
-        ok: false,
-        reason: "auth_failed",
-        message: "Falha ao obter token Bling: " + (e?.message ?? "desconhecido"),
-      };
-    }
-
-    let resp = await doFetch(token);
-
-    if (resp.status === 401) {
-      const r = await refreshConnectionById(connectionId);
-      if (!r.ok) {
-        return {
-          ok: false,
-          reason: "auth_failed",
-          message: "Token expirado e refresh falhou. Reconecte o Bling.",
-        };
-      }
-      try {
-        token = await getDecryptedAccessToken(connectionId);
-      } catch (e: any) {
-        return {
-          ok: false,
-          reason: "auth_failed",
-          message: "Falha ao obter token após refresh: " + (e?.message ?? "?"),
-        };
-      }
-      resp = await doFetch(token);
-      if (resp.status === 401) {
-        return {
-          ok: false,
-          reason: "auth_failed",
-          message: "Falha de autenticação após refresh. Reconecte o Bling.",
-        };
-      }
-    }
-
-    if (resp.status === 403) {
-      return {
-        ok: false,
-        reason: "missing_scope",
-        message:
-          'Escopo "Visualizar os dados básicos da empresa" não está no token. Verifique se o escopo está marcado E SALVO no painel do Bling, depois desconecte e reconecte.',
-      };
-    }
-
-    if (!resp.ok) {
-      const bodyText = await resp.text().catch(() => "");
-      console.warn(
-        "[updateBlingAccountName] erro HTTP",
-        resp.status,
-        bodyText.slice(0, 500),
-      );
-      return {
-        ok: false,
-        reason: "endpoint_error",
-        message: `Bling retornou status ${resp.status}. Veja logs do servidor.`,
-      };
-    }
-
-    const json: any = await resp.json().catch(() => ({}));
-    console.log(
-      "[updateBlingAccountName] resposta /empresas/me:",
-      JSON.stringify(json),
-    );
-
-    const { name, id } = extractEmpresaName(json);
-    if (!name) {
-      return {
-        ok: false,
-        reason: "no_name",
-        message:
-          "Bling retornou dados mas sem nome reconhecido em campo conhecido (nomeFantasia, nome, razaoSocial). Veja logs do servidor.",
-      };
-    }
-
-    const update: Record<string, unknown> = { bling_account_name: name };
-    if (id) update.bling_account_id = id;
-    const { error } = await supabaseAdmin
-      .from("bling_connections")
-      .update(update as any)
-      .eq("id", connectionId);
-    if (error) {
-      console.error("[updateBlingAccountName] falha ao salvar:", error);
-      return {
-        ok: false,
-        reason: "unknown",
-        message: "Nome obtido do Bling mas falha ao salvar no banco: " + error.message,
-      };
-    }
-
-    return { ok: true, name };
-  } catch (e: any) {
-    console.error("[updateBlingAccountName] erro inesperado:", e);
-    return {
-      ok: false,
-      reason: "unknown",
-      message: "Erro inesperado: " + (e?.message ?? "desconhecido"),
-    };
-  }
-}
-
-/** Server fn pública para o botão "Atualizar nome". Nunca lança para casos esperados. */
-export const updateBlingAccountName = createServerFn({ method: "POST" })
+/** Atualiza o apelido (manual) da conexão Bling. */
+export const setBlingConnectionName = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: { connectionId: string }) => d)
-  .handler(async ({ data, context }): Promise<UpdateNameResult> => {
-    const { userId } = context;
-    const { data: conn } = await supabaseAdmin
-      .from("bling_connections")
-      .select("user_id")
-      .eq("id", data.connectionId)
-      .maybeSingle();
-    if (!conn) return { ok: false, reason: "unknown", message: "Conexão não encontrada" };
-    if (conn.user_id !== userId) return { ok: false, reason: "unknown", message: "Sem permissão" };
-    return updateBlingAccountNameInternal(data.connectionId);
+  .inputValidator((d: { connectionId: string; name: string }) => d)
+  .handler(async ({ data, context }): Promise<SetNameResult> => {
+    try {
+      const trimmed = (data.name ?? "").trim();
+      if (trimmed.length === 0) {
+        return { ok: false, message: "Nome não pode estar vazio." };
+      }
+      if (trimmed.length > 100) {
+        return { ok: false, message: "Nome muito longo (máximo 100 caracteres)." };
+      }
+
+      const { userId } = context;
+      const { data: conn } = await supabaseAdmin
+        .from("bling_connections")
+        .select("user_id")
+        .eq("id", data.connectionId)
+        .maybeSingle();
+      if (!conn) return { ok: false, message: "Conexão não encontrada." };
+      if (conn.user_id !== userId) return { ok: false, message: "Sem permissão." };
+
+      const { error } = await supabaseAdmin
+        .from("bling_connections")
+        .update({ bling_account_name: trimmed } as any)
+        .eq("id", data.connectionId);
+      if (error) {
+        return { ok: false, message: "Erro ao salvar: " + error.message };
+      }
+      return { ok: true, name: trimmed };
+    } catch (err) {
+      console.error("[setBlingConnectionName] erro:", err);
+      const msg = err instanceof Error ? err.message : String(err);
+      return { ok: false, message: "Erro ao salvar: " + msg };
+    }
   });
+
 
 
 /** Helper: dado um state recém-usado, encontra a conexão recém-criada para o user. */

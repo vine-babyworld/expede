@@ -1,18 +1,20 @@
 import { createFileRoute, useSearch } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Loader2, Plug, RefreshCw, RefreshCcw, Trash2, CheckCircle2, AlertTriangle, XCircle } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Loader2, Plug, RefreshCw, Trash2, CheckCircle2, AlertTriangle, XCircle, Pencil } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import {
-  blingOAuthStart, getBlingConnection, blingRefreshToken, blingDisconnect, updateBlingAccountName,
+  blingOAuthStart, getBlingConnection, blingRefreshToken, blingDisconnect, setBlingConnectionName,
 } from "@/lib/bling.functions";
+
 
 
 type Search = { status?: "ok" | "error"; message?: string };
@@ -31,8 +33,9 @@ function BlingPage() {
   const getConn = useServerFn(getBlingConnection);
   const startFn = useServerFn(blingOAuthStart);
   const refreshFn = useServerFn(blingRefreshToken);
-  const updateNameFn = useServerFn(updateBlingAccountName);
+  const setNameFn = useServerFn(setBlingConnectionName);
   const disconnectFn = useServerFn(blingDisconnect);
+
 
 
 
@@ -68,18 +71,24 @@ function BlingPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const updateNameMut = useMutation({
-    mutationFn: (id: string) => updateNameFn({ data: { connectionId: id } }),
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [nameInput, setNameInput] = useState("");
+
+  const setNameMut = useMutation({
+    mutationFn: (vars: { id: string; name: string }) =>
+      setNameFn({ data: { connectionId: vars.id, name: vars.name } }),
     onSuccess: (r) => {
       if (r.ok) {
-        toast.success(`Nome atualizado: ${r.name}`);
+        toast.success("Nome atualizado");
+        setIsEditingName(false);
         qc.invalidateQueries({ queryKey: ["bling-connection"] });
       } else {
-        toast.error(r.message, { duration: 8000 });
+        toast.error(r.message);
       }
     },
     onError: () => toast.error("Falha de comunicação. Tente novamente."),
   });
+
 
   const disconnectMut = useMutation({
     mutationFn: (id: string) => disconnectFn({ data: { connectionId: id } }),
@@ -139,10 +148,61 @@ function BlingPage() {
               {statusBadge.label}
             </span>
           </div>
-          <h2 className="text-xl font-semibold">{conn.bling_account_name ?? "Conta Bling"}</h2>
+          {isEditingName ? (
+            <div className="flex items-center gap-2">
+              <Input
+                value={nameInput}
+                onChange={(e) => setNameInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    if (conn.id) setNameMut.mutate({ id: conn.id, name: nameInput });
+                  } else if (e.key === "Escape") {
+                    setIsEditingName(false);
+                  }
+                }}
+                autoFocus
+                disabled={setNameMut.isPending}
+                maxLength={100}
+                className="h-9 w-64"
+              />
+              <Button
+                size="sm"
+                onClick={() => conn.id && setNameMut.mutate({ id: conn.id, name: nameInput })}
+                disabled={setNameMut.isPending}
+              >
+                {setNameMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Salvar"}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setIsEditingName(false)}
+                disabled={setNameMut.isPending}
+              >
+                Cancelar
+              </Button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setNameInput(conn.bling_account_name ?? "Conta Bling");
+                setIsEditingName(true);
+              }}
+              className="group flex items-center gap-2 text-left"
+            >
+              <span className="text-xl font-semibold">
+                {conn.bling_account_name ?? "Conta Bling"}
+              </span>
+              <Pencil className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+            </button>
+          )}
+          <p className="text-xs text-muted-foreground mt-1">
+            Apelido da conta Bling. Útil quando você tiver múltiplas contas conectadas.
+          </p>
           {conn.bling_account_id && (
             <p className="text-xs text-muted-foreground mt-0.5">ID: {conn.bling_account_id}</p>
           )}
+
         </div>
         <div className="flex gap-2 shrink-0">
           <Button
@@ -153,15 +213,6 @@ function BlingPage() {
           >
             {refreshMut.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
             Forçar renovação
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={updateNameMut.isPending || !conn.id}
-            onClick={() => conn.id && updateNameMut.mutate(conn.id)}
-          >
-            {updateNameMut.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCcw className="h-4 w-4 mr-2" />}
-            Atualizar nome
           </Button>
           <AlertDialog>
             <AlertDialogTrigger asChild>
