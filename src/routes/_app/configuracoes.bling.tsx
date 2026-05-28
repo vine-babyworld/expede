@@ -71,18 +71,24 @@ function BlingPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const updateNameMut = useMutation({
-    mutationFn: (id: string) => updateNameFn({ data: { connectionId: id } }),
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [nameInput, setNameInput] = useState("");
+
+  const setNameMut = useMutation({
+    mutationFn: (vars: { id: string; name: string }) =>
+      setNameFn({ data: { connectionId: vars.id, name: vars.name } }),
     onSuccess: (r) => {
       if (r.ok) {
-        toast.success(`Nome atualizado: ${r.name}`);
+        toast.success("Nome atualizado");
+        setIsEditingName(false);
         qc.invalidateQueries({ queryKey: ["bling-connection"] });
       } else {
-        toast.error(r.message, { duration: 8000 });
+        toast.error(r.message);
       }
     },
     onError: () => toast.error("Falha de comunicação. Tente novamente."),
   });
+
 
   const disconnectMut = useMutation({
     mutationFn: (id: string) => disconnectFn({ data: { connectionId: id } }),
