@@ -1,9 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import {
-  exchangeCodeAndStore,
-  findLatestConnectionByState,
-  updateBlingAccountNameInternal,
-} from "@/lib/bling.functions";
+import { exchangeCodeAndStore } from "@/lib/bling.functions";
 
 export const Route = createFileRoute("/oauth/bling/callback")({
   server: {
@@ -27,14 +23,9 @@ export const Route = createFileRoute("/oauth/bling/callback")({
         const result = await exchangeCodeAndStore({ code, state });
         if (!result.ok) return redirect("error", result.error);
 
-        // Best-effort: atualizar nome real da empresa (não falha o fluxo se der erro)
-        try {
-          const connId = await findLatestConnectionByState(state);
-          if (connId) await updateBlingAccountNameInternal(connId);
-        } catch { /* ignore */ }
-
         return redirect("ok");
       },
     },
   },
 });
+
