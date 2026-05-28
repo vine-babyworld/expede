@@ -33,8 +33,9 @@ function BlingPage() {
   const getConn = useServerFn(getBlingConnection);
   const startFn = useServerFn(blingOAuthStart);
   const refreshFn = useServerFn(blingRefreshToken);
-  const updateNameFn = useServerFn(updateBlingAccountName);
+  const setNameFn = useServerFn(setBlingConnectionName);
   const disconnectFn = useServerFn(blingDisconnect);
+
 
 
 
