@@ -242,16 +242,10 @@ export async function exchangeCodeAndStore(params: {
 
   await supabaseAdmin.from("oauth_states").update({ used: true }).eq("state", params.state);
 
-  const account = await fetchAccountInfo(tj.access_token);
-
-  const now = Date.now();
-  const accessExp = new Date(now + (tj.expires_in ?? 21600) * 1000);
-  const refreshExp = new Date(now + (tj.refresh_expires_in ?? 30 * 24 * 3600) * 1000);
-
   const insertPayload: any = {
     user_id: st.user_id,
-    bling_account_id: account.id ?? null,
-    bling_account_name: account.name ?? "Conta Bling",
+    bling_account_id: null,
+    bling_account_name: "Conta Bling",
     access_token: await encryptToken(tj.access_token),
     refresh_token: await encryptToken(tj.refresh_token),
 
