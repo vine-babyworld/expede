@@ -70,22 +70,6 @@ function basicAuthHeader(): string {
 }
 
 
-async function fetchAccountInfo(accessToken: string): Promise<{ id?: string; name?: string }> {
-  try {
-    const res = await fetch("https://www.bling.com.br/Api/v3/empresas/me", {
-      headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
-    });
-    if (!res.ok) return {};
-    const json: any = await res.json();
-    const data = json?.data ?? json;
-    return {
-      id: data?.id?.toString?.() ?? data?.numeroDocumento ?? undefined,
-      name: data?.nome ?? data?.razaoSocial ?? data?.fantasia ?? undefined,
-    };
-  } catch {
-    return {};
-  }
-}
 
 /** Inicia o fluxo OAuth: gera state, salva e retorna a URL de autorização. */
 export const blingOAuthStart = createServerFn({ method: "POST" })
