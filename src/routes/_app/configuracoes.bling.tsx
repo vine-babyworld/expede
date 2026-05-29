@@ -223,6 +223,7 @@ function BlingPage() {
             {refreshMut.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
             Forçar renovação
           </Button>
+          {/* disconnect-confirm v2 */}
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <Button variant="outline" size="sm" className="text-rose-600 hover:text-rose-700">
