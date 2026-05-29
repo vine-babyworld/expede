@@ -1,5 +1,6 @@
 import { createFileRoute, useSearch } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import type { ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
@@ -12,7 +13,8 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import {
-  blingOAuthStart, getBlingConnection, blingRefreshToken, blingDisconnect, setBlingConnectionName,
+  blingOAuthStart, getBlingConnection, blingRefreshToken, blingDisconnect,
+  setBlingConnectionName, getProdutoCountByConnection,
 } from "@/lib/bling.functions";
 
 
@@ -35,6 +37,7 @@ function BlingPage() {
   const refreshFn = useServerFn(blingRefreshToken);
   const setNameFn = useServerFn(setBlingConnectionName);
   const disconnectFn = useServerFn(blingDisconnect);
+  const getCountFn = useServerFn(getProdutoCountByConnection);
 
 
 
@@ -89,6 +92,12 @@ function BlingPage() {
     onError: () => toast.error("Falha de comunicação. Tente novamente."),
   });
 
+
+  const { data: countData, isLoading: isLoadingCount } = useQuery({
+    queryKey: ["bling-produto-count", conn?.id],
+    queryFn: () => getCountFn({ data: { connectionId: conn!.id! } }),
+    enabled: !!conn?.id,
+  });
 
   const disconnectMut = useMutation({
     mutationFn: (id: string) => disconnectFn({ data: { connectionId: id } }),
@@ -224,13 +233,16 @@ function BlingPage() {
               <AlertDialogHeader>
                 <AlertDialogTitle>Desconectar conta Bling?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  Os tokens serão removidos. Você precisará autorizar novamente para sincronizar pedidos.
+                  {getDisconnectBody(isLoadingCount, countData)}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                <AlertDialogAction onClick={() => conn.id && disconnectMut.mutate(conn.id)}>
-                  Desconectar
+                <AlertDialogCancel autoFocus>Cancelar</AlertDialogCancel>
+                <AlertDialogAction
+                  disabled={isLoadingCount}
+                  onClick={() => conn.id && disconnectMut.mutate(conn.id)}
+                >
+                  Desconectar mesmo assim
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
@@ -265,5 +277,25 @@ function Field({ label, value }: { label: string; value: string }) {
       <div className="text-xs text-muted-foreground mb-0.5">{label}</div>
       <div className="font-medium">{value}</div>
     </div>
+  );
+}
+
+type CountResult =
+  | { ok: true; count: number }
+  | { ok: false; reason: string }
+  | undefined;
+
+function getDisconnectBody(isLoading: boolean, data: CountResult): ReactNode {
+  if (isLoading) return "Verificando quantos produtos serão apagados...";
+  if (!data || !data.ok)
+    return "Não foi possível verificar a quantidade de produtos. Verifique se realmente deseja continuar.";
+  if (data.count === 0)
+    return "A conexão será removida. Nenhum produto cadastrado será afetado.";
+  const n = data.count;
+  return (
+    <>
+      <strong>{n} produto{n !== 1 ? "s" : ""}</strong>{" "}
+      {n !== 1 ? "serão apagados" : "será apagado"} permanentemente. Esta ação não pode ser desfeita.
+    </>
   );
 }
