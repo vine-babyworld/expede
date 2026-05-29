@@ -237,7 +237,7 @@ function BlingPage() {
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogCancel autoFocus>Cancelar</AlertDialogCancel>
+                <AlertDialogCancel>Cancelar</AlertDialogCancel>
                 <AlertDialogAction
                   disabled={isLoadingCount}
                   onClick={() => conn.id && disconnectMut.mutate(conn.id)}
