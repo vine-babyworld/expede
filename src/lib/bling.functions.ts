@@ -357,3 +357,24 @@ export async function findLatestConnectionByState(state: string): Promise<string
   return c?.id ?? null;
 }
 
+/** Conta produtos vinculados a uma conexão. Retorna discriminated union. */
+export const getProdutoCountByConnection = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { connectionId: string }) => d)
+  .handler(async ({ data, context }) => {
+    const { userId } = context;
+    const { data: conn } = await supabaseAdmin
+      .from("bling_connections")
+      .select("user_id")
+      .eq("id", data.connectionId)
+      .maybeSingle();
+    if (!conn || conn.user_id !== userId) return { ok: false as const, reason: "forbidden" };
+
+    const { count, error } = await supabaseAdmin
+      .from("produtos")
+      .select("id", { count: "exact", head: true })
+      .eq("bling_connection_id", data.connectionId);
+    if (error) return { ok: false as const, reason: "db_error" };
+    return { ok: true as const, count: count ?? 0 };
+  });
+
