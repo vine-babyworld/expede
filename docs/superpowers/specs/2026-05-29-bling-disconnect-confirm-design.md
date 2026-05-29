@@ -34,25 +34,27 @@ Exibir a contagem real de produtos no diálogo de confirmação antes de descone
 
 Localização: `src/lib/bling.functions.ts`
 
+Retorna discriminated union — sem `throw` em erro de ownership, seguindo o padrão do projeto.
+
 ```ts
 export const getProdutoCountByConnection = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: { connectionId: string }) => d)
   .handler(async ({ data, context }) => {
     const { userId } = context;
-    // Valida ownership antes de contar
     const { data: conn } = await supabaseAdmin
       .from("bling_connections")
       .select("user_id")
       .eq("id", data.connectionId)
       .maybeSingle();
-    if (!conn || conn.user_id !== userId) throw new Error("Sem permissão");
+    if (!conn || conn.user_id !== userId) return { ok: false as const, reason: "forbidden" };
 
-    const { count } = await supabaseAdmin
+    const { count, error } = await supabaseAdmin
       .from("produtos")
       .select("id", { count: "exact", head: true })
       .eq("bling_connection_id", data.connectionId);
-    return { count: count ?? 0 };
+    if (error) return { ok: false as const, reason: "db_error" };
+    return { ok: true as const, count: count ?? 0 };
   });
 ```
 
@@ -62,8 +64,9 @@ export const getProdutoCountByConnection = createServerFn({ method: "GET" })
 
 1. Importar `getProdutoCountByConnection` de `bling.functions`.
 2. Adicionar `useServerFn(getProdutoCountByConnection)` e um `useQuery` com `queryKey: ["bling-produto-count", conn?.id]`, habilitado apenas quando `conn?.id` existe. Carrega eager no background.
-3. Atualizar a `AlertDialogDescription` para mostrar a contagem dinâmica.
+3. Atualizar a `AlertDialogDescription` para mostrar a contagem dinâmica (4 estados — ver tabela abaixo).
 4. Adicionar `disabled={isLoadingCount}` no `AlertDialogAction`.
+5. Garantir que o foco inicial do `AlertDialog` recaia em `AlertDialogCancel` (proteção contra Enter acidental confirmando ação destrutiva). Implementar via `autoFocus` no `AlertDialogCancel` ou via prop `onOpenAutoFocus` no `AlertDialogContent`.
 
 ---
 
@@ -72,8 +75,9 @@ export const getProdutoCountByConnection = createServerFn({ method: "GET" })
 | Estado | Descrição exibida | Botão confirmar |
 |---|---|---|
 | Contagem carregando | "Verificando quantos produtos serão apagados..." | Desabilitado |
-| 0 produtos | "Os tokens serão removidos. Nenhum produto cadastrado será afetado." | Habilitado |
+| 0 produtos | "A conexão será removida. Nenhum produto cadastrado será afetado." | Habilitado |
 | N > 0 produtos | "**N produtos** serão apagados permanentemente. Esta ação não pode ser desfeita." | Habilitado |
+| Erro ao carregar | "Não foi possível verificar a quantidade de produtos. Verifique se realmente deseja continuar." | Habilitado |
 
 ---
 
