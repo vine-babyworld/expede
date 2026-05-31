@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { getDecryptedAccessToken } from "@/lib/bling.functions";
 
-const BLING_PEDIDOS_URL = "https://www.bling.com.br/Api/v3/pedidos/vendas";
+const BLING_PEDIDOS_URL = "https://api.bling.com.br/Api/v3/pedidos/vendas";
 const DEPOSITO_ALVO = "Geral";
 
 export const Route = createFileRoute("/api/public/hooks/bling-pedidos")({
