@@ -76,7 +76,6 @@ export const Route = createFileRoute("/api/public/hooks/bling-pedidos")({
 
           // Filtro 2: todos os itens devem ser do depósito "Geral"
           const itens: any[] = d.itens ?? [];
-          console.log('[DEBUG depositos]', JSON.stringify(itens.map((i: any) => ({ id: i.id, deposito: i.deposito }))));
           const itemForaDoDeposito = itens.find(
             (it: any) => it.deposito?.descricao !== undefined && it.deposito?.descricao !== DEPOSITO_ALVO,
           );
