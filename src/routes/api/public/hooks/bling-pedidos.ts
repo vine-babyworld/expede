@@ -77,7 +77,7 @@ export const Route = createFileRoute("/api/public/hooks/bling-pedidos")({
           // Filtro 2: todos os itens devem ser do depósito "Geral"
           const itens: any[] = d.itens ?? [];
           const itemForaDoDeposito = itens.find(
-            (it: any) => it.deposito?.descricao !== DEPOSITO_ALVO,
+            (it: any) => it.deposito?.descricao !== undefined && it.deposito?.descricao !== DEPOSITO_ALVO,
           );
           if (itemForaDoDeposito) {
             console.log(
