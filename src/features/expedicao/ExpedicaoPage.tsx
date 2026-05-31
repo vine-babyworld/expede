@@ -11,6 +11,7 @@ import {
   Printer,
   Loader2,
   Package,
+  PackageOpen,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -40,6 +41,7 @@ type ItemExpedicao = {
   descricao: string;
   quantidade: number;
   quantidade_bipada: number;
+  produto: { imagem_url: string | null } | null;
 };
 
 type PedidoExpedicao = {
@@ -52,6 +54,7 @@ type PedidoExpedicao = {
   bling_nota_fiscal_id: number | null;
   bling_nota_fiscal_numero: string | null;
   situacao_valor: number | null;
+  raw_json: any;
   itens: ItemExpedicao[];
 };
 
@@ -76,7 +79,7 @@ async function fetchPedidos(): Promise<PedidoExpedicao[]> {
   const { data, error } = await supabase
     .from("pedidos")
     .select(
-      "id, bling_pedido_id, numero, numero_loja, data_pedido, cliente, bling_nota_fiscal_id, bling_nota_fiscal_numero, situacao_valor, pedido_itens(id, sku, ean, descricao, quantidade, quantidade_bipada)",
+      "id, bling_pedido_id, numero, numero_loja, data_pedido, cliente, bling_nota_fiscal_id, bling_nota_fiscal_numero, situacao_valor, raw_json, pedido_itens(id, sku, ean, descricao, quantidade, quantidade_bipada, produto:produtos(imagem_url))",
     )
     .neq("situacao_valor", 12)
     .order("data_pedido", { ascending: false });
@@ -93,6 +96,7 @@ async function fetchPedidos(): Promise<PedidoExpedicao[]> {
     bling_nota_fiscal_id: p.bling_nota_fiscal_id ?? null,
     bling_nota_fiscal_numero: p.bling_nota_fiscal_numero ?? null,
     situacao_valor: p.situacao_valor ?? null,
+    raw_json: p.raw_json ?? null,
     itens: (p.pedido_itens ?? []).map((i: any) => ({
       id: i.id,
       sku: i.sku ?? null,
@@ -100,6 +104,7 @@ async function fetchPedidos(): Promise<PedidoExpedicao[]> {
       descricao: i.descricao ?? "",
       quantidade: Number(i.quantidade ?? 1),
       quantidade_bipada: Number(i.quantidade_bipada ?? 0),
+      produto: i.produto ?? null,
     })),
   }));
 }
@@ -295,59 +300,74 @@ function PedidoCard({
   onBipar: () => void;
   onReimprimir: () => void;
 }) {
-  const { total, bipado, done } = pedidoProgress(pedido);
-  const pct = total > 0 ? Math.round((bipado / total) * 100) : 0;
+  const { done } = pedidoProgress(pedido);
+  const item = pedido.itens[0] ?? null;
+  const imageUrl = item?.produto?.imagem_url ?? null;
+  const logistica = (pedido.raw_json as any)?.transporte?.volumes?.[0]?.servico ?? null;
 
   return (
     <div
-      className={`bg-card border rounded-xl shadow-sm p-5 flex items-center gap-5 transition-shadow hover:shadow-md ${
+      className={`bg-card border rounded-xl shadow-sm p-4 flex items-center gap-4 transition-shadow hover:shadow-md ${
         done ? "opacity-60" : ""
       }`}
     >
+      {/* Imagem do produto */}
+      <div className="shrink-0 w-20 h-20 rounded-lg bg-muted flex flex-col items-center justify-center overflow-hidden border">
+        {imageUrl ? (
+          <img
+            src={imageUrl}
+            alt={item?.descricao ?? ""}
+            className="w-full h-full object-contain"
+          />
+        ) : (
+          <div className="flex flex-col items-center gap-0.5 text-muted-foreground p-1">
+            <PackageOpen className="h-7 w-7" />
+            <span className="text-[9px] text-center leading-tight">(Falta imagem)</span>
+          </div>
+        )}
+      </div>
+
+      {/* Dados */}
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-3 mb-2">
-          <span className="text-lg font-bold font-mono">#{pedido.numero}</span>
-          {pedido.numero_loja && pedido.numero_loja !== pedido.numero && (
-            <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">
-              Loja: {pedido.numero_loja}
-            </span>
-          )}
+        <div className="flex items-center gap-2 mb-2">
+          <h3 className="font-bold text-base leading-tight truncate">
+            {item?.descricao ?? "—"}
+          </h3>
           {done && (
-            <span className="text-xs bg-success/20 text-success font-semibold px-2 py-0.5 rounded">
+            <span className="shrink-0 text-xs bg-success/20 text-success font-semibold px-2 py-0.5 rounded">
               Concluído
             </span>
           )}
         </div>
+        <div className="grid grid-cols-3 gap-x-6 gap-y-1 text-xs">
+          <span className="text-muted-foreground">SKU</span>
+          <span className="text-muted-foreground">EAN</span>
+          <span className="text-muted-foreground">Qtd</span>
+          <span className="font-mono font-medium">{item?.sku ?? "—"}</span>
+          <span className="font-mono">{item?.ean ?? "—"}</span>
+          <span className="font-semibold text-sm">{item?.quantidade ?? "—"}</span>
 
-        <div className="text-sm text-muted-foreground mb-3">
-          {nomeCliente(pedido)} • {formatDate(pedido.data_pedido)} •{" "}
-          NF: {pedido.bling_nota_fiscal_numero ?? "—"}
-        </div>
-
-        {/* Progress bar */}
-        <div className="flex items-center gap-3">
-          <div className="flex-1 bg-muted rounded-full h-2 overflow-hidden">
-            <div
-              className={`h-full rounded-full transition-all ${
-                done ? "bg-success" : "bg-primary"
-              }`}
-              style={{ width: `${pct}%` }}
-            />
-          </div>
-          <span className="text-xs text-muted-foreground whitespace-nowrap">
-            {bipado}/{total} itens ({pedido.itens.length} SKU{pedido.itens.length !== 1 ? "s" : ""})
+          <span className="text-muted-foreground">Pedido</span>
+          <span className="text-muted-foreground">Data</span>
+          <span className="text-muted-foreground">Logística</span>
+          <span className="font-mono">#{pedido.numero}</span>
+          <span>{formatDate(pedido.data_pedido)}</span>
+          <span>
+            {logistica ? (
+              <span className="inline-block bg-muted text-muted-foreground text-[10px] px-1.5 py-0.5 rounded font-medium truncate max-w-[120px]">
+                {logistica}
+              </span>
+            ) : (
+              "—"
+            )}
           </span>
         </div>
       </div>
 
+      {/* Ações */}
       <div className="flex gap-2 shrink-0">
         {done && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onReimprimir}
-            className="gap-1.5"
-          >
+          <Button variant="outline" size="sm" onClick={onReimprimir} className="gap-1.5">
             <Printer className="h-4 w-4" />
             Reimprimir
           </Button>
@@ -509,7 +529,7 @@ function BipagemModal({
               Bipagem — Pedido #{pedido.numero}
             </DialogTitle>
             <p className="text-sm text-muted-foreground mt-0.5">
-              {nomeCliente(pedido)} • {bipado}/{total} itens bipados
+              {bipado}/{total} itens bipados
             </p>
           </div>
           <button
