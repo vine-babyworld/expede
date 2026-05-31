@@ -41,7 +41,8 @@ type ItemExpedicao = {
   descricao: string;
   quantidade: number;
   quantidade_bipada: number;
-  produto: { imagem_url: string | null } | null;
+  produto_gtin: string | null;
+  produto: { imagem_url: string | null; gtin: string | null } | null;
 };
 
 type PedidoExpedicao = {
@@ -79,7 +80,7 @@ async function fetchPedidos(): Promise<PedidoExpedicao[]> {
   const { data, error } = await supabase
     .from("pedidos")
     .select(
-      "id, bling_pedido_id, numero, numero_loja, data_pedido, cliente, bling_nota_fiscal_id, bling_nota_fiscal_numero, situacao_valor, raw_json, pedido_itens(id, sku, ean, descricao, quantidade, quantidade_bipada, produto:produtos(imagem_url))",
+      "id, bling_pedido_id, numero, numero_loja, data_pedido, cliente, bling_nota_fiscal_id, bling_nota_fiscal_numero, situacao_valor, raw_json, pedido_itens(id, sku, ean, descricao, quantidade, quantidade_bipada, produto:produtos(imagem_url, gtin))",
     )
     .neq("situacao_valor", 12)
     .order("data_pedido", { ascending: false });
@@ -104,6 +105,7 @@ async function fetchPedidos(): Promise<PedidoExpedicao[]> {
       descricao: i.descricao ?? "",
       quantidade: Number(i.quantidade ?? 1),
       quantidade_bipada: Number(i.quantidade_bipada ?? 0),
+      produto_gtin: i.produto?.gtin ?? null,
       produto: i.produto ?? null,
     })),
   }));
@@ -291,6 +293,13 @@ export function ExpedicaoPage() {
 
 // ─── Card de pedido ───────────────────────────────────────────────────────────
 
+function detectarMarketplace(numeroLoja: string | null): { nome: string; cor: string } | null {
+  if (!numeroLoja) return null;
+  if (numeroLoja.startsWith("2000")) return { nome: "Mercado Livre", cor: "bg-yellow-100 text-yellow-800 border-yellow-300" };
+  // TODO: adicionar Shopee, Amazon, Magalu conforme aparecerem pedidos
+  return { nome: "Outros", cor: "bg-gray-100 text-gray-700 border-gray-300" };
+}
+
 function PedidoCard({
   pedido,
   onBipar,
@@ -302,8 +311,12 @@ function PedidoCard({
 }) {
   const { done } = pedidoProgress(pedido);
   const item = pedido.itens[0] ?? null;
-  const imageUrl = item?.produto?.imagem_url ?? null;
+  const imageUrl = item?.produto?.imagem_url || null;
   const logistica = (pedido.raw_json as any)?.transporte?.volumes?.[0]?.servico ?? null;
+  const ean = item?.ean ?? item?.produto_gtin ?? "—";
+  const marketplace = detectarMarketplace(pedido.numero_loja);
+  const numeroPrincipal = pedido.numero_loja || pedido.numero;
+  const numeroSecundario = pedido.numero_loja ? pedido.numero : null;
 
   return (
     <div
@@ -312,7 +325,7 @@ function PedidoCard({
       }`}
     >
       {/* Imagem do produto */}
-      <div className="shrink-0 w-20 h-20 rounded-lg bg-muted flex flex-col items-center justify-center overflow-hidden border">
+      <div className="shrink-0 w-[150px] h-[150px] rounded-lg bg-muted flex flex-col items-center justify-center overflow-hidden border">
         {imageUrl ? (
           <img
             src={imageUrl}
@@ -320,19 +333,24 @@ function PedidoCard({
             className="w-full h-full object-contain"
           />
         ) : (
-          <div className="flex flex-col items-center gap-0.5 text-muted-foreground p-1">
-            <PackageOpen className="h-7 w-7" />
-            <span className="text-[9px] text-center leading-tight">(Falta imagem)</span>
+          <div className="flex flex-col items-center gap-1 text-muted-foreground p-2">
+            <PackageOpen className="h-10 w-10" />
+            <span className="text-[10px] text-center leading-tight">(Falta imagem)</span>
           </div>
         )}
       </div>
 
       {/* Dados */}
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 mb-2">
+        <div className="flex items-center gap-2 mb-2 flex-wrap">
           <h3 className="font-bold text-base leading-tight truncate">
             {item?.descricao ?? "—"}
           </h3>
+          {marketplace && (
+            <span className={`shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded border ${marketplace.cor}`}>
+              {marketplace.nome}
+            </span>
+          )}
           {done && (
             <span className="shrink-0 text-xs bg-success/20 text-success font-semibold px-2 py-0.5 rounded">
               Concluído
@@ -344,13 +362,20 @@ function PedidoCard({
           <span className="text-muted-foreground">EAN</span>
           <span className="text-muted-foreground">Qtd</span>
           <span className="font-mono font-medium">{item?.sku ?? "—"}</span>
-          <span className="font-mono">{item?.ean ?? "—"}</span>
+          <span className="font-mono">{ean}</span>
           <span className="font-semibold text-sm">{item?.quantidade ?? "—"}</span>
 
           <span className="text-muted-foreground">Pedido</span>
           <span className="text-muted-foreground">Data</span>
           <span className="text-muted-foreground">Logística</span>
-          <span className="font-mono">#{pedido.numero}</span>
+          <span className="font-mono">
+            <span>{numeroPrincipal}</span>
+            {numeroSecundario && (
+              <span className="block text-muted-foreground font-normal">
+                Bling #{numeroSecundario}
+              </span>
+            )}
+          </span>
           <span>{formatDate(pedido.data_pedido)}</span>
           <span>
             {logistica ? (
