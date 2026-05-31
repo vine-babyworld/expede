@@ -44,7 +44,7 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "bipagens_pedido_item_id_fkey"
+            foreignKeyName: "fk_bipagens_pedido_item"
             columns: ["pedido_item_id"]
             isOneToOne: false
             referencedRelation: "pedido_itens"
@@ -185,27 +185,48 @@ export type Database = {
       }
       pedido_itens: {
         Row: {
+          bling_item_id: number | null
+          created_at: string
+          deposito_descricao: string | null
+          deposito_id: number | null
+          descricao: string
+          ean: string | null
           id: string
-          pedido_id: string | null
+          pedido_id: string
           produto_id: string | null
           quantidade: number
           quantidade_bipada: number
+          sku: string | null
           valor_unitario: number | null
         }
         Insert: {
+          bling_item_id?: number | null
+          created_at?: string
+          deposito_descricao?: string | null
+          deposito_id?: number | null
+          descricao: string
+          ean?: string | null
           id?: string
-          pedido_id?: string | null
+          pedido_id: string
           produto_id?: string | null
-          quantidade?: number
+          quantidade: number
           quantidade_bipada?: number
+          sku?: string | null
           valor_unitario?: number | null
         }
         Update: {
+          bling_item_id?: number | null
+          created_at?: string
+          deposito_descricao?: string | null
+          deposito_id?: number | null
+          descricao?: string
+          ean?: string | null
           id?: string
-          pedido_id?: string | null
+          pedido_id?: string
           produto_id?: string | null
           quantidade?: number
           quantidade_bipada?: number
+          sku?: string | null
           valor_unitario?: number | null
         }
         Relationships: [
@@ -216,70 +237,80 @@ export type Database = {
             referencedRelation: "pedidos"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "pedido_itens_produto_id_fkey"
+            columns: ["produto_id"]
+            isOneToOne: false
+            referencedRelation: "produtos"
+            referencedColumns: ["id"]
+          },
         ]
       }
       pedidos: {
         Row: {
-          anotacoes: string | null
-          bloco_separacao: string | null
-          canal_id: string | null
-          cidade_cliente: string | null
+          bling_connection_id: string
+          bling_nota_fiscal_id: number | null
+          bling_nota_fiscal_numero: string | null
+          bling_pedido_id: number
+          cliente: Json | null
           created_at: string
-          data_max_postagem: string | null
           data_pedido: string | null
-          empresa_id: string | null
-          estado_cliente: string | null
           id: string
-          metodo_envio: string | null
-          nome_cliente: string | null
-          numero_pedido: string
-          status: string
+          numero: string
+          numero_loja: string | null
+          raw_json: Json
+          situacao_id: number | null
+          situacao_valor: number | null
+          total: number | null
+          updated_at: string
         }
         Insert: {
-          anotacoes?: string | null
-          bloco_separacao?: string | null
-          canal_id?: string | null
-          cidade_cliente?: string | null
+          bling_connection_id: string
+          bling_nota_fiscal_id?: number | null
+          bling_nota_fiscal_numero?: string | null
+          bling_pedido_id: number
+          cliente?: Json | null
           created_at?: string
-          data_max_postagem?: string | null
           data_pedido?: string | null
-          empresa_id?: string | null
-          estado_cliente?: string | null
           id?: string
-          metodo_envio?: string | null
-          nome_cliente?: string | null
-          numero_pedido: string
-          status?: string
+          numero: string
+          numero_loja?: string | null
+          raw_json: Json
+          situacao_id?: number | null
+          situacao_valor?: number | null
+          total?: number | null
+          updated_at?: string
         }
         Update: {
-          anotacoes?: string | null
-          bloco_separacao?: string | null
-          canal_id?: string | null
-          cidade_cliente?: string | null
+          bling_connection_id?: string
+          bling_nota_fiscal_id?: number | null
+          bling_nota_fiscal_numero?: string | null
+          bling_pedido_id?: number
+          cliente?: Json | null
           created_at?: string
-          data_max_postagem?: string | null
           data_pedido?: string | null
-          empresa_id?: string | null
-          estado_cliente?: string | null
           id?: string
-          metodo_envio?: string | null
-          nome_cliente?: string | null
-          numero_pedido?: string
-          status?: string
+          numero?: string
+          numero_loja?: string | null
+          raw_json?: Json
+          situacao_id?: number | null
+          situacao_valor?: number | null
+          total?: number | null
+          updated_at?: string
         }
         Relationships: [
           {
-            foreignKeyName: "pedidos_canal_id_fkey"
-            columns: ["canal_id"]
+            foreignKeyName: "pedidos_bling_connection_id_fkey"
+            columns: ["bling_connection_id"]
             isOneToOne: false
-            referencedRelation: "canais"
+            referencedRelation: "bling_connections"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "pedidos_empresa_id_fkey"
-            columns: ["empresa_id"]
+            foreignKeyName: "pedidos_bling_connection_id_fkey"
+            columns: ["bling_connection_id"]
             isOneToOne: false
-            referencedRelation: "empresas"
+            referencedRelation: "bling_connections_status"
             referencedColumns: ["id"]
           },
         ]
