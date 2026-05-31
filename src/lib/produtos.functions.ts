@@ -9,7 +9,7 @@ const BLING_PRODUTOS_URL = "https://www.bling.com.br/Api/v3/produtos";
 const PAGES_PER_RUN = 5;
 const PAGE_LIMIT = 100;
 const REQUEST_DELAY_MS = 350;
-const DETAIL_BATCH_SIZE = 40; // produtos enriquecidos por execução
+const DETAIL_BATCH_SIZE = 15; // produtos enriquecidos por execução (reduzido de 40 para caber no timeout de 30s do Worker)
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 

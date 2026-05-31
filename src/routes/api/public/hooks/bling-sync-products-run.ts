@@ -50,7 +50,7 @@ async function getRunnableJobIds() {
   const { data, error } = await supabaseAdmin
     .from("sync_jobs")
     .select("id, proxima_execucao_em, status")
-    .in("status", ["pendente", "pausado"])
+    .in("status", ["pendente", "pausado", "rodando"])
     .limit(10);
   if (error) throw new Error(error.message);
   return (data ?? [])

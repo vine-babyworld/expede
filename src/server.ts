@@ -2,6 +2,8 @@ import "./lib/error-capture";
 
 import { consumeLastCapturedError } from "./lib/error-capture";
 import { renderErrorPage } from "./lib/error-page";
+import { runSyncJob } from "./lib/produtos.functions";
+import { supabaseAdmin } from "./integrations/supabase/client.server";
 
 type ServerEntry = {
   fetch: (request: Request, env: unknown, ctx: unknown) => Promise<Response> | Response;
@@ -66,6 +68,28 @@ async function normalizeCatastrophicSsrResponse(response: Response): Promise<Res
   return brandedErrorResponse();
 }
 
+async function cronSyncPoll() {
+  const now = new Date().toISOString();
+  const { data: jobs } = await supabaseAdmin
+    .from("sync_jobs")
+    .select("id, proxima_execucao_em")
+    .in("status", ["pendente", "pausado", "rodando"])
+    .limit(5);
+
+  const runnable = (jobs ?? []).filter(
+    (j: any) => !j.proxima_execucao_em || j.proxima_execucao_em <= now,
+  );
+  if (runnable.length === 0) return;
+
+  for (const job of runnable) {
+    try {
+      await runSyncJob((job as any).id);
+    } catch (e) {
+      console.error("[cron-sync] job", (job as any).id, "erro:", e);
+    }
+  }
+}
+
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
     try {
@@ -76,5 +100,15 @@ export default {
       console.error(error);
       return brandedErrorResponse();
     }
+  },
+
+  async scheduled(
+    _event: unknown,
+    _env: unknown,
+    ctx: { waitUntil: (p: Promise<unknown>) => void },
+  ) {
+    ctx.waitUntil(
+      cronSyncPoll().catch((e) => console.error("[cron-sync] poll erro:", e)),
+    );
   },
 };
