@@ -2,15 +2,22 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Loader2, Search, ClipboardList } from "lucide-react";
+import { Loader2, Search, ClipboardList, Printer } from "lucide-react";
+import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { listarPedidos } from "@/lib/pedidos.functions";
+import { buscarEtiquetaBling } from "@/lib/etiqueta.functions";
+import { gerarDanfeCustom } from "@/lib/danfe.functions";
+import { useQzTray } from "@/hooks/useQzTray";
+import { PrinterConfig } from "@/components/PrinterConfig";
 
-// TODO: verificar todos os valores da Bling API v3 para pedidos/vendas e completar mapa
+const IMPRESSORA_KEY = "qztray_impressora_padrao";
+const PAGE_SIZE = 50;
+
 const SITUACAO_LABEL: Record<number, string> = {
-  6:  "Em aberto",
-  9:  "Atendido",
+  6: "Em aberto",
+  9: "Atendido",
   12: "Cancelado",
 };
 
@@ -37,7 +44,10 @@ function PedidosPage() {
   const [search, setSearch] = useState("");
   const [hidecanceled, setHideCanceled] = useState(true);
   const [page, setPage] = useState(1);
+  const [showPrinterConfig, setShowPrinterConfig] = useState(false);
+  const [reimprimindo, setReimprimindo] = useState<string | null>(null);
 
+  const qzTray = useQzTray();
   const listFn = useServerFn(listarPedidos);
 
   const q = useQuery({
@@ -50,23 +60,61 @@ function PedidosPage() {
   const pageSize = q.data?.pageSize ?? PAGE_SIZE;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
-  function handleSearch(value: string) {
-    setSearch(value);
-    setPage(1);
-  }
+  function handleSearch(value: string) { setSearch(value); setPage(1); }
+  function handleToggle(checked: boolean) { setHideCanceled(checked); setPage(1); }
 
-  function handleToggle(checked: boolean) {
-    setHideCanceled(checked);
-    setPage(1);
+  async function handleReimprimir(row: { id: string; bling_pedido_id: number }) {
+    const impressora = localStorage.getItem(IMPRESSORA_KEY);
+    if (!impressora) {
+      setShowPrinterConfig(true);
+      toast.info("Selecione uma impressora padrão primeiro");
+      return;
+    }
+
+    setReimprimindo(row.id);
+    toast.loading("Gerando documentos...", { id: "reimp" });
+
+    try {
+      const [etiquetaResult, danfeResult] = await Promise.all([
+        buscarEtiquetaBling({ data: { pedidoId: row.bling_pedido_id } }),
+        gerarDanfeCustom({ data: { pedidoId: row.id } }),
+      ]);
+
+      toast.loading("Imprimindo...", { id: "reimp" });
+
+      if (etiquetaResult.ok && etiquetaResult.tipo === "zpl") {
+        await qzTray.imprimirZpl(etiquetaResult.conteudo, impressora);
+      }
+      if (danfeResult.ok) {
+        await qzTray.imprimirPdf(danfeResult.pdf, impressora);
+      }
+
+      toast.success("Reimprimir concluído", { id: "reimp" });
+    } catch (err) {
+      console.error("[reimprimir]", err);
+      toast.error("Erro na reimpressão — verifique o QZ Tray", { id: "reimp" });
+    } finally {
+      setReimprimindo(null);
+    }
   }
 
   return (
     <div className="p-6 space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Pedidos</h1>
-        <span className="text-sm text-muted-foreground">
-          {total} pedido{total !== 1 ? "s" : ""}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-muted-foreground">
+            {total} pedido{total !== 1 ? "s" : ""}
+          </span>
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => setShowPrinterConfig(true)}
+            title="Configurar impressora"
+          >
+            <Printer className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
 
       {/* Filtros */}
@@ -103,18 +151,19 @@ function PedidosPage() {
               <th className="text-left px-4 py-3 font-medium">NF</th>
               <th className="text-left px-4 py-3 font-medium">Situação</th>
               <th className="text-right px-4 py-3 font-medium">Itens</th>
+              <th className="px-4 py-3" />
             </tr>
           </thead>
           <tbody>
             {q.isLoading ? (
               <tr>
-                <td colSpan={7} className="text-center py-12 text-muted-foreground">
+                <td colSpan={8} className="text-center py-12 text-muted-foreground">
                   <Loader2 className="h-5 w-5 animate-spin mx-auto" />
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={7} className="text-center py-12 text-muted-foreground">
+                <td colSpan={8} className="text-center py-12 text-muted-foreground">
                   <ClipboardList className="h-10 w-10 mx-auto mb-2 opacity-30" />
                   <p>Nenhum pedido encontrado</p>
                 </td>
@@ -126,6 +175,7 @@ function PedidosPage() {
                   (row.cliente as any)?.razaoSocial ??
                   "—";
                 const isCanceled = row.situacao_valor === 12;
+                const isLoading = reimprimindo === row.id;
                 return (
                   <tr
                     key={row.id}
@@ -144,7 +194,10 @@ function PedidosPage() {
                     <td className="px-4 py-3 text-muted-foreground">
                       {formatDate(row.data_pedido)}
                     </td>
-                    <td className="px-4 py-3 max-w-[200px] truncate" title={nomeCliente}>
+                    <td
+                      className="px-4 py-3 max-w-[180px] truncate"
+                      title={nomeCliente}
+                    >
                       {nomeCliente}
                     </td>
                     <td className="px-4 py-3 text-right tabular-nums">
@@ -156,6 +209,27 @@ function PedidosPage() {
                     <td className="px-4 py-3">{situacaoLabel(row.situacao_valor)}</td>
                     <td className="px-4 py-3 text-right text-muted-foreground">
                       {row.items_count}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={isLoading}
+                        onClick={() =>
+                          handleReimprimir({
+                            id: row.id,
+                            bling_pedido_id: row.bling_pedido_id,
+                          })
+                        }
+                        className="gap-1.5 text-muted-foreground hover:text-foreground"
+                      >
+                        {isLoading ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Printer className="h-4 w-4" />
+                        )}
+                        Reimprimir
+                      </Button>
                     </td>
                   </tr>
                 );
@@ -191,8 +265,12 @@ function PedidosPage() {
           </div>
         </div>
       )}
+
+      <PrinterConfig
+        open={showPrinterConfig}
+        onClose={() => setShowPrinterConfig(false)}
+        qzTray={qzTray}
+      />
     </div>
   );
 }
-
-const PAGE_SIZE = 50;

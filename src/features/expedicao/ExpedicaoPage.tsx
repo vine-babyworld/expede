@@ -1,18 +1,21 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { Search, X, CheckCircle2, XCircle, Sparkles } from "lucide-react";
+import {
+  Search,
+  X,
+  CheckCircle2,
+  XCircle,
+  Settings,
+  Printer,
+  Loader2,
+  Package,
+} from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -20,537 +23,648 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { playBeep } from "./beep";
+import { registrarBipagem } from "@/lib/bipagem.functions";
+import { buscarEtiquetaBling } from "@/lib/etiqueta.functions";
+import { gerarDanfeCustom } from "@/lib/danfe.functions";
+import { useQzTray } from "@/hooks/useQzTray";
+import { PrinterConfig } from "@/components/PrinterConfig";
 
-type Canal = {
-  id: string;
-  nome: string;
-  slug: string;
-  cor: string | null;
-};
+const IMPRESSORA_KEY = "qztray_impressora_padrao";
 
-type Produto = {
-  id: string;
-  sku: string;
-  nome: string;
-  ean_principal: string | null;
-  eans_alternativos: string[];
-  foto_url: string | null;
-  localizacao: string | null;
-};
+// ─── Tipos ───────────────────────────────────────────────────────────────────
 
-type ItemRow = {
+type ItemExpedicao = {
   id: string;
+  sku: string | null;
+  ean: string | null;
+  descricao: string;
   quantidade: number;
-  produto: Produto;
-  pedido: {
-    id: string;
-    numero_pedido: string;
-    metodo_envio: string | null;
-    bloco_separacao: string | null;
-    data_pedido: string | null;
-    canal: Canal | null;
-    total_itens: number;
-  };
+  quantidade_bipada: number;
 };
 
-async function fetchCanais(): Promise<Canal[]> {
-  const { data, error } = await supabase
-    .from("canais")
-    .select("id, nome, slug, cor")
-    .order("nome");
-  if (error) throw error;
-  return data as Canal[];
+type PedidoExpedicao = {
+  id: string;
+  bling_pedido_id: number;
+  numero: string;
+  numero_loja: string | null;
+  data_pedido: string | null;
+  cliente: { nome?: string; razaoSocial?: string } | null;
+  bling_nota_fiscal_id: number | null;
+  bling_nota_fiscal_numero: string | null;
+  situacao_valor: number | null;
+  itens: ItemExpedicao[];
+};
+
+function pedidoProgress(p: PedidoExpedicao) {
+  const total = p.itens.reduce((s, i) => s + i.quantidade, 0);
+  const bipado = p.itens.reduce((s, i) => s + i.quantidade_bipada, 0);
+  return { total, bipado, done: total > 0 && bipado >= total };
 }
 
-async function fetchItens(): Promise<ItemRow[]> {
+function nomeCliente(p: PedidoExpedicao): string {
+  return p.cliente?.nome ?? p.cliente?.razaoSocial ?? "—";
+}
+
+function formatDate(iso: string | null): string {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleDateString("pt-BR");
+}
+
+// ─── Fetch ────────────────────────────────────────────────────────────────────
+
+async function fetchPedidos(): Promise<PedidoExpedicao[]> {
   const { data, error } = await supabase
-    .from("pedido_itens")
+    .from("pedidos")
     .select(
-      `id, quantidade,
-       produto:produtos(id, sku, nome, ean_principal, eans_alternativos, foto_url, localizacao),
-       pedido:pedidos!inner(id, numero_pedido, metodo_envio, bloco_separacao, data_pedido, status,
-         canal:canais(id, nome, slug, cor),
-         itens:pedido_itens(id)
-       )`,
+      "id, bling_pedido_id, numero, numero_loja, data_pedido, cliente, bling_nota_fiscal_id, bling_nota_fiscal_numero, situacao_valor, pedido_itens(id, sku, ean, descricao, quantidade, quantidade_bipada)",
     )
-    .eq("pedido.status", "pendente");
+    .neq("situacao_valor", 12)
+    .order("data_pedido", { ascending: false });
+
   if (error) throw error;
-  type RawRow = {
-    id: string;
-    quantidade: number;
-    produto: Produto;
-    pedido: {
-      id: string;
-      numero_pedido: string;
-      metodo_envio: string | null;
-      bloco_separacao: string | null;
-      data_pedido: string | null;
-      canal: Canal | null;
-      itens: { id: string }[];
-    };
-  };
-  return (data as unknown as RawRow[]).map((r) => ({
-    id: r.id,
-    quantidade: r.quantidade,
-    produto: r.produto,
-    pedido: {
-      id: r.pedido.id,
-      numero_pedido: r.pedido.numero_pedido,
-      metodo_envio: r.pedido.metodo_envio,
-      bloco_separacao: r.pedido.bloco_separacao,
-      data_pedido: r.pedido.data_pedido,
-      canal: r.pedido.canal,
-      total_itens: r.pedido.itens?.length ?? 1,
-    },
+
+  return (data as any[]).map((p) => ({
+    id: p.id,
+    bling_pedido_id: p.bling_pedido_id,
+    numero: p.numero,
+    numero_loja: p.numero_loja ?? null,
+    data_pedido: p.data_pedido ?? null,
+    cliente: p.cliente ?? null,
+    bling_nota_fiscal_id: p.bling_nota_fiscal_id ?? null,
+    bling_nota_fiscal_numero: p.bling_nota_fiscal_numero ?? null,
+    situacao_valor: p.situacao_valor ?? null,
+    itens: (p.pedido_itens ?? []).map((i: any) => ({
+      id: i.id,
+      sku: i.sku ?? null,
+      ean: i.ean ?? null,
+      descricao: i.descricao ?? "",
+      quantidade: Number(i.quantidade ?? 1),
+      quantidade_bipada: Number(i.quantidade_bipada ?? 0),
+    })),
   }));
 }
 
+// ─── Página principal ─────────────────────────────────────────────────────────
+
 export function ExpedicaoPage() {
   const queryClient = useQueryClient();
-  const { data: canais = [] } = useQuery({
-    queryKey: ["canais"],
-    queryFn: fetchCanais,
-  });
-  const { data: itens = [], isLoading } = useQuery({
-    queryKey: ["expedicao-itens"],
-    queryFn: fetchItens,
+  const qzTray = useQzTray();
+
+  const { data: pedidos = [], isLoading } = useQuery({
+    queryKey: ["expedicao-pedidos"],
+    queryFn: fetchPedidos,
+    refetchInterval: 30_000,
   });
 
   const [busca, setBusca] = useState("");
-  const [canalFiltro, setCanalFiltro] = useState("todos");
-  const [blocoFiltro, setBlocoFiltro] = useState("todos");
-  const [itemAtivo, setItemAtivo] = useState<ItemRow | null>(null);
+  const [pedidoAtivo, setPedidoAtivo] = useState<PedidoExpedicao | null>(null);
+  const [showPrinterConfig, setShowPrinterConfig] = useState(false);
 
-  const pedidosPendentes = useMemo(() => {
-    return new Set(itens.map((i) => i.pedido.id)).size;
-  }, [itens]);
-
-  const blocos = useMemo(() => {
-    const s = new Set<string>();
-    itens.forEach((i) => i.pedido.bloco_separacao && s.add(i.pedido.bloco_separacao));
-    return Array.from(s).sort();
-  }, [itens]);
+  const pendentes = useMemo(
+    () => pedidos.filter((p) => !pedidoProgress(p).done),
+    [pedidos],
+  );
 
   const filtrados = useMemo(() => {
     const q = busca.trim().toLowerCase();
-    return itens.filter((i) => {
-      if (canalFiltro !== "todos" && i.pedido.canal?.id !== canalFiltro)
-        return false;
-      if (blocoFiltro !== "todos" && i.pedido.bloco_separacao !== blocoFiltro)
-        return false;
-      if (q) {
-        const eans = [
-          i.produto.ean_principal ?? "",
-          ...(i.produto.eans_alternativos ?? []),
-        ].join(" ");
-        const hay = `${i.produto.sku} ${eans}`.toLowerCase();
-        if (!hay.includes(q)) return false;
+    if (!q) return pendentes;
+    return pendentes.filter(
+      (p) =>
+        p.numero.toLowerCase().includes(q) ||
+        (p.numero_loja ?? "").toLowerCase().includes(q) ||
+        nomeCliente(p).toLowerCase().includes(q),
+    );
+  }, [pendentes, busca]);
+
+  const handleBiparPedido = useCallback(
+    (pedido: PedidoExpedicao) => {
+      // Refresca o pedido da lista antes de abrir (garante dados atualizados)
+      const fresh = pedidos.find((p) => p.id === pedido.id) ?? pedido;
+      setPedidoAtivo(fresh);
+    },
+    [pedidos],
+  );
+
+  const handleImpressaoAutomatica = useCallback(
+    async (pedido: PedidoExpedicao) => {
+      const impressora = localStorage.getItem(IMPRESSORA_KEY);
+      if (!impressora) {
+        setShowPrinterConfig(true);
+        toast.info("Selecione uma impressora padrão antes de continuar");
+        return;
       }
-      return true;
-    });
-  }, [itens, busca, canalFiltro, blocoFiltro]);
+
+      toast.loading("Gerando documentos...", { id: "print" });
+
+      try {
+        const [etiquetaResult, danfeResult] = await Promise.all([
+          (async () => {
+            const fn = buscarEtiquetaBling;
+            // Chamada direta sem useServerFn (estamos em callback)
+            return fn({ data: { pedidoId: pedido.bling_pedido_id } });
+          })(),
+          (async () => {
+            const fn = gerarDanfeCustom;
+            return fn({ data: { pedidoId: pedido.id } });
+          })(),
+        ]);
+
+        toast.loading("Imprimindo...", { id: "print" });
+
+        if (etiquetaResult.ok && etiquetaResult.tipo === "zpl") {
+          await qzTray.imprimirZpl(etiquetaResult.conteudo, impressora);
+        } else if (!etiquetaResult.ok) {
+          console.warn("[impressao] etiqueta não disponível:", etiquetaResult.error);
+        }
+
+        if (danfeResult.ok) {
+          await qzTray.imprimirPdf(danfeResult.pdf, impressora);
+        } else {
+          console.warn("[impressao] DANFE não gerada:", danfeResult.error);
+        }
+
+        toast.success("Etiqueta e DANFE impressas", { id: "print" });
+      } catch (err) {
+        console.error("[impressao] erro:", err);
+        toast.error("Erro na impressão — verifique o QZ Tray", { id: "print" });
+      }
+    },
+    [qzTray],
+  );
 
   return (
-    <div className="p-8 max-w-[1600px] mx-auto">
+    <div className="p-8 max-w-[1400px] mx-auto">
+      {/* Header */}
       <div className="flex items-start justify-between gap-6 mb-6">
         <div>
           <h1 className="text-4xl font-bold tracking-tight text-foreground">
             Checkout por Produto
           </h1>
           <p className="text-sm text-muted-foreground mt-2">
-            Bipe o código de barras de cada produto para liberar o faturamento
+            Selecione um pedido e bipe os itens para liberar a expedição
           </p>
         </div>
-        <div className="rounded-xl bg-primary text-primary-foreground px-6 py-4 text-center shadow-md min-w-[200px]">
-          <div className="text-4xl font-bold leading-none">{pedidosPendentes}</div>
-          <div className="text-xs uppercase tracking-wider opacity-80 mt-1">
-            pedidos pendentes
+        <div className="flex items-center gap-3">
+          <div className="rounded-xl bg-primary text-primary-foreground px-6 py-4 text-center shadow-md min-w-[160px]">
+            <div className="text-4xl font-bold leading-none">{pendentes.length}</div>
+            <div className="text-xs uppercase tracking-wider opacity-80 mt-1">
+              pedidos pendentes
+            </div>
           </div>
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => setShowPrinterConfig(true)}
+            title="Configurar impressora"
+            className="h-12 w-12"
+          >
+            <Settings className="h-5 w-5" />
+          </Button>
         </div>
       </div>
 
-      {/* Filtros */}
-      <div className="bg-card rounded-xl border p-4 mb-6 flex flex-wrap gap-3 items-center shadow-sm">
-        <div className="relative flex-1 min-w-[280px]">
+      {/* Filtro */}
+      <div className="bg-card rounded-xl border p-4 mb-6 shadow-sm">
+        <div className="relative max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Buscar por SKU ou EAN..."
+            placeholder="Buscar por número, loja ou cliente..."
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
             className="pl-9 h-11"
           />
         </div>
-        <Select value={canalFiltro} onValueChange={setCanalFiltro}>
-          <SelectTrigger className="w-[200px] h-11">
-            <SelectValue placeholder="Canal de Venda" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="todos">Todos os canais</SelectItem>
-            {canais.map((c) => (
-              <SelectItem key={c.id} value={c.id}>
-                {c.nome}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={blocoFiltro} onValueChange={setBlocoFiltro}>
-          <SelectTrigger className="w-[200px] h-11">
-            <SelectValue placeholder="Bloco" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="todos">Todos os blocos</SelectItem>
-            {blocos.map((b) => (
-              <SelectItem key={b} value={b}>
-                {b}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
       </div>
 
       {/* Lista */}
       {isLoading ? (
-        <div className="text-center py-20 text-muted-foreground">Carregando...</div>
+        <div className="text-center py-20 text-muted-foreground">
+          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-3" />
+          Carregando pedidos...
+        </div>
       ) : filtrados.length === 0 ? (
         <div className="text-center py-20 text-muted-foreground bg-card border rounded-xl">
-          Nenhum item encontrado com os filtros atuais.
+          <Package className="h-12 w-12 mx-auto mb-3 opacity-30" />
+          {busca ? "Nenhum pedido com esse filtro." : "Nenhum pedido pendente."}
         </div>
       ) : (
-        <div className="space-y-4">
-          {filtrados.map((item) => (
-            <ItemCard
-              key={item.id}
-              item={item}
-              onBipar={() => setItemAtivo(item)}
+        <div className="space-y-3">
+          {filtrados.map((pedido) => (
+            <PedidoCard
+              key={pedido.id}
+              pedido={pedido}
+              onBipar={() => handleBiparPedido(pedido)}
+              onReimprimir={() => handleImpressaoAutomatica(pedido)}
             />
           ))}
         </div>
       )}
 
+      {/* Modal de bipagem */}
       <BipagemModal
-        item={itemAtivo}
-        onClose={() => setItemAtivo(null)}
-        onRegistered={() => {
-          queryClient.invalidateQueries({ queryKey: ["expedicao-itens"] });
+        pedido={pedidoAtivo}
+        onClose={() => setPedidoAtivo(null)}
+        onConcluido={(pedido) => {
+          queryClient.invalidateQueries({ queryKey: ["expedicao-pedidos"] });
+          setPedidoAtivo(null);
+          handleImpressaoAutomatica(pedido);
         }}
+        onRegistered={() =>
+          queryClient.invalidateQueries({ queryKey: ["expedicao-pedidos"] })
+        }
+      />
+
+      {/* Config de impressora */}
+      <PrinterConfig
+        open={showPrinterConfig}
+        onClose={() => setShowPrinterConfig(false)}
+        qzTray={qzTray}
       />
     </div>
   );
 }
 
-function ItemCard({
-  item,
+// ─── Card de pedido ───────────────────────────────────────────────────────────
+
+function PedidoCard({
+  pedido,
   onBipar,
+  onReimprimir,
 }: {
-  item: ItemRow;
+  pedido: PedidoExpedicao;
   onBipar: () => void;
+  onReimprimir: () => void;
 }) {
-  const facil = item.pedido.total_itens === 1;
-  const canal = item.pedido.canal;
-  const data = item.pedido.data_pedido
-    ? new Date(item.pedido.data_pedido).toLocaleDateString("pt-BR")
-    : "—";
+  const { total, bipado, done } = pedidoProgress(pedido);
+  const pct = total > 0 ? Math.round((bipado / total) * 100) : 0;
 
   return (
-    <div className="bg-card border rounded-xl shadow-sm hover:shadow-md transition-shadow p-5 flex gap-5 items-center">
-      <div className="relative shrink-0">
-        <img
-          src={item.produto.foto_url ?? ""}
-          alt={item.produto.nome}
-          className="w-[180px] h-[180px] object-cover rounded-lg bg-muted"
-        />
-        {facil && (
-          <div className="absolute bottom-2 left-2 right-2 bg-success text-success-foreground text-xs font-semibold px-2 py-1.5 rounded-md text-center flex items-center justify-center gap-1 shadow">
-            <Sparkles className="h-3 w-3" />
-            Fácil separação
+    <div
+      className={`bg-card border rounded-xl shadow-sm p-5 flex items-center gap-5 transition-shadow hover:shadow-md ${
+        done ? "opacity-60" : ""
+      }`}
+    >
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-3 mb-2">
+          <span className="text-lg font-bold font-mono">#{pedido.numero}</span>
+          {pedido.numero_loja && pedido.numero_loja !== pedido.numero && (
+            <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">
+              Loja: {pedido.numero_loja}
+            </span>
+          )}
+          {done && (
+            <span className="text-xs bg-success/20 text-success font-semibold px-2 py-0.5 rounded">
+              Concluído
+            </span>
+          )}
+        </div>
+
+        <div className="text-sm text-muted-foreground mb-3">
+          {nomeCliente(pedido)} • {formatDate(pedido.data_pedido)} •{" "}
+          NF: {pedido.bling_nota_fiscal_numero ?? "—"}
+        </div>
+
+        {/* Progress bar */}
+        <div className="flex items-center gap-3">
+          <div className="flex-1 bg-muted rounded-full h-2 overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all ${
+                done ? "bg-success" : "bg-primary"
+              }`}
+              style={{ width: `${pct}%` }}
+            />
           </div>
+          <span className="text-xs text-muted-foreground whitespace-nowrap">
+            {bipado}/{total} itens ({pedido.itens.length} SKU{pedido.itens.length !== 1 ? "s" : ""})
+          </span>
+        </div>
+      </div>
+
+      <div className="flex gap-2 shrink-0">
+        {done && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onReimprimir}
+            className="gap-1.5"
+          >
+            <Printer className="h-4 w-4" />
+            Reimprimir
+          </Button>
+        )}
+        {!done && (
+          <Button
+            onClick={onBipar}
+            className="bg-success hover:bg-success/90 text-success-foreground font-bold px-8 h-auto py-3"
+          >
+            BIPAR
+          </Button>
         )}
       </div>
-
-      <div className="flex-1 min-w-0">
-        <h3 className="text-xl font-bold text-foreground mb-4 leading-tight">
-          {item.produto.nome}
-        </h3>
-        <div className="grid grid-cols-4 gap-6">
-          <Field label="Canal de venda">
-            <span
-              className="inline-block px-3 py-1 rounded-full text-xs font-semibold"
-              style={{
-                backgroundColor: canal?.cor ?? "#e5e7eb",
-                color: pickTextColor(canal?.cor ?? "#e5e7eb"),
-              }}
-            >
-              {canal?.nome ?? "—"}
-            </span>
-          </Field>
-          <Field label="SKU">
-            <span className="font-mono font-semibold">{item.produto.sku}</span>
-          </Field>
-          <Field label="EAN">
-            <span className="font-mono text-sm">
-              {item.produto.ean_principal ?? "—"}
-            </span>
-          </Field>
-          <Field label="Quantidade">
-            <span className="text-2xl font-bold">{item.quantidade}</span>
-          </Field>
-        </div>
-        <div className="mt-4 text-xs text-muted-foreground">
-          Pedido #{item.pedido.numero_pedido} • Envio:{" "}
-          {item.pedido.metodo_envio ?? "—"} • Data: {data} • Local:{" "}
-          {item.produto.localizacao ?? "—"}
-        </div>
-      </div>
-
-      <div className="shrink-0">
-        <Button
-          onClick={onBipar}
-          className="bg-success hover:bg-success/90 text-success-foreground font-bold text-lg py-7 px-10 h-auto rounded-lg shadow"
-        >
-          BIPAR
-        </Button>
-      </div>
     </div>
   );
 }
 
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div>
-      <div className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium mb-1.5">
-        {label}
-      </div>
-      <div>{children}</div>
-    </div>
-  );
-}
-
-function pickTextColor(hex: string): string {
-  const c = hex.replace("#", "");
-  if (c.length !== 6) return "#000";
-  const r = parseInt(c.slice(0, 2), 16);
-  const g = parseInt(c.slice(2, 4), 16);
-  const b = parseInt(c.slice(4, 6), 16);
-  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-  return lum > 0.6 ? "#1a1a1a" : "#fff";
-}
+// ─── Modal de bipagem ─────────────────────────────────────────────────────────
 
 type ResultadoStatus = "ok" | "erro" | null;
 
 function BipagemModal({
-  item,
+  pedido,
   onClose,
+  onConcluido,
   onRegistered,
 }: {
-  item: ItemRow | null;
+  pedido: PedidoExpedicao | null;
   onClose: () => void;
+  onConcluido: (pedido: PedidoExpedicao) => void;
   onRegistered: () => void;
 }) {
   const { user, profile } = useAuth();
+  const registrarFn = useServerFn(registrarBipagem);
+
   const [valor, setValor] = useState("");
   const [status, setStatus] = useState<ResultadoStatus>(null);
-  const [mensagem, setMensagem] = useState<string>("");
+  const [mensagem, setMensagem] = useState("");
+  const [itemAtivo, setItemAtivo] = useState<ItemExpedicao | null>(null);
+  const [imprimindo, setImprimindo] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // Seleciona automaticamente o primeiro item incompleto
   useEffect(() => {
-    if (item) {
-      setValor("");
-      setStatus(null);
-      setMensagem("");
-      setTimeout(() => inputRef.current?.focus(), 100);
+    if (!pedido) {
+      setItemAtivo(null);
+      return;
     }
-  }, [item]);
+    const incompleto = pedido.itens.find(
+      (i) => i.quantidade_bipada < i.quantidade,
+    );
+    setItemAtivo(incompleto ?? null);
+    setValor("");
+    setStatus(null);
+    setMensagem("");
+    setTimeout(() => inputRef.current?.focus(), 120);
+  }, [pedido]);
 
-  if (!item) return null;
-
-  const registrarBipagem = async (
-    codigo: string,
-    resultado:
-      | "sucesso"
-      | "erro_ean_invalido"
-      | "sem_codigo"
-      | "produto_errado"
-      | "sem_estoque",
-  ) => {
-    await supabase.from("bipagens").insert({
-      pedido_item_id: item.id,
-      codigo_bipado: codigo,
-      resultado,
-      usuario: profile?.nome ?? user?.email ?? null,
-      user_id: user?.id ?? null,
-    });
-  };
+  if (!pedido) return null;
 
   const handleEnter = async () => {
     if (!valor.trim()) return;
     const code = valor.trim();
-    const eans = [
-      item.produto.ean_principal ?? "",
-      ...(item.produto.eans_alternativos ?? []),
-    ].filter(Boolean);
-    const ok = eans.includes(code);
+
+    // Tenta encontrar item que corresponde ao EAN escaneado e ainda precisa de bipes
+    const match = pedido.itens.find(
+      (i) => i.ean === code && i.quantidade_bipada < i.quantidade,
+    );
+
+    const alvoItem = match ?? itemAtivo;
+
+    if (!alvoItem) {
+      playBeep(false);
+      setStatus("erro");
+      setMensagem("Nenhum item pendente com esse EAN");
+      return;
+    }
+
+    const ok = alvoItem.ean === code;
 
     if (ok) {
       setStatus("ok");
-      setMensagem("EAN confirmado");
+      setMensagem(`✓ ${alvoItem.descricao}`);
       playBeep(true);
-      await registrarBipagem(code, "sucesso");
+
+      const result = await registrarFn({
+        data: {
+          pedidoItemId: alvoItem.id,
+          pedidoId: pedido.id,
+          codigoBipado: code,
+          resultado: "sucesso",
+          usuario: profile?.nome ?? user?.email ?? null,
+        },
+      });
+
       onRegistered();
+
+      if (result.ok && result.pedidoConcluido) {
+        setImprimindo(true);
+        setTimeout(() => {
+          setImprimindo(false);
+          onConcluido(pedido);
+        }, 800);
+        return;
+      }
     } else {
       setStatus("erro");
       setMensagem(
-        `EAN não confere — esperado: ${item.produto.ean_principal ?? "—"}, recebido: ${code}`,
+        `EAN não confere — esperado: ${alvoItem.ean ?? "—"}, recebido: ${code}`,
       );
       playBeep(false);
-      await registrarBipagem(code, "erro_ean_invalido");
+      await registrarFn({
+        data: {
+          pedidoItemId: alvoItem.id,
+          pedidoId: pedido.id,
+          codigoBipado: code,
+          resultado: "erro_ean_invalido",
+          usuario: profile?.nome ?? user?.email ?? null,
+        },
+      });
       onRegistered();
-      setTimeout(() => {
-        setValor("");
-        setStatus(null);
-        setMensagem("");
-        inputRef.current?.focus();
-      }, 1000);
     }
+
+    setTimeout(() => {
+      setValor("");
+      setStatus(null);
+      setMensagem("");
+      inputRef.current?.focus();
+    }, ok ? 600 : 1200);
   };
 
   const excecao = async (
     resultado: "sem_codigo" | "produto_errado" | "sem_estoque",
     label: string,
   ) => {
-    await registrarBipagem("", resultado);
+    if (!itemAtivo) return;
+    await registrarFn({
+      data: {
+        pedidoItemId: itemAtivo.id,
+        pedidoId: pedido.id,
+        codigoBipado: "",
+        resultado,
+        usuario: profile?.nome ?? user?.email ?? null,
+      },
+    });
     onRegistered();
     toast.success(`Registrado: ${label}`);
     onClose();
   };
 
+  const { total, bipado } = pedidoProgress(pedido);
+
   return (
-    <Dialog open={!!item} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-5xl p-0 gap-0 overflow-hidden">
+    <Dialog open={!!pedido} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-3xl p-0 gap-0 overflow-hidden">
         <DialogHeader className="px-6 py-4 border-b flex flex-row items-center justify-between space-y-0">
-          <DialogTitle className="text-xl">Bipagem de Produto</DialogTitle>
+          <div>
+            <DialogTitle className="text-lg">
+              Bipagem — Pedido #{pedido.numero}
+            </DialogTitle>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              {nomeCliente(pedido)} • {bipado}/{total} itens bipados
+            </p>
+          </div>
           <button
             onClick={onClose}
             className="text-muted-foreground hover:text-foreground"
-            aria-label="Fechar"
           >
             <X className="h-5 w-5" />
           </button>
         </DialogHeader>
 
-        <div className="grid grid-cols-5 gap-0">
-          {/* Foto */}
-          <div className="col-span-2 bg-muted p-6 flex items-center justify-center">
-            <img
-              src={item.produto.foto_url ?? ""}
-              alt={item.produto.nome}
-              className="w-full aspect-square object-cover rounded-xl shadow"
-            />
+        {/* Overlay de impressão */}
+        {imprimindo && (
+          <div className="absolute inset-0 z-50 bg-background/80 backdrop-blur-sm flex flex-col items-center justify-center gap-3">
+            <Loader2 className="h-10 w-10 animate-spin text-primary" />
+            <p className="font-semibold text-lg">Pedido concluído — Imprimindo...</p>
+          </div>
+        )}
+
+        <div className="grid grid-cols-5">
+          {/* Lista de itens */}
+          <div className="col-span-2 border-r bg-muted/30 p-4 space-y-2 max-h-[500px] overflow-y-auto">
+            {pedido.itens.map((item) => {
+              const done = item.quantidade_bipada >= item.quantidade;
+              const isAtivo = itemAtivo?.id === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => !done && setItemAtivo(item)}
+                  className={`w-full text-left p-3 rounded-lg border text-sm transition-colors ${
+                    done
+                      ? "border-success/40 bg-success/10 text-muted-foreground"
+                      : isAtivo
+                        ? "border-primary bg-primary/5 font-medium"
+                        : "border-border bg-card hover:bg-muted/50"
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="font-mono text-xs text-muted-foreground">
+                      {item.sku ?? "—"}
+                    </span>
+                    {done ? (
+                      <CheckCircle2 className="h-4 w-4 text-success" />
+                    ) : (
+                      <span className="text-xs font-semibold text-primary">
+                        {item.quantidade_bipada}/{item.quantidade}
+                      </span>
+                    )}
+                  </div>
+                  <p className="leading-tight line-clamp-2">{item.descricao}</p>
+                  {item.ean && (
+                    <p className="text-xs font-mono text-muted-foreground mt-1">
+                      {item.ean}
+                    </p>
+                  )}
+                </button>
+              );
+            })}
           </div>
 
-          {/* Conteúdo */}
-          <div className="col-span-3 p-8 space-y-5">
-            <div>
-              <h2 className="text-2xl font-bold leading-tight">
-                {item.produto.nome}
-              </h2>
-              <p className="text-sm text-muted-foreground mt-1">
-                SKU: <span className="font-mono">{item.produto.sku}</span> •
-                Canal: {item.pedido.canal?.nome ?? "—"}
-              </p>
-            </div>
-
-            <div>
-              <div className="text-xs uppercase tracking-wider text-muted-foreground font-medium mb-2">
-                EAN esperado
-              </div>
-              <div className="text-4xl font-mono font-bold tracking-tight text-foreground">
-                {item.produto.ean_principal ?? "—"}
-              </div>
-            </div>
-
-            <div>
-              <label className="text-sm font-medium block mb-2">
-                Bipe o código de barras
-              </label>
-              <input
-                ref={inputRef}
-                value={valor}
-                onChange={(e) => {
-                  setValor(e.target.value);
-                  if (status) {
-                    setStatus(null);
-                    setMensagem("");
-                  }
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    handleEnter();
-                  }
-                }}
-                className={`w-full h-16 px-4 text-2xl font-mono rounded-lg border-4 outline-none transition-colors bg-background ${
-                  status === "ok"
-                    ? "border-success"
-                    : status === "erro"
-                      ? "border-destructive"
-                      : "border-input focus:border-primary"
-                }`}
-                placeholder="Aguardando leitura..."
-              />
-              {status === "ok" && (
-                <div className="mt-3 flex items-center gap-2 text-success font-semibold">
-                  <CheckCircle2 className="h-6 w-6" />
-                  <span>✅ {mensagem}</span>
+          {/* Área de scan */}
+          <div className="col-span-3 p-6 space-y-5">
+            {itemAtivo ? (
+              <>
+                <div>
+                  <p className="text-xs uppercase tracking-wider text-muted-foreground font-medium mb-1">
+                    Item ativo
+                  </p>
+                  <h2 className="text-xl font-bold leading-tight">
+                    {itemAtivo.descricao}
+                  </h2>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    SKU: <span className="font-mono">{itemAtivo.sku ?? "—"}</span>
+                    {" "}•{" "}
+                    {itemAtivo.quantidade_bipada}/{itemAtivo.quantidade} unid.
+                  </p>
                 </div>
-              )}
-              {status === "erro" && (
-                <div className="mt-3 flex items-center gap-2 text-destructive font-semibold">
-                  <XCircle className="h-6 w-6" />
-                  <span>❌ {mensagem}</span>
-                </div>
-              )}
-            </div>
 
-            {status === "ok" && (
-              <Button
-                onClick={() =>
-                  toast.info("Será implementado na próxima fase")
-                }
-                className="w-full bg-success hover:bg-success/90 text-success-foreground font-bold text-lg py-7 h-auto"
-              >
-                FATURAR E IMPRIMIR
-              </Button>
+                <div>
+                  <p className="text-xs uppercase tracking-wider text-muted-foreground font-medium mb-1">
+                    EAN esperado
+                  </p>
+                  <p className="text-3xl font-mono font-bold tracking-tight">
+                    {itemAtivo.ean ?? "—"}
+                  </p>
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium block mb-2">
+                    Bipe o código de barras
+                  </label>
+                  <input
+                    ref={inputRef}
+                    value={valor}
+                    onChange={(e) => {
+                      setValor(e.target.value);
+                      if (status) { setStatus(null); setMensagem(""); }
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") { e.preventDefault(); handleEnter(); }
+                    }}
+                    className={`w-full h-14 px-4 text-xl font-mono rounded-lg border-4 outline-none transition-colors bg-background ${
+                      status === "ok"
+                        ? "border-success"
+                        : status === "erro"
+                          ? "border-destructive"
+                          : "border-input focus:border-primary"
+                    }`}
+                    placeholder="Aguardando leitura..."
+                    autoComplete="off"
+                  />
+                  {status === "ok" && (
+                    <div className="mt-2 flex items-center gap-2 text-success font-semibold text-sm">
+                      <CheckCircle2 className="h-5 w-5" />
+                      {mensagem}
+                    </div>
+                  )}
+                  {status === "erro" && (
+                    <div className="mt-2 flex items-center gap-2 text-destructive font-semibold text-sm">
+                      <XCircle className="h-5 w-5" />
+                      {mensagem}
+                    </div>
+                  )}
+                </div>
+
+                <div className="pt-3 border-t flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => excecao("sem_codigo", "Produto sem código de barras")}
+                  >
+                    Sem código de barras
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => excecao("produto_errado", "Produto errado")}
+                  >
+                    Produto errado
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => excecao("sem_estoque", "Sem estoque")}
+                  >
+                    Sem estoque
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <div className="flex flex-col items-center justify-center h-full py-12 text-center text-muted-foreground gap-3">
+                <CheckCircle2 className="h-12 w-12 text-success" />
+                <p className="font-semibold text-success text-lg">Todos os itens bipados!</p>
+                <p className="text-sm">Aguardando impressão automática...</p>
+              </div>
             )}
-
-            <div className="pt-4 border-t flex flex-wrap gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => excecao("sem_codigo", "Produto sem código de barras")}
-              >
-                Produto sem código de barras
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => excecao("produto_errado", "Produto está dando errado")}
-              >
-                Produto está dando errado
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => excecao("sem_estoque", "Produto sem estoque")}
-              >
-                Produto sem estoque
-              </Button>
-            </div>
           </div>
         </div>
       </DialogContent>
