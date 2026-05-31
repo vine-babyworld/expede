@@ -1,11 +1,12 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { LayoutDashboard, Package, ShoppingBag, Settings, LogOut } from "lucide-react";
+import { LayoutDashboard, Package, ShoppingBag, Settings, LogOut, ClipboardList } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 
 const items = [
   { label: "Dashboard", to: "/dashboard", icon: LayoutDashboard },
   { label: "Expedição", to: "/expedicao", icon: Package },
+  { label: "Pedidos", to: "/pedidos", icon: ClipboardList },
   { label: "Produtos", to: "/produtos", icon: ShoppingBag },
   { label: "Configurações", to: "/configuracoes", icon: Settings },
 ];

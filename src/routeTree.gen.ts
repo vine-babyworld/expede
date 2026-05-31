@@ -13,6 +13,7 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppProdutosRouteImport } from './routes/_app/produtos'
+import { Route as AppPedidosRouteImport } from './routes/_app/pedidos'
 import { Route as AppExpedicaoRouteImport } from './routes/_app/expedicao'
 import { Route as AppDashboardRouteImport } from './routes/_app/dashboard'
 import { Route as AppConfiguracoesRouteImport } from './routes/_app/configuracoes'
@@ -22,6 +23,7 @@ import { Route as AppConfiguracoesBlingRouteImport } from './routes/_app/configu
 import { Route as ApiPublicHooksBlingSyncProductsRunRouteImport } from './routes/api/public/hooks/bling-sync-products-run'
 import { Route as ApiPublicHooksBlingSyncProductsDailyRouteImport } from './routes/api/public/hooks/bling-sync-products-daily'
 import { Route as ApiPublicHooksBlingRefreshRouteImport } from './routes/api/public/hooks/bling-refresh'
+import { Route as ApiPublicHooksBlingPedidosRouteImport } from './routes/api/public/hooks/bling-pedidos'
 
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
@@ -40,6 +42,11 @@ const IndexRoute = IndexRouteImport.update({
 const AppProdutosRoute = AppProdutosRouteImport.update({
   id: '/produtos',
   path: '/produtos',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppPedidosRoute = AppPedidosRouteImport.update({
+  id: '/pedidos',
+  path: '/pedidos',
   getParentRoute: () => AppRoute,
 } as any)
 const AppExpedicaoRoute = AppExpedicaoRouteImport.update({
@@ -90,6 +97,12 @@ const ApiPublicHooksBlingRefreshRoute =
     path: '/api/public/hooks/bling-refresh',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiPublicHooksBlingPedidosRoute =
+  ApiPublicHooksBlingPedidosRouteImport.update({
+    id: '/api/public/hooks/bling-pedidos',
+    path: '/api/public/hooks/bling-pedidos',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -97,10 +110,12 @@ export interface FileRoutesByFullPath {
   '/configuracoes': typeof AppConfiguracoesRouteWithChildren
   '/dashboard': typeof AppDashboardRoute
   '/expedicao': typeof AppExpedicaoRoute
+  '/pedidos': typeof AppPedidosRoute
   '/produtos': typeof AppProdutosRoute
   '/configuracoes/bling': typeof AppConfiguracoesBlingRoute
   '/oauth/bling/callback': typeof OauthBlingCallbackRoute
   '/configuracoes/': typeof AppConfiguracoesIndexRoute
+  '/api/public/hooks/bling-pedidos': typeof ApiPublicHooksBlingPedidosRoute
   '/api/public/hooks/bling-refresh': typeof ApiPublicHooksBlingRefreshRoute
   '/api/public/hooks/bling-sync-products-daily': typeof ApiPublicHooksBlingSyncProductsDailyRoute
   '/api/public/hooks/bling-sync-products-run': typeof ApiPublicHooksBlingSyncProductsRunRoute
@@ -110,10 +125,12 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/dashboard': typeof AppDashboardRoute
   '/expedicao': typeof AppExpedicaoRoute
+  '/pedidos': typeof AppPedidosRoute
   '/produtos': typeof AppProdutosRoute
   '/configuracoes/bling': typeof AppConfiguracoesBlingRoute
   '/oauth/bling/callback': typeof OauthBlingCallbackRoute
   '/configuracoes': typeof AppConfiguracoesIndexRoute
+  '/api/public/hooks/bling-pedidos': typeof ApiPublicHooksBlingPedidosRoute
   '/api/public/hooks/bling-refresh': typeof ApiPublicHooksBlingRefreshRoute
   '/api/public/hooks/bling-sync-products-daily': typeof ApiPublicHooksBlingSyncProductsDailyRoute
   '/api/public/hooks/bling-sync-products-run': typeof ApiPublicHooksBlingSyncProductsRunRoute
@@ -126,10 +143,12 @@ export interface FileRoutesById {
   '/_app/configuracoes': typeof AppConfiguracoesRouteWithChildren
   '/_app/dashboard': typeof AppDashboardRoute
   '/_app/expedicao': typeof AppExpedicaoRoute
+  '/_app/pedidos': typeof AppPedidosRoute
   '/_app/produtos': typeof AppProdutosRoute
   '/_app/configuracoes/bling': typeof AppConfiguracoesBlingRoute
   '/oauth/bling/callback': typeof OauthBlingCallbackRoute
   '/_app/configuracoes/': typeof AppConfiguracoesIndexRoute
+  '/api/public/hooks/bling-pedidos': typeof ApiPublicHooksBlingPedidosRoute
   '/api/public/hooks/bling-refresh': typeof ApiPublicHooksBlingRefreshRoute
   '/api/public/hooks/bling-sync-products-daily': typeof ApiPublicHooksBlingSyncProductsDailyRoute
   '/api/public/hooks/bling-sync-products-run': typeof ApiPublicHooksBlingSyncProductsRunRoute
@@ -142,10 +161,12 @@ export interface FileRouteTypes {
     | '/configuracoes'
     | '/dashboard'
     | '/expedicao'
+    | '/pedidos'
     | '/produtos'
     | '/configuracoes/bling'
     | '/oauth/bling/callback'
     | '/configuracoes/'
+    | '/api/public/hooks/bling-pedidos'
     | '/api/public/hooks/bling-refresh'
     | '/api/public/hooks/bling-sync-products-daily'
     | '/api/public/hooks/bling-sync-products-run'
@@ -155,10 +176,12 @@ export interface FileRouteTypes {
     | '/login'
     | '/dashboard'
     | '/expedicao'
+    | '/pedidos'
     | '/produtos'
     | '/configuracoes/bling'
     | '/oauth/bling/callback'
     | '/configuracoes'
+    | '/api/public/hooks/bling-pedidos'
     | '/api/public/hooks/bling-refresh'
     | '/api/public/hooks/bling-sync-products-daily'
     | '/api/public/hooks/bling-sync-products-run'
@@ -170,10 +193,12 @@ export interface FileRouteTypes {
     | '/_app/configuracoes'
     | '/_app/dashboard'
     | '/_app/expedicao'
+    | '/_app/pedidos'
     | '/_app/produtos'
     | '/_app/configuracoes/bling'
     | '/oauth/bling/callback'
     | '/_app/configuracoes/'
+    | '/api/public/hooks/bling-pedidos'
     | '/api/public/hooks/bling-refresh'
     | '/api/public/hooks/bling-sync-products-daily'
     | '/api/public/hooks/bling-sync-products-run'
@@ -184,6 +209,7 @@ export interface RootRouteChildren {
   AppRoute: typeof AppRouteWithChildren
   LoginRoute: typeof LoginRoute
   OauthBlingCallbackRoute: typeof OauthBlingCallbackRoute
+  ApiPublicHooksBlingPedidosRoute: typeof ApiPublicHooksBlingPedidosRoute
   ApiPublicHooksBlingRefreshRoute: typeof ApiPublicHooksBlingRefreshRoute
   ApiPublicHooksBlingSyncProductsDailyRoute: typeof ApiPublicHooksBlingSyncProductsDailyRoute
   ApiPublicHooksBlingSyncProductsRunRoute: typeof ApiPublicHooksBlingSyncProductsRunRoute
@@ -217,6 +243,13 @@ declare module '@tanstack/react-router' {
       path: '/produtos'
       fullPath: '/produtos'
       preLoaderRoute: typeof AppProdutosRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/pedidos': {
+      id: '/_app/pedidos'
+      path: '/pedidos'
+      fullPath: '/pedidos'
+      preLoaderRoute: typeof AppPedidosRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/expedicao': {
@@ -282,6 +315,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicHooksBlingRefreshRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/hooks/bling-pedidos': {
+      id: '/api/public/hooks/bling-pedidos'
+      path: '/api/public/hooks/bling-pedidos'
+      fullPath: '/api/public/hooks/bling-pedidos'
+      preLoaderRoute: typeof ApiPublicHooksBlingPedidosRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -302,6 +342,7 @@ interface AppRouteChildren {
   AppConfiguracoesRoute: typeof AppConfiguracoesRouteWithChildren
   AppDashboardRoute: typeof AppDashboardRoute
   AppExpedicaoRoute: typeof AppExpedicaoRoute
+  AppPedidosRoute: typeof AppPedidosRoute
   AppProdutosRoute: typeof AppProdutosRoute
 }
 
@@ -309,6 +350,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppConfiguracoesRoute: AppConfiguracoesRouteWithChildren,
   AppDashboardRoute: AppDashboardRoute,
   AppExpedicaoRoute: AppExpedicaoRoute,
+  AppPedidosRoute: AppPedidosRoute,
   AppProdutosRoute: AppProdutosRoute,
 }
 
@@ -319,6 +361,7 @@ const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRouteWithChildren,
   LoginRoute: LoginRoute,
   OauthBlingCallbackRoute: OauthBlingCallbackRoute,
+  ApiPublicHooksBlingPedidosRoute: ApiPublicHooksBlingPedidosRoute,
   ApiPublicHooksBlingRefreshRoute: ApiPublicHooksBlingRefreshRoute,
   ApiPublicHooksBlingSyncProductsDailyRoute:
     ApiPublicHooksBlingSyncProductsDailyRoute,
