@@ -20,7 +20,11 @@ export const signQzRequest = createServerFn({ method: "POST" })
         .replace(/-----END PRIVATE KEY-----/g, "")
         .replace(/\s+/g, "");
 
+      console.log("[qztray] base64 len:", base64.length);
+
       const der = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+
+      console.log("[qztray] der bytes:", der.length);
 
       const key = await globalThis.crypto.subtle.importKey(
         "pkcs8",
@@ -30,15 +34,19 @@ export const signQzRequest = createServerFn({ method: "POST" })
         ["sign"],
       );
 
+      console.log("[qztray] key imported ok");
+
       const bytes = new TextEncoder().encode(data.toSign);
       const sig = await globalThis.crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, bytes);
 
-      let binary = "";
       const sigBytes = new Uint8Array(sig);
+      console.log("[qztray] signed ok, sig len:", sigBytes.length);
+
+      let binary = "";
       for (let i = 0; i < sigBytes.length; i++) binary += String.fromCharCode(sigBytes[i]);
       return { signature: btoa(binary) };
     } catch (err: any) {
-      console.error("[qztray sign error]", err.message, err.stack);
+      console.error("[qztray sign error]", err?.message, err?.name, err?.stack);
       throw err;
     }
   });
