@@ -65,6 +65,12 @@ export function useQzTray(): QzTrayHook {
       });
       await qz.websocket.connect();
       setIsConectado(true);
+      qz.websocket.setClosedCallbacks([(evt: any) => {
+        setIsConectado(false);
+        if (evt?.reason !== "Closed by client") {
+          setTimeout(() => conectar(), 2000);
+        }
+      }]);
     } catch (err) {
       console.error("[qztray] falha ao conectar:", err);
       setIsConectado(false);

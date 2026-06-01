@@ -457,9 +457,12 @@ function BipagemModal({
     if (!valor.trim()) return;
     const code = valor.trim();
 
-    // Tenta encontrar item que corresponde ao EAN escaneado e ainda precisa de bipes
+    // Tenta encontrar item que corresponde ao código bipado e ainda precisa de bipes
     const match = pedido.itens.find(
-      (i) => i.ean === code && i.quantidade_bipada < i.quantidade,
+      (i) =>
+        ((i.ean && i.ean === code) ||
+          (!i.ean && i.produto_gtin && i.produto_gtin === code)) &&
+        i.quantidade_bipada < i.quantidade,
     );
 
     const alvoItem = match ?? itemAtivo;
@@ -471,7 +474,14 @@ function BipagemModal({
       return;
     }
 
-    const ok = alvoItem.ean === code;
+    let ok: boolean;
+    if (!alvoItem.ean && !alvoItem.produto_gtin) {
+      ok = true; // sem EAN cadastrado — aceita qualquer código
+    } else if (alvoItem.ean) {
+      ok = alvoItem.ean === code;
+    } else {
+      ok = alvoItem.produto_gtin === code;
+    }
 
     if (ok) {
       setStatus("ok");
