@@ -57,11 +57,11 @@ export function useQzTray(): QzTrayHook {
       );
       qz.security.setSignatureAlgorithm("SHA1");
       qz.security.setSignaturePromise((toSign: string) => {
-        return new Promise<string>((resolve, reject) => {
+        return (resolve: (sig: string) => void, reject: (err: any) => void) => {
           signFn({ data: { toSign } })
             .then((r: any) => resolve(r.signature))
             .catch(reject);
-        });
+        };
       });
       await qz.websocket.connect();
       setIsConectado(true);
