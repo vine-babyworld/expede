@@ -560,3 +560,27 @@ export const getProdutosOverview = createServerFn({ method: "GET" })
       totalProdutos: count ?? 0,
     };
   });
+
+const atualizarProdutoSchema = z.object({
+  id: z.string().uuid(),
+  nome: z.string().trim().min(1).max(500).optional(),
+  gtin: z.string().regex(/^\d{8,14}$/).nullable().optional(),
+  imagem_url: z.string().max(2000).nullable().optional(),
+});
+
+export const atualizarProduto = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) => atualizarProdutoSchema.parse(d))
+  .handler(async ({ data }) => {
+    const { error } = await supabaseAdmin
+      .from("produtos")
+      .update({
+        ...(data.nome !== undefined ? { nome: data.nome } : {}),
+        ...("gtin" in data ? { gtin: data.gtin ?? null } : {}),
+        ...("imagem_url" in data ? { imagem_url: data.imagem_url ?? null } : {}),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", data.id);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });

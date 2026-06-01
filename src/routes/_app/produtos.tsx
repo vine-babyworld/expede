@@ -3,21 +3,110 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { RefreshCw, Loader2, Package } from "lucide-react";
+import { RefreshCw, Loader2, Package, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import {
+  Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
 import { useAuth } from "@/hooks/useAuth";
 import {
   listProdutos, listBlingConnectionsForFilter, getActiveSyncJobs,
-  getProdutosOverview, syncProductsStart,
+  getProdutosOverview, syncProductsStart, atualizarProduto,
 } from "@/lib/produtos.functions";
 
 export const Route = createFileRoute("/_app/produtos")({
   component: ProdutosPage,
 });
+
+function EditProdutoModal({
+  produto,
+  onClose,
+  onSaved,
+}: {
+  produto: any;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const atualizar = useServerFn(atualizarProduto);
+  const [nome, setNome] = useState(produto.nome ?? "");
+  const [gtin, setGtin] = useState(produto.gtin ?? "");
+  const [imagemUrl, setImagemUrl] = useState(produto.imagem_url ?? "");
+  const [gtinError, setGtinError] = useState("");
+
+  const mut = useMutation({
+    mutationFn: () =>
+      atualizar({
+        data: {
+          id: produto.id,
+          nome: nome.trim() || undefined,
+          gtin: gtin.trim() ? gtin.trim() : null,
+          imagem_url: imagemUrl.trim() ? imagemUrl.trim() : null,
+        },
+      }),
+    onSuccess: () => {
+      toast.success("Produto atualizado");
+      onSaved();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const handleSalvar = () => {
+    if (gtin.trim() && !/^\d{8,14}$/.test(gtin.trim())) {
+      setGtinError("EAN deve ter 8–14 dígitos numéricos");
+      return;
+    }
+    setGtinError("");
+    mut.mutate();
+  };
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Editar produto</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div className="space-y-1">
+            <Label>Nome</Label>
+            <Input value={nome} onChange={(e) => setNome(e.target.value)} />
+          </div>
+          <div className="space-y-1">
+            <Label>EAN (GTIN)</Label>
+            <Input
+              value={gtin}
+              onChange={(e) => { setGtin(e.target.value); setGtinError(""); }}
+              placeholder="Ex: 7891234567890"
+              className={gtinError ? "border-destructive" : ""}
+            />
+            {gtinError && <p className="text-xs text-destructive">{gtinError}</p>}
+          </div>
+          <div className="space-y-1">
+            <Label>URL da imagem</Label>
+            <Input
+              value={imagemUrl}
+              onChange={(e) => setImagemUrl(e.target.value)}
+              placeholder="https://..."
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={mut.isPending}>
+            Cancelar
+          </Button>
+          <Button onClick={handleSalvar} disabled={mut.isPending}>
+            {mut.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+            Salvar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 function ProdutosPage() {
   const { isAdmin } = useAuth();
@@ -34,6 +123,7 @@ function ProdutosPage() {
   const [status, setStatus] = useState<"ativos" | "inativos" | "todos">("ativos");
   const [tipo, setTipo] = useState<"simples" | "pai" | "filho" | "todos">("todos");
   const [page, setPage] = useState(1);
+  const [editingProduto, setEditingProduto] = useState<any | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(search), 300);
@@ -252,15 +342,16 @@ function ProdutosPage() {
               <th className="px-3 py-3 font-medium">Tipo</th>
               {connectionId === "__all" && <th className="px-3 py-3 font-medium">Conta</th>}
               <th className="px-3 py-3 font-medium">Sincronizado</th>
+              <th className="px-3 py-3 w-10"></th>
             </tr>
           </thead>
           <tbody>
             {listQ.isLoading ? (
-              <tr><td colSpan={8} className="px-3 py-12 text-center text-muted-foreground">
+              <tr><td colSpan={9} className="px-3 py-12 text-center text-muted-foreground">
                 <Loader2 className="h-5 w-5 animate-spin inline" />
               </td></tr>
             ) : (listQ.data?.rows ?? []).length === 0 ? (
-              <tr><td colSpan={8} className="px-3 py-16 text-center">
+              <tr><td colSpan={9} className="px-3 py-16 text-center">
                 <Package className="h-10 w-10 mx-auto mb-3 text-muted-foreground/50" />
                 <p className="text-muted-foreground">
                   {debounced || status !== "ativos" || tipo !== "todos" || connectionId !== "__all"
@@ -300,6 +391,16 @@ function ProdutosPage() {
                   <td className="px-3 py-2 text-xs text-muted-foreground">{connName(p.bling_connection_id)}</td>
                 )}
                 <td className="px-3 py-2 text-xs text-muted-foreground">{fmtRel(p.synced_at)}</td>
+                <td className="px-3 py-2">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    onClick={() => setEditingProduto(p)}
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -319,6 +420,17 @@ function ProdutosPage() {
           </div>
         )}
       </div>
+
+      {editingProduto && (
+        <EditProdutoModal
+          produto={editingProduto}
+          onClose={() => setEditingProduto(null)}
+          onSaved={() => {
+            setEditingProduto(null);
+            qc.invalidateQueries({ queryKey: ["produtos"] });
+          }}
+        />
+      )}
     </div>
   );
 }
