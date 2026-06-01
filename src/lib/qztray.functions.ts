@@ -29,7 +29,7 @@ export const signQzRequest = createServerFn({ method: "POST" })
       const key = await globalThis.crypto.subtle.importKey(
         "pkcs8",
         der.buffer as ArrayBuffer,
-        { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+        { name: "RSASSA-PKCS1-v1_5", hash: "SHA-1" },
         false,
         ["sign"],
       );
