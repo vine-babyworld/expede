@@ -22,16 +22,6 @@ async function fetchBlingPost(token: string, bodyPayload: unknown) {
   return { status: res.status, body };
 }
 
-async function fetchBlingGet(token: string, queryString: string) {
-  const res = await fetch(`${BASE}${queryString}`, {
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
-  });
-  const text = await res.text();
-  let body: unknown;
-  try { body = JSON.parse(text); } catch { body = text; }
-  return { status: res.status, body };
-}
-
 export const Route = createFileRoute("/api/debug/etiqueta-teste")({
   server: {
     handlers: {
@@ -61,19 +51,32 @@ export const Route = createFileRoute("/api/debug/etiqueta-teste")({
           );
         }
 
-        const r1 = await fetchBlingPost(token, { idVendas: [25965853179] });
-        await delay(500);
+        const { data: pedidos, error: pedidosErr } = await supabaseAdmin
+          .from("pedidos")
+          .select("numero, bling_pedido_id")
+          .not("bling_pedido_id", "is", null)
+          .order("created_at", { ascending: false })
+          .limit(3);
 
-        const r2 = await fetchBlingPost(token, { idVendas: [16085416930] });
-        await delay(500);
+        if (pedidosErr || !pedidos?.length) {
+          return Response.json(
+            { ok: false, error: "no_pedidos", detail: pedidosErr?.message },
+            { status: 500 },
+          );
+        }
 
-        const r3 = await fetchBlingGet(token, "?idVendas[]=25965853179");
+        const results: Record<string, unknown> = {};
+        for (const pedido of pedidos) {
+          const res = await fetchBlingPost(token, { idVendas: [pedido.bling_pedido_id] });
+          results[`pedido_${pedido.numero}`] = {
+            numero: pedido.numero,
+            bling_pedido_id: pedido.bling_pedido_id,
+            ...res,
+          };
+          await delay(400);
+        }
 
-        return Response.json({
-          r1: { desc: "POST idVenda (numero venda)", payload: { idVendas: [25965853179] }, ...r1 },
-          r2: { desc: "POST idVolume (numero volume)", payload: { idVendas: [16085416930] }, ...r2 },
-          r3: { desc: "GET idVendas[]=25965853179", ...r3 },
-        });
+        return Response.json(results);
       },
     },
   },
