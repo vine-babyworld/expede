@@ -2,8 +2,17 @@ import { createFileRoute } from "@tanstack/react-router";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { getDecryptedAccessToken } from "@/lib/bling.functions";
 
-const BLING_ETIQUETAS_URL =
-  "https://api.bling.com.br/Api/v3/logisticas/etiquetas";
+const BASE = "https://api.bling.com.br/Api/v3/logisticas/etiquetas";
+
+async function fetchBling(url: string, token: string) {
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+  });
+  const text = await res.text();
+  let body: unknown;
+  try { body = JSON.parse(text); } catch { body = text; }
+  return { status: res.status, body };
+}
 
 export const Route = createFileRoute("/api/debug/etiqueta-teste")({
   server: {
@@ -34,29 +43,21 @@ export const Route = createFileRoute("/api/debug/etiqueta-teste")({
           );
         }
 
-        const params = new URLSearchParams();
-        params.append("idVendas[]", "25965853179");
-        const url = `${BLING_ETIQUETAS_URL}?${params.toString()}`;
-        const res = await fetch(url, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            Accept: "application/json",
-          },
+        const url1 = `${BASE}?idVendas[]=25965853179`;
+        const url2 = `${BASE}?idVendas%5B%5D=25965853179`;
+        const url3 = `${BASE}?idVendas=25965853179`;
+
+        const [r1, r2, r3] = await Promise.all([
+          fetchBling(url1, token),
+          fetchBling(url2, token),
+          fetchBling(url3, token),
+        ]);
+
+        return Response.json({
+          url1: { url: url1, ...r1 },
+          url2: { url: url2, ...r2 },
+          url3: { url: url3, ...r3 },
         });
-
-        const statusHttp = res.status;
-        const headers: Record<string, string> = {};
-        res.headers.forEach((v, k) => { headers[k] = v; });
-
-        let body: unknown;
-        const text = await res.text();
-        try {
-          body = JSON.parse(text);
-        } catch {
-          body = text;
-        }
-
-        return Response.json({ statusHttp, headers, body });
       },
     },
   },
