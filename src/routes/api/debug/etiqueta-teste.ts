@@ -4,18 +4,10 @@ import { getDecryptedAccessToken } from "@/lib/bling.functions";
 
 const BASE = "https://api.bling.com.br/Api/v3/logisticas/etiquetas";
 
-async function fetchBling(url: string, token: string) {
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
-  });
-  const text = await res.text();
-  let body: unknown;
-  try { body = JSON.parse(text); } catch { body = text; }
-  return { status: res.status, body };
-}
+const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-async function postBling(token: string, bodyPayload: unknown) {
-  const res = await fetch("https://api.bling.com.br/Api/v3/logisticas/etiquetas", {
+async function fetchBlingPost(token: string, bodyPayload: unknown) {
+  const res = await fetch(BASE, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
@@ -23,6 +15,16 @@ async function postBling(token: string, bodyPayload: unknown) {
       Accept: "application/json",
     },
     body: JSON.stringify(bodyPayload),
+  });
+  const text = await res.text();
+  let body: unknown;
+  try { body = JSON.parse(text); } catch { body = text; }
+  return { status: res.status, body };
+}
+
+async function fetchBlingGet(token: string, queryString: string) {
+  const res = await fetch(`${BASE}${queryString}`, {
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
   });
   const text = await res.text();
   let body: unknown;
@@ -59,24 +61,18 @@ export const Route = createFileRoute("/api/debug/etiqueta-teste")({
           );
         }
 
-        const url1 = `${BASE}?idVendas[]=25965853179`;
-        const url2 = `${BASE}?idVendas%5B%5D=25965853179`;
-        const url3 = `${BASE}?idVendas=25965853179`;
+        const r1 = await fetchBlingPost(token, { idVendas: [25965853179] });
+        await delay(500);
 
-        const [r1, r2, r3, r4, r5] = await Promise.all([
-          fetchBling(url1, token),
-          fetchBling(url2, token),
-          fetchBling(url3, token),
-          postBling(token, { idVendas: [25965853179] }),
-          postBling(token, { idVendas: ["25965853179"] }),
-        ]);
+        const r2 = await fetchBlingPost(token, { idVendas: [16085416930] });
+        await delay(500);
+
+        const r3 = await fetchBlingGet(token, "?idVendas[]=25965853179");
 
         return Response.json({
-          url1: { url: url1, ...r1 },
-          url2: { url: url2, ...r2 },
-          url3: { url: url3, ...r3 },
-          url4: { method: "POST", body: { idVendas: [25965853179] }, ...r4 },
-          url5: { method: "POST", body: { idVendas: ["25965853179"] }, ...r5 },
+          r1: { desc: "POST idVenda (numero venda)", payload: { idVendas: [25965853179] }, ...r1 },
+          r2: { desc: "POST idVolume (numero volume)", payload: { idVendas: [16085416930] }, ...r2 },
+          r3: { desc: "GET idVendas[]=25965853179", ...r3 },
         });
       },
     },
