@@ -3,6 +3,7 @@ import "./lib/error-capture";
 import { consumeLastCapturedError } from "./lib/error-capture";
 import { renderErrorPage } from "./lib/error-page";
 import { runSyncJob } from "./lib/produtos.functions";
+import { reconciliarPedidos } from "./lib/pedidos.functions";
 import { supabaseAdmin } from "./integrations/supabase/client.server";
 
 type ServerEntry = {
@@ -68,6 +69,16 @@ async function normalizeCatastrophicSsrResponse(response: Response): Promise<Res
   return brandedErrorResponse();
 }
 
+let lastReconciliationAt = 0;
+const RECONCILIATION_INTERVAL_MS = 5 * 60 * 1000;
+
+async function cronReconciliar() {
+  const now = Date.now();
+  if (now - lastReconciliationAt < RECONCILIATION_INTERVAL_MS) return;
+  lastReconciliationAt = now;
+  await reconciliarPedidos();
+}
+
 async function cronSyncPoll() {
   const now = new Date().toISOString();
   const { data: jobs } = await supabaseAdmin
@@ -109,6 +120,9 @@ export default {
   ) {
     ctx.waitUntil(
       cronSyncPoll().catch((e) => console.error("[cron-sync] poll erro:", e)),
+    );
+    ctx.waitUntil(
+      cronReconciliar().catch((e) => console.error("[cron-reconciliar] erro:", e)),
     );
   },
 };

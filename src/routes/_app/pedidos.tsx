@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Loader2, Search, ClipboardList, Printer } from "lucide-react";
+import { Loader2, Search, ClipboardList, Printer, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -176,6 +176,7 @@ function PedidosPage() {
                   "—";
                 const isCanceled = row.situacao_valor === 12;
                 const isLoading = reimprimindo === row.id;
+                const jaImpresso = Boolean(row.etiqueta_zpl);
                 return (
                   <tr
                     key={row.id}
@@ -225,10 +226,12 @@ function PedidosPage() {
                       >
                         {isLoading ? (
                           <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : jaImpresso ? (
+                          <RefreshCw className="h-4 w-4" />
                         ) : (
                           <Printer className="h-4 w-4" />
                         )}
-                        Reimprimir
+                        {jaImpresso ? "Reimprimir" : "Imprimir"}
                       </Button>
                     </td>
                   </tr>
