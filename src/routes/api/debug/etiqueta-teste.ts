@@ -34,7 +34,9 @@ export const Route = createFileRoute("/api/debug/etiqueta-teste")({
           );
         }
 
-        const url = `${BLING_ETIQUETAS_URL}?idVendas[]=25965853179`;
+        const params = new URLSearchParams();
+        params.append("idVendas[]", "25965853179");
+        const url = `${BLING_ETIQUETAS_URL}?${params.toString()}`;
         const res = await fetch(url, {
           headers: {
             Authorization: `Bearer ${token}`,
