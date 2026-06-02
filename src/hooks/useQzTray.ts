@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { signQzRequest } from "@/lib/qztray.functions";
+import { zplParaPdf } from "@/lib/zpl-to-pdf";
 
 // Certificado público — pode ser hardcoded no frontend
 const QZ_CERTIFICATE = `-----BEGIN CERTIFICATE-----
@@ -97,6 +98,13 @@ export function useQzTray(): QzTrayHook {
       const qz = await getQz();
       if (!qz.websocket.isActive()) await conectar();
       const config = qz.configs.create(impressora);
+
+      if (impressora.toUpperCase().includes("PDF")) {
+        const pdfBase64 = await zplParaPdf(zpl);
+        await qz.print(config, [{ type: "pixel", format: "pdf", flavor: "base64", data: pdfBase64 }]);
+        return;
+      }
+
       await qz.print(config, [{ type: "raw", format: "plain", data: zpl }]);
     },
     [getQz, conectar],
