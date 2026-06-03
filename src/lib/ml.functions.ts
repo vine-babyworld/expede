@@ -66,7 +66,7 @@ export async function refreshMLToken(conn: {
 }): Promise<string> {
   const res = await fetch(ML_TOKEN_URL, {
     method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
+    headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json", "User-Agent": "EXPEDE/1.0 (expede.lovable.app)" },
     body: new URLSearchParams({
       grant_type: "refresh_token",
       client_id: ML_CLIENT_ID,
