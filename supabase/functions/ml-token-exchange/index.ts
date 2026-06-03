@@ -2,7 +2,12 @@
 // Workaround for Cloudflare Worker -> api.mercadolivre.com error 1016/530.
 // Runs on Supabase (Deno Deploy), outside Cloudflare's network.
 
-const ML_TOKEN_URL = "https://api.mercadolivre.com/oauth/token";
+// Domínio internacional (.com / mercadolibre) — usado pela doc oficial e geralmente
+// resolve melhor de fora do BR. Fallback para o domínio .com/mercadolivre se DNS falhar.
+const ML_TOKEN_HOSTS = [
+  "https://api.mercadolibre.com/oauth/token",
+  "https://api.mercadolivre.com/oauth/token",
+];
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -75,24 +80,37 @@ Deno.serve(async (req) => {
   if (input.refresh_token) params.set("refresh_token", input.refresh_token);
   if (input.redirect_uri) params.set("redirect_uri", input.redirect_uri);
 
-  let mlRes: Response;
-  try {
-    mlRes = await fetchWithRetry(ML_TOKEN_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        Accept: "application/json",
-        "User-Agent": "EXPEDE/1.0 (expede.lovable.app)",
-      },
-      body: params.toString(),
-    });
-  } catch (err) {
-    console.error("[ml-token-exchange] all retries failed:", err);
+  const fetchInit: RequestInit = {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      Accept: "application/json",
+      "User-Agent": "EXPEDE/1.0 (expede.lovable.app)",
+    },
+    body: params.toString(),
+  };
+
+  let mlRes: Response | null = null;
+  let lastErr: unknown = null;
+  for (const url of ML_TOKEN_HOSTS) {
+    try {
+      console.log("[ml-token-exchange] tentando host:", url);
+      mlRes = await fetchWithRetry(url, fetchInit);
+      console.log("[ml-token-exchange] sucesso conectando em:", url);
+      break;
+    } catch (err) {
+      lastErr = err;
+      console.error("[ml-token-exchange] host falhou:", url, "erro:", err);
+    }
+  }
+
+  if (!mlRes) {
+    console.error("[ml-token-exchange] todos os hosts falharam. Último erro:", lastErr);
     return new Response(
       JSON.stringify({
         ok: false,
         status: 0,
-        body: `fetch_failed: ${String(err instanceof Error ? err.message : err)}`,
+        body: `fetch_failed (todos hosts): ${String(lastErr instanceof Error ? lastErr.message : lastErr)}`,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );

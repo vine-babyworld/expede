@@ -59,27 +59,40 @@ Deno.serve(async (req) => {
     });
   }
 
-  const url = `https://api.mercadolivre.com/shipments/${encodeURIComponent(
-    input.shipment_id,
-  )}/label?response_type=zpl`;
+  const ML_HOSTS = ["api.mercadolibre.com", "api.mercadolivre.com"];
+  const shipmentPath = `/shipments/${encodeURIComponent(input.shipment_id)}/label?response_type=zpl`;
 
-  let mlRes: Response;
-  try {
-    mlRes = await fetchWithRetry(url, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${input.access_token}`,
-        Accept: "application/json,text/plain,*/*",
-        "User-Agent": "EXPEDE/1.0 (expede.lovable.app)",
-      },
-    });
-  } catch (err) {
-    console.error("[ml-label] all retries failed:", err);
+  const fetchInit: RequestInit = {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${input.access_token}`,
+      Accept: "application/json,text/plain,*/*",
+      "User-Agent": "EXPEDE/1.0 (expede.lovable.app)",
+    },
+  };
+
+  let mlRes: Response | null = null;
+  let lastErr: unknown = null;
+  for (const host of ML_HOSTS) {
+    const url = `https://${host}${shipmentPath}`;
+    try {
+      console.log("[ml-label] tentando host:", url);
+      mlRes = await fetchWithRetry(url, fetchInit);
+      console.log("[ml-label] sucesso conectando em:", host);
+      break;
+    } catch (err) {
+      lastErr = err;
+      console.error("[ml-label] host falhou:", host, "erro:", err);
+    }
+  }
+
+  if (!mlRes) {
+    console.error("[ml-label] todos os hosts falharam. Último erro:", lastErr);
     return new Response(
       JSON.stringify({
         ok: false,
         status: 0,
-        body: `fetch_failed: ${String(err instanceof Error ? err.message : err)}`,
+        body: `fetch_failed (todos hosts): ${String(lastErr instanceof Error ? lastErr.message : lastErr)}`,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
