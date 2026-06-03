@@ -16,7 +16,7 @@ export type PedidoRow = {
   situacao_valor: number | null;
   data_pedido: string | null;
   total: number | null;
-  cliente: Record<string, unknown> | null;
+  cliente: Record<string, any> | null;
   bling_nota_fiscal_id: number | null;
   bling_nota_fiscal_numero: string | null;
   etiqueta_zpl: string | null;
