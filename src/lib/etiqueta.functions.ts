@@ -22,7 +22,7 @@ export const buscarEtiquetaBling = createServerFn({ method: "POST" })
     // 1. Cache: retorna ZPL salvo no banco sem chamar APIs externas
     const { data: pedido } = await supabaseAdmin
       .from("pedidos")
-      .select("id, etiqueta_zpl, raw_json")
+      .select("id, etiqueta_zpl, numero_loja")
       .eq("bling_pedido_id", data.pedidoId)
       .maybeSingle();
 
@@ -30,9 +30,8 @@ export const buscarEtiquetaBling = createServerFn({ method: "POST" })
       return { ok: true, tipo: "zpl", conteudo: pedido.etiqueta_zpl };
     }
 
-    // Extrai shipment_id do ML para eventual fallback
-    const shipmentId: string | null =
-      String((pedido?.raw_json as any)?.transporte?.volumes?.[0]?.id ?? "") || null;
+    // numero_loja = ML order ID (ex: 2000016750569270)
+    const mlOrderId: string | null = (pedido as any)?.numero_loja ?? null;
 
     // 2. Tenta API do Bling
     const blingResult = await tentarBling(data.pedidoId, pedido?.id ?? null);
@@ -44,17 +43,18 @@ export const buscarEtiquetaBling = createServerFn({ method: "POST" })
       return blingResult;
     }
 
-    console.warn("[etiqueta] Bling falhou:", blingResult.error, "— tentando ML");
+    console.warn("[etiqueta] Bling falhou:", blingResult.error, "— tentando ML order:", mlOrderId);
 
-    // 3. Fallback: etiqueta do Mercado Livre via shipment_id
-    if (shipmentId) {
+    // 3. Fallback: etiqueta do Mercado Livre via numero_loja (ML order ID real)
+    if (mlOrderId) {
       try {
-        const mlResult = await buscarEtiquetaML(shipmentId);
+        const mlResult = await buscarEtiquetaML(mlOrderId);
         if (mlResult.ok) {
           if (pedido?.id) await salvarZpl(pedido.id, mlResult.conteudo);
           return { ok: true, tipo: "zpl", conteudo: mlResult.conteudo };
         }
         console.warn("[etiqueta] ML também falhou:", mlResult.error);
+        return { ok: false, error: mlResult.error };
       } catch (err) {
         console.warn("[etiqueta] ML exception:", err);
       }

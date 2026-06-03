@@ -133,7 +133,7 @@ export type MLEtiquetaResult =
   | { ok: true; conteudo: string }
   | { ok: false; error: string };
 
-export async function buscarEtiquetaML(shipmentId: string): Promise<MLEtiquetaResult> {
+export async function buscarEtiquetaML(mlOrderId: string): Promise<MLEtiquetaResult> {
   let token: string;
   try {
     token = await getMLAccessToken();
@@ -143,18 +143,22 @@ export async function buscarEtiquetaML(shipmentId: string): Promise<MLEtiquetaRe
 
   let proxy: ProxyResponse;
   try {
-    proxy = await invokeMLProxy("ml-label", {
-      shipment_id: shipmentId,
-      access_token: token,
-    });
+    proxy = await invokeMLProxy("ml-label", { ml_order_id: mlOrderId, access_token: token });
   } catch (e) {
     console.warn("[ml] invoke ml-label falhou:", e);
     return { ok: false, error: "ml_proxy_error" };
   }
 
   if (!proxy.ok) {
-    console.warn("[ml] GET label falhou:", proxy.status, proxy.body.slice(0, 200));
-    return { ok: false, error: `ml_api_error:${proxy.status}` };
+    // Tenta extrair mensagem de erro estruturada da edge function
+    let errMsg = `ml_api_error:${proxy.status}`;
+    try {
+      const parsed = JSON.parse(proxy.body);
+      if (parsed?.message) errMsg = parsed.message;
+      else if (parsed?.error) errMsg = parsed.error;
+    } catch { /* body não é JSON */ }
+    console.warn("[ml] label falhou:", proxy.status, proxy.body.slice(0, 200));
+    return { ok: false, error: errMsg };
   }
 
   const text = proxy.body;
