@@ -130,7 +130,7 @@ export async function buscarEtiquetaML(shipmentId: string): Promise<MLEtiquetaRe
 
   const res = await fetch(
     `${ML_API}/shipments/${shipmentId}/label?response_type=zpl`,
-    { headers: { Authorization: `Bearer ${token}`, Accept: "application/json,text/plain,*/*" } },
+    { headers: { Authorization: `Bearer ${token}`, Accept: "application/json,text/plain,*/*", "User-Agent": "EXPEDE/1.0 (expede.lovable.app)" } },
   );
 
   if (!res.ok) {
