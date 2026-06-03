@@ -43,16 +43,18 @@ export const Route = createFileRoute("/api/debug/etiqueta-teste")({
           );
         }
 
-        const [r1, r2, r3] = await Promise.all([
+        const [r1, r2, r3, r4] = await Promise.all([
           blingGet(`${BLING}/notasfiscais/25977264250`, token),
-          blingGet(`${BLING}/nfe/25977264250`, token),
-          blingGet(`${BLING}/notasfiscais?numero=115645`, token),
+          blingGet(`${BLING}/notasfiscais?idVendas[]=25976902452`, token),
+          blingGet(`${BLING}/pedidos/vendas/25976902452`, token),
+          blingGet(`${BLING}/nfe`, token),
         ]);
 
         return Response.json({
-          r1: { desc: "GET /notasfiscais/25977264250 (id NF pedido 7873)", ...r1 },
-          r2: { desc: "GET /nfe/25977264250 (endpoint alternativo NF-e)", ...r2 },
-          r3: { desc: "GET /notasfiscais?numero=115645 (busca por numero NF)", ...r3 },
+          r1: { desc: "GET /notasfiscais/25977264250 (id direto da NF)", ...r1 },
+          r2: { desc: "GET /notasfiscais?idVendas[]=25976902452 (NF pelo id da venda)", ...r2 },
+          r3: { desc: "GET /pedidos/vendas/25976902452 (pedido completo — ver raw NF)", ...r3 },
+          r4: { desc: "GET /nfe (lista NFs — ver formato)", ...r4 },
         });
       },
     },
