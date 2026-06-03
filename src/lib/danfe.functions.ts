@@ -142,13 +142,16 @@ export const gerarDanfeCustom = createServerFn({ method: "POST" })
         if (conn) {
           const token = await getDecryptedAccessToken(conn.id);
           const nfRes = await fetch(
-            `https://api.bling.com.br/Api/v3/notasfiscais/${(pedido as any).bling_nota_fiscal_id}`,
+            `https://api.bling.com.br/Api/v3/nfe`,
             { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } },
           );
           if (nfRes.ok) {
             const nfJson: any = await nfRes.json().catch(() => null);
-            chaveAcesso = nfJson?.data?.chaveAcesso ?? "";
-            nfNumero = String(nfJson?.data?.numero ?? nfNumero);
+            const nf = nfJson?.data?.find(
+              (n: any) => n.id === (pedido as any).bling_nota_fiscal_id,
+            );
+            chaveAcesso = nf?.chaveAcesso ?? "";
+            nfNumero = String(nf?.numero ?? nfNumero);
             console.log("[danfe] NF Bling ok — chave:", !!chaveAcesso, "numero:", nfNumero);
           } else {
             console.warn("[danfe] NF Bling erro HTTP:", nfRes.status);
