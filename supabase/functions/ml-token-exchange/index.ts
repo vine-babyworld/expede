@@ -2,7 +2,12 @@
 // Workaround for Cloudflare Worker -> api.mercadolivre.com error 1016/530.
 // Runs on Supabase (Deno Deploy), outside Cloudflare's network.
 
-const ML_TOKEN_URL = "https://api.mercadolivre.com/oauth/token";
+// Domínio internacional (.com / mercadolibre) — usado pela doc oficial e geralmente
+// resolve melhor de fora do BR. Fallback para o domínio .com/mercadolivre se DNS falhar.
+const ML_TOKEN_HOSTS = [
+  "https://api.mercadolibre.com/oauth/token",
+  "https://api.mercadolivre.com/oauth/token",
+];
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
