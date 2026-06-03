@@ -60,7 +60,7 @@ Deno.serve(async (req) => {
   }
 
   const ML_HOSTS = ["api.mercadolibre.com", "api.mercadolivre.com"];
-  const shipmentPath = `/shipments/${encodeURIComponent(input.shipment_id)}/label?response_type=zpl`;
+  const shipmentPath = `/shipment_labels?shipment_ids=${encodeURIComponent(input.shipment_id)}&response_type=zpl2`;
 
   const fetchInit: RequestInit = {
     method: "GET",
