@@ -12,6 +12,24 @@ interface LabelInput {
   access_token: string;
 }
 
+const RETRY_DELAYS_MS = [500, 1000, 2000];
+
+async function fetchWithRetry(url: string, init: RequestInit): Promise<Response> {
+  let lastErr: unknown;
+  for (let i = 0; i < RETRY_DELAYS_MS.length; i++) {
+    try {
+      return await fetch(url, init);
+    } catch (err) {
+      lastErr = err;
+      console.warn(`[ml-label] fetch attempt ${i + 1} failed:`, err);
+      if (i < RETRY_DELAYS_MS.length - 1) {
+        await new Promise((r) => setTimeout(r, RETRY_DELAYS_MS[i]));
+      }
+    }
+  }
+  throw lastErr;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -45,14 +63,27 @@ Deno.serve(async (req) => {
     input.shipment_id,
   )}/label?response_type=zpl`;
 
-  const mlRes = await fetch(url, {
-    method: "GET",
-    headers: {
-      Authorization: `Bearer ${input.access_token}`,
-      Accept: "application/json,text/plain,*/*",
-      "User-Agent": "EXPEDE/1.0 (expede.lovable.app)",
-    },
-  });
+  let mlRes: Response;
+  try {
+    mlRes = await fetchWithRetry(url, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${input.access_token}`,
+        Accept: "application/json,text/plain,*/*",
+        "User-Agent": "EXPEDE/1.0 (expede.lovable.app)",
+      },
+    });
+  } catch (err) {
+    console.error("[ml-label] all retries failed:", err);
+    return new Response(
+      JSON.stringify({
+        ok: false,
+        status: 0,
+        body: `fetch_failed: ${String(err instanceof Error ? err.message : err)}`,
+      }),
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+  }
 
   const rawBody = await mlRes.text();
   console.log(
@@ -67,14 +98,7 @@ Deno.serve(async (req) => {
   );
 
   return new Response(
-    JSON.stringify({
-      ok: mlRes.ok,
-      status: mlRes.status,
-      body: rawBody,
-    }),
-    {
-      status: 200,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    },
+    JSON.stringify({ ok: mlRes.ok, status: mlRes.status, body: rawBody }),
+    { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
   );
 });
