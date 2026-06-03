@@ -35,9 +35,15 @@ export async function exchangeMLCode(code: string): Promise<void> {
     }).toString(),
   });
 
-  const json: any = await res.json().catch(() => ({}));
+  const rawBody = await res.text();
+  console.log("[ml] exchange status:", res.status, "cf-ray:", res.headers.get("cf-ray"), "server:", res.headers.get("server"), "content-type:", res.headers.get("content-type"));
+  console.log("[ml] exchange body (first 800):", rawBody.slice(0, 800));
+
+  let json: any = {};
+  try { json = JSON.parse(rawBody); } catch { /* not json */ }
+
   if (!res.ok) {
-    throw new Error(json?.message ?? `ML token exchange HTTP ${res.status}`);
+    throw new Error(json?.message ?? `ML token exchange HTTP ${res.status}: ${rawBody.slice(0, 200)}`);
   }
 
   const expiresAt = new Date(Date.now() + (json.expires_in ?? 21600) * 1000).toISOString();
