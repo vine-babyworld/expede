@@ -1,49 +1,59 @@
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+// Converte ZPL → PDF via Labelary (8dpmm, 4x6 polegadas).
+// Nunca cai em fallback de texto — se Labelary falhar, lança erro.
 
 const LABELARY_URL = "https://api.labelary.com/v1/printers/8dpmm/labels/4x6/0/";
-const PAGE_W = 288; // 4" × 72 pt/in
-const PAGE_H = 432; // 6" × 72 pt/in
 
+// Converte Uint8Array para base64 em chunks para evitar stack overflow em PDFs grandes.
+function uint8ToBase64(bytes: Uint8Array): string {
+  const chunkSize = 0x8000;
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const end = Math.min(i + chunkSize, bytes.length);
+    for (let j = i; j < end; j++) binary += String.fromCharCode(bytes[j]);
+  }
+  return btoa(binary);
+}
+
+// Retorna base64 do PDF renderizado.
+// Lança Error se Labelary falhar — o caller decide o que fazer.
 export async function zplParaPdf(zpl: string): Promise<string> {
-  try {
-    const body = new URLSearchParams({ file: zpl });
-    const res = await fetch(LABELARY_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        Accept: "image/png",
-      },
-      body: body.toString(),
-    });
+  // TODO: ler ^PW e ^LL do ZPL para calcular width/height reais em polegadas
+  const formData = new FormData();
+  formData.append("file", new Blob([zpl], { type: "text/plain" }), "label.zpl");
 
-    if (res.ok && res.headers.get("content-type")?.includes("image")) {
-      const pngBytes = new Uint8Array(await res.arrayBuffer());
-      const pdfDoc = await PDFDocument.create();
-      const pngImage = await pdfDoc.embedPng(pngBytes);
-      const page = pdfDoc.addPage([PAGE_W, PAGE_H]);
-      page.drawImage(pngImage, { x: 0, y: 0, width: PAGE_W, height: PAGE_H });
-      return await pdfDoc.saveAsBase64();
-    }
+  const res = await fetch(LABELARY_URL, {
+    method: "POST",
+    headers: { Accept: "application/pdf" },
+    body: formData,
+  });
 
-    console.warn(
-      "[zplParaPdf] Labelary retornou status",
-      res.status,
-      res.headers.get("content-type"),
-    );
-  } catch (err) {
-    console.warn("[zplParaPdf] Labelary indisponível, usando fallback:", err);
+  const warnings = res.headers.get("X-Warnings") ?? "";
+
+  if (!res.ok) {
+    console.error(`[zplParaPdf] Labelary ${res.status}`, warnings || "(sem X-Warnings)");
+    throw new Error(`Labelary erro ${res.status}${warnings ? `: ${warnings}` : ""}`);
   }
 
-  // Fallback: ZPL em texto monoespaçado para ao menos preservar o conteúdo
-  const pdfDoc = await PDFDocument.create();
-  const font = await pdfDoc.embedFont(StandardFonts.Courier);
-  const page = pdfDoc.addPage([PAGE_W, PAGE_H]);
-  const lines = zpl.split("\n").slice(0, 45);
-  let y = PAGE_H - 10;
-  for (const line of lines) {
-    if (y < 4) break;
-    page.drawText(line.substring(0, 48), { x: 4, y, size: 7, font, color: rgb(0, 0, 0) });
-    y -= 9;
+  const ct = res.headers.get("content-type") ?? "";
+  if (!ct.includes("pdf")) {
+    console.warn("[zplParaPdf] content-type inesperado:", ct, warnings || "");
+    throw new Error(`Labelary retornou tipo inválido: ${ct}`);
   }
-  return await pdfDoc.saveAsBase64();
+
+  if (warnings) console.warn("[zplParaPdf] X-Warnings:", warnings);
+
+  const bytes = new Uint8Array(await res.arrayBuffer());
+  return uint8ToBase64(bytes);
+}
+
+// Abre o ZPL renderizado como PDF numa nova aba do browser.
+export async function abrirEtiquetaPDF(zpl: string): Promise<void> {
+  const base64 = await zplParaPdf(zpl);
+  const raw = atob(base64);
+  const bytes = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+  const blob = new Blob([bytes], { type: "application/pdf" });
+  const url = URL.createObjectURL(blob);
+  const win = window.open(url, "_blank");
+  if (win) setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }

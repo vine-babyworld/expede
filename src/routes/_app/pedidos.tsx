@@ -2,13 +2,14 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Loader2, Search, ClipboardList, Printer, RefreshCw } from "lucide-react";
+import { Loader2, Search, ClipboardList, Printer, RefreshCw, Eye } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { listarPedidos } from "@/lib/pedidos.functions";
 import { buscarEtiquetaBling } from "@/lib/etiqueta.functions";
 import { gerarDanfeCustom } from "@/lib/danfe.functions";
+import { abrirEtiquetaPDF } from "@/lib/zpl-to-pdf";
 import { useQzTray } from "@/hooks/useQzTray";
 import { PrinterConfig } from "@/components/PrinterConfig";
 
@@ -46,6 +47,7 @@ function PedidosPage() {
   const [page, setPage] = useState(1);
   const [showPrinterConfig, setShowPrinterConfig] = useState(false);
   const [reimprimindo, setReimprimindo] = useState<string | null>(null);
+  const [visualizando, setVisualizando] = useState<string | null>(null);
 
   const qzTray = useQzTray();
   const listFn = useServerFn(listarPedidos);
@@ -120,6 +122,24 @@ function PedidosPage() {
     }
 
     setReimprimindo(null);
+  }
+
+  async function handleVisualizar(row: { id: string; bling_pedido_id: number; etiqueta_zpl: string | null }) {
+    setVisualizando(row.id);
+    try {
+      let zpl = row.etiqueta_zpl ?? null;
+      if (!zpl) {
+        const et = await buscarEtiquetaBling({ data: { pedidoId: Number(row.bling_pedido_id) } });
+        if (et.ok && et.tipo === "zpl") zpl = et.conteudo;
+        else { toast.error("Etiqueta não disponível"); return; }
+      }
+      await abrirEtiquetaPDF(zpl);
+    } catch (err) {
+      console.error("[visualizar]", err);
+      toast.error("Erro ao renderizar etiqueta via Labelary");
+    } finally {
+      setVisualizando(null);
+    }
   }
 
   return (
@@ -200,6 +220,7 @@ function PedidosPage() {
                   "—";
                 const isCanceled = row.situacao_valor === 12;
                 const isLoading = reimprimindo === row.id;
+                const isVisualizando = visualizando === row.id;
                 const jaImpresso = Boolean(row.etiqueta_zpl);
                 return (
                   <tr
@@ -236,27 +257,40 @@ function PedidosPage() {
                       {row.items_count}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        disabled={isLoading}
-                        onClick={() =>
-                          handleReimprimir({
-                            id: row.id,
-                            bling_pedido_id: row.bling_pedido_id,
-                          })
-                        }
-                        className="gap-1.5 text-muted-foreground hover:text-foreground"
-                      >
-                        {isLoading ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : jaImpresso ? (
-                          <RefreshCw className="h-4 w-4" />
-                        ) : (
-                          <Printer className="h-4 w-4" />
-                        )}
-                        {jaImpresso ? "Reimprimir" : "Imprimir"}
-                      </Button>
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={isVisualizando || isCanceled}
+                          onClick={() => handleVisualizar({ id: row.id, bling_pedido_id: row.bling_pedido_id, etiqueta_zpl: row.etiqueta_zpl })}
+                          title="Visualizar etiqueta como PDF"
+                          className="gap-1.5 text-muted-foreground hover:text-foreground"
+                        >
+                          {isVisualizando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eye className="h-4 w-4" />}
+                          Visualizar
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={isLoading}
+                          onClick={() =>
+                            handleReimprimir({
+                              id: row.id,
+                              bling_pedido_id: row.bling_pedido_id,
+                            })
+                          }
+                          className="gap-1.5 text-muted-foreground hover:text-foreground"
+                        >
+                          {isLoading ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : jaImpresso ? (
+                            <RefreshCw className="h-4 w-4" />
+                          ) : (
+                            <Printer className="h-4 w-4" />
+                          )}
+                          {jaImpresso ? "Reimprimir" : "Imprimir"}
+                        </Button>
+                      </div>
                     </td>
                   </tr>
                 );

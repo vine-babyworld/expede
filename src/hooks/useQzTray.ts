@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { signQzRequest } from "@/lib/qztray.functions";
-import { zplParaPdf } from "@/lib/zpl-to-pdf";
+import { zplParaPdf, abrirEtiquetaPDF } from "@/lib/zpl-to-pdf";
 
 // Certificado público — pode ser hardcoded no frontend
 const QZ_CERTIFICATE = `-----BEGIN CERTIFICATE-----
@@ -30,6 +30,7 @@ export type QzTrayHook = {
   listarImpressoras: () => Promise<string[]>;
   imprimirZpl: (zpl: string, impressora: string) => Promise<void>;
   imprimirPdf: (base64: string, impressora: string) => Promise<void>;
+  visualizarEtiqueta: (zpl: string) => Promise<void>;
 };
 
 export function useQzTray(): QzTrayHook {
@@ -122,5 +123,9 @@ export function useQzTray(): QzTrayHook {
     [getQz, conectar],
   );
 
-  return { isConectado, conectando, listarImpressoras, imprimirZpl, imprimirPdf };
+  const visualizarEtiqueta = useCallback(async (zpl: string): Promise<void> => {
+    await abrirEtiquetaPDF(zpl);
+  }, []);
+
+  return { isConectado, conectando, listarImpressoras, imprimirZpl, imprimirPdf, visualizarEtiqueta };
 }
