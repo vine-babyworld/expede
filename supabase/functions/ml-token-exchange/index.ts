@@ -1,6 +1,6 @@
 // Proxies token requests to Mercado Livre.
 // Workaround for Cloudflare Worker -> api.mercadolivre.com error 1016/530.
-// This function runs on Supabase (Deno Deploy), outside Cloudflare's network.
+// Runs on Supabase (Deno Deploy), outside Cloudflare's network.
 
 const ML_TOKEN_URL = "https://api.mercadolivre.com/oauth/token";
 
@@ -17,6 +17,24 @@ interface TokenInput {
   code?: string;
   refresh_token?: string;
   redirect_uri?: string;
+}
+
+const RETRY_DELAYS_MS = [500, 1000, 2000];
+
+async function fetchWithRetry(url: string, init: RequestInit): Promise<Response> {
+  let lastErr: unknown;
+  for (let i = 0; i < RETRY_DELAYS_MS.length; i++) {
+    try {
+      return await fetch(url, init);
+    } catch (err) {
+      lastErr = err;
+      console.warn(`[ml-token-exchange] fetch attempt ${i + 1} failed:`, err);
+      if (i < RETRY_DELAYS_MS.length - 1) {
+        await new Promise((r) => setTimeout(r, RETRY_DELAYS_MS[i]));
+      }
+    }
+  }
+  throw lastErr;
 }
 
 Deno.serve(async (req) => {
@@ -57,15 +75,28 @@ Deno.serve(async (req) => {
   if (input.refresh_token) params.set("refresh_token", input.refresh_token);
   if (input.redirect_uri) params.set("redirect_uri", input.redirect_uri);
 
-  const mlRes = await fetch(ML_TOKEN_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      Accept: "application/json",
-      "User-Agent": "EXPEDE/1.0 (expede.lovable.app)",
-    },
-    body: params.toString(),
-  });
+  let mlRes: Response;
+  try {
+    mlRes = await fetchWithRetry(ML_TOKEN_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Accept: "application/json",
+        "User-Agent": "EXPEDE/1.0 (expede.lovable.app)",
+      },
+      body: params.toString(),
+    });
+  } catch (err) {
+    console.error("[ml-token-exchange] all retries failed:", err);
+    return new Response(
+      JSON.stringify({
+        ok: false,
+        status: 0,
+        body: `fetch_failed: ${String(err instanceof Error ? err.message : err)}`,
+      }),
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+  }
 
   const rawBody = await mlRes.text();
   console.log(
@@ -78,14 +109,7 @@ Deno.serve(async (req) => {
   );
 
   return new Response(
-    JSON.stringify({
-      ok: mlRes.ok,
-      status: mlRes.status,
-      body: rawBody,
-    }),
-    {
-      status: 200,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    },
+    JSON.stringify({ ok: mlRes.ok, status: mlRes.status, body: rawBody }),
+    { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
   );
 });
