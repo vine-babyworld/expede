@@ -163,37 +163,49 @@ export function ExpedicaoPage() {
 
       toast.loading("Gerando documentos...", { id: "print" });
 
-      try {
-        const [etiquetaResult, danfeResult] = await Promise.all([
-          (async () => {
-            const fn = buscarEtiquetaBling;
-            // Chamada direta sem useServerFn (estamos em callback)
-            return fn({ data: { pedidoId: pedido.bling_pedido_id } });
-          })(),
-          (async () => {
-            const fn = gerarDanfeCustom;
-            return fn({ data: { pedidoId: pedido.id } });
-          })(),
-        ]);
+      // Busca etiqueta e DANFE em paralelo — falha de uma não cancela a outra
+      const blingId = Number(pedido.bling_pedido_id);
+      const [etiquetaSettled, danfeSettled] = await Promise.allSettled([
+        blingId
+          ? buscarEtiquetaBling({ data: { pedidoId: blingId } })
+          : Promise.reject(new Error("bling_pedido_id ausente")),
+        gerarDanfeCustom({ data: { pedidoId: pedido.id } }),
+      ]);
 
-        toast.loading("Imprimindo...", { id: "print" });
+      toast.loading("Imprimindo...", { id: "print" });
 
-        if (etiquetaResult.ok && etiquetaResult.tipo === "zpl") {
-          await qzTray.imprimirZpl(etiquetaResult.conteudo, impressora);
-        } else if (!etiquetaResult.ok) {
-          console.warn("[impressao] etiqueta não disponível:", etiquetaResult.error);
+      // Etiqueta: opcional — erro apenas loga, nunca bloqueia a DANFE
+      if (etiquetaSettled.status === "fulfilled") {
+        const et = etiquetaSettled.value;
+        if (et.ok && et.tipo === "zpl") {
+          try {
+            await qzTray.imprimirZpl(et.conteudo, impressora);
+          } catch (err) {
+            console.warn("[impressao] falha ao imprimir etiqueta:", err);
+          }
+        } else if (!et.ok) {
+          console.warn("[impressao] etiqueta não disponível:", (et as any).error);
         }
+      } else {
+        console.warn("[impressao] etiqueta rejeitou:", etiquetaSettled.reason);
+      }
 
-        if (danfeResult.ok) {
-          await qzTray.imprimirPdf(danfeResult.pdf, impressora);
-        } else {
-          console.warn("[impressao] DANFE não gerada:", danfeResult.error);
+      // DANFE: sempre imprime quando disponível
+      if (danfeSettled.status === "fulfilled" && danfeSettled.value.ok) {
+        try {
+          await qzTray.imprimirPdf(danfeSettled.value.pdf, impressora);
+          toast.success("DANFE impressa", { id: "print" });
+        } catch (err) {
+          console.error("[impressao] falha ao imprimir DANFE:", err);
+          toast.error("Erro ao imprimir DANFE — verifique o QZ Tray", { id: "print" });
         }
-
-        toast.success("Etiqueta e DANFE impressas", { id: "print" });
-      } catch (err) {
-        console.error("[impressao] erro:", err);
-        toast.error("Erro na impressão — verifique o QZ Tray", { id: "print" });
+      } else {
+        const motivo =
+          danfeSettled.status === "rejected"
+            ? String(danfeSettled.reason)
+            : (danfeSettled.value as any).error;
+        console.warn("[impressao] DANFE não gerada:", motivo);
+        toast.warning("DANFE não disponível", { id: "print" });
       }
     },
     [qzTray],
