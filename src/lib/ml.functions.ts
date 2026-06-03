@@ -6,8 +6,6 @@ const ML_CLIENT_ID = process.env.ML_CLIENT_ID!;
 const ML_CLIENT_SECRET = process.env.ML_CLIENT_SECRET!;
 const ML_REDIRECT_URI = "https://expede.lovable.app/api/ml/callback";
 const ML_AUTH_URL = "https://auth.mercadolivre.com.br/authorization";
-const ML_TOKEN_URL = "https://api.mercadolivre.com/oauth/token";
-const ML_API = "https://api.mercadolivre.com";
 
 // ── Auth URL ─────────────────────────────────────────────────────────────────
 
@@ -20,30 +18,40 @@ export function getMLAuthUrl(): string {
   return `${ML_AUTH_URL}?${params.toString()}`;
 }
 
+// ── Edge function proxy helper ───────────────────────────────────────────────
+
+type ProxyResponse = { ok: boolean; status: number; body: string };
+
+async function invokeMLProxy(fn: string, payload: Record<string, unknown>): Promise<ProxyResponse> {
+  const { data, error } = await supabaseAdmin.functions.invoke<ProxyResponse>(fn, {
+    body: payload,
+  });
+  if (error) {
+    throw new Error(`edge_invoke_failed:${fn}:${error.message}`);
+  }
+  if (!data) {
+    throw new Error(`edge_empty_response:${fn}`);
+  }
+  return data;
+}
+
 // ── Token exchange ────────────────────────────────────────────────────────────
 
 export async function exchangeMLCode(code: string): Promise<void> {
-  const res = await fetch(ML_TOKEN_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json", "User-Agent": "EXPEDE/1.0 (expede.lovable.app)" },
-    body: new URLSearchParams({
-      grant_type: "authorization_code",
-      client_id: ML_CLIENT_ID,
-      client_secret: ML_CLIENT_SECRET,
-      code,
-      redirect_uri: ML_REDIRECT_URI,
-    }).toString(),
+  const proxy = await invokeMLProxy("ml-token-exchange", {
+    grant_type: "authorization_code",
+    client_id: ML_CLIENT_ID,
+    client_secret: ML_CLIENT_SECRET,
+    code,
+    redirect_uri: ML_REDIRECT_URI,
   });
 
-  const rawBody = await res.text();
-  console.log("[ml] exchange status:", res.status, "cf-ray:", res.headers.get("cf-ray"), "server:", res.headers.get("server"), "content-type:", res.headers.get("content-type"));
-  console.log("[ml] exchange body (first 800):", rawBody.slice(0, 800));
-
   let json: any = {};
-  try { json = JSON.parse(rawBody); } catch { /* not json */ }
+  try { json = JSON.parse(proxy.body); } catch { /* not json */ }
 
-  if (!res.ok) {
-    throw new Error(json?.message ?? `ML token exchange HTTP ${res.status}: ${rawBody.slice(0, 200)}`);
+  if (!proxy.ok) {
+    console.error("[ml] exchange falhou status:", proxy.status, "body:", proxy.body.slice(0, 400));
+    throw new Error(json?.message ?? `ML token exchange HTTP ${proxy.status}: ${proxy.body.slice(0, 200)}`);
   }
 
   const expiresAt = new Date(Date.now() + (json.expires_in ?? 21600) * 1000).toISOString();
@@ -70,20 +78,19 @@ export async function refreshMLToken(conn: {
   ml_user_id: number;
   refresh_token: string;
 }): Promise<string> {
-  const res = await fetch(ML_TOKEN_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json", "User-Agent": "EXPEDE/1.0 (expede.lovable.app)" },
-    body: new URLSearchParams({
-      grant_type: "refresh_token",
-      client_id: ML_CLIENT_ID,
-      client_secret: ML_CLIENT_SECRET,
-      refresh_token: conn.refresh_token,
-    }).toString(),
+  const proxy = await invokeMLProxy("ml-token-exchange", {
+    grant_type: "refresh_token",
+    client_id: ML_CLIENT_ID,
+    client_secret: ML_CLIENT_SECRET,
+    refresh_token: conn.refresh_token,
   });
 
-  const json: any = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(json?.message ?? `ML refresh HTTP ${res.status}`);
+  let json: any = {};
+  try { json = JSON.parse(proxy.body); } catch { /* not json */ }
+
+  if (!proxy.ok) {
+    console.error("[ml] refresh falhou status:", proxy.status, "body:", proxy.body.slice(0, 400));
+    throw new Error(json?.message ?? `ML refresh HTTP ${proxy.status}: ${proxy.body.slice(0, 200)}`);
   }
 
   const expiresAt = new Date(Date.now() + (json.expires_in ?? 21600) * 1000).toISOString();
@@ -134,17 +141,23 @@ export async function buscarEtiquetaML(shipmentId: string): Promise<MLEtiquetaRe
     return { ok: false, error: "ml_no_connection" };
   }
 
-  const res = await fetch(
-    `${ML_API}/shipments/${shipmentId}/label?response_type=zpl`,
-    { headers: { Authorization: `Bearer ${token}`, Accept: "application/json,text/plain,*/*", "User-Agent": "EXPEDE/1.0 (expede.lovable.app)" } },
-  );
-
-  if (!res.ok) {
-    console.warn("[ml] GET label falhou:", res.status);
-    return { ok: false, error: `ml_api_error:${res.status}` };
+  let proxy: ProxyResponse;
+  try {
+    proxy = await invokeMLProxy("ml-label", {
+      shipment_id: shipmentId,
+      access_token: token,
+    });
+  } catch (e) {
+    console.warn("[ml] invoke ml-label falhou:", e);
+    return { ok: false, error: "ml_proxy_error" };
   }
 
-  const text = await res.text();
+  if (!proxy.ok) {
+    console.warn("[ml] GET label falhou:", proxy.status, proxy.body.slice(0, 200));
+    return { ok: false, error: `ml_api_error:${proxy.status}` };
+  }
+
+  const text = proxy.body;
   if (!text || (!text.includes("^XA") && !text.startsWith("CT~~"))) {
     console.warn("[ml] label não é ZPL:", text.slice(0, 120));
     return { ok: false, error: "ml_not_zpl" };
