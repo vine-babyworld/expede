@@ -189,7 +189,7 @@ export const getMLConnection = createServerFn({ method: "GET" })
 export const disconnectML = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async (): Promise<{ ok: boolean }> => {
-    const { error } = await supabaseAdmin.from("ml_connections").delete().neq("id", "");
+    const { error } = await supabaseAdmin.from("ml_connections").delete().gte("created_at", "2000-01-01");
     if (error) throw new Error(error.message);
     return { ok: true };
   });
