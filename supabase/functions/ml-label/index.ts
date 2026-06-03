@@ -1,5 +1,6 @@
 // Proxies ML label requests via Supabase Edge Function.
 // Cloudflare Workers cannot reach api.mercadolibre.com directly (error 1016/530).
+// ML returns shipment_labels as a ZIP archive — we extract the ZPL entry here.
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -182,12 +183,45 @@ Deno.serve(async (req) => {
     });
   }
 
-  const rawBody = await mlRes.text();
+  const buf = new Uint8Array(await mlRes.arrayBuffer());
   console.log(
     `[ml-label] label shipment_id=${shipmentId} status=${mlRes.status}`,
     `content-type=${mlRes.headers.get("content-type")}`,
-    `body(200)=${rawBody.slice(0, 200)}`,
+    `size=${buf.length} magic=0x${buf[0]?.toString(16).padStart(2,"0")}${buf[1]?.toString(16).padStart(2,"0")}`,
   );
 
-  return jsonResult({ ok: mlRes.ok, status: mlRes.status, body: rawBody });
+  if (!mlRes.ok) {
+    return jsonResult({ ok: false, status: mlRes.status, body: new TextDecoder().decode(buf) });
+  }
+
+  let zpl: string;
+
+  if (buf[0] === 0x50 && buf[1] === 0x4B) {
+    // ZIP — extrai primeira entrada .txt (ou primeira entrada disponível)
+    const { unzipSync, strFromU8 } = await import("https://esm.sh/fflate@0.8.2");
+    const files = unzipSync(buf);
+    const entries = Object.keys(files);
+    const entry = entries.find((n) => n.toLowerCase().endsWith(".txt")) ?? entries[0];
+    if (!entry) {
+      return jsonResult({ ok: false, status: 200, body: JSON.stringify({ error: "zip_vazio", message: "ZIP sem entradas" }) });
+    }
+    zpl = strFromU8(files[entry]);
+    console.log(`[ml-label] ZIP extraiu entrada="${entry}" tamanho=${zpl.length} preview="${zpl.slice(0, 80)}"`);
+  } else if (buf[0] === 0x1F && buf[1] === 0x8B) {
+    // gzip
+    const { gunzipSync, strFromU8 } = await import("https://esm.sh/fflate@0.8.2");
+    zpl = strFromU8(gunzipSync(buf));
+    console.log(`[ml-label] gzip extraiu tamanho=${zpl.length} preview="${zpl.slice(0, 80)}"`);
+  } else {
+    // texto puro
+    zpl = new TextDecoder().decode(buf);
+    console.log(`[ml-label] texto puro tamanho=${zpl.length} preview="${zpl.slice(0, 80)}"`);
+  }
+
+  if (!zpl.includes("^XA")) {
+    console.warn(`[ml-label] conteúdo não é ZPL válido (200 chars): ${zpl.slice(0, 200)}`);
+    return jsonResult({ ok: false, status: 200, body: JSON.stringify({ error: "zpl_invalido", message: "Conteúdo extraído não contém ^XA" }) });
+  }
+
+  return jsonResult({ ok: true, status: 200, body: zpl });
 });
