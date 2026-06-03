@@ -6,7 +6,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Loader2, Plug, RefreshCw, Trash2, CheckCircle2, AlertTriangle, XCircle, Pencil } from "lucide-react";
+import { Loader2, Plug, RefreshCw, Trash2, CheckCircle2, AlertTriangle, XCircle, Pencil, ShoppingCart } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -16,15 +16,23 @@ import {
   blingOAuthStart, getBlingConnection, blingRefreshToken, blingDisconnect,
   setBlingConnectionName, getProdutoCountByConnection,
 } from "@/lib/bling.functions";
+import { getMLConnection, disconnectML } from "@/lib/ml.functions";
 
 
 
-type Search = { status?: "ok" | "error"; message?: string };
+type Search = {
+  status?: "ok" | "error";
+  message?: string;
+  ml?: string;
+  msg?: string;
+};
 
 export const Route = createFileRoute("/_app/configuracoes/bling")({
   validateSearch: (s: Record<string, unknown>): Search => ({
     status: s.status === "ok" || s.status === "error" ? (s.status as "ok" | "error") : undefined,
     message: typeof s.message === "string" ? s.message : undefined,
+    ml: typeof s.ml === "string" ? s.ml : undefined,
+    msg: typeof s.msg === "string" ? s.msg : undefined,
   }),
   component: BlingPage,
 });
@@ -57,7 +65,15 @@ function BlingPage() {
       toast.error("Erro ao conectar: " + (search.message ?? "desconhecido"));
       window.history.replaceState({}, "", "/configuracoes/bling");
     }
-  }, [search.status, search.message, qc]);
+    if (search.ml === "conectado") {
+      toast.success("Mercado Livre conectado");
+      qc.invalidateQueries({ queryKey: ["ml-connection"] });
+      window.history.replaceState({}, "", "/configuracoes/bling");
+    } else if (search.ml === "erro") {
+      toast.error("Erro ao conectar ML: " + (search.msg ?? "desconhecido"));
+      window.history.replaceState({}, "", "/configuracoes/bling");
+    }
+  }, [search.status, search.message, search.ml, search.msg, qc]);
 
   const startMut = useMutation({
     mutationFn: () => startFn(),
@@ -111,6 +127,23 @@ function BlingPage() {
 
 
 
+  const getMLConn = useServerFn(getMLConnection);
+  const disconnectMLFn = useServerFn(disconnectML);
+
+  const { data: mlConn, isLoading: mlLoading } = useQuery({
+    queryKey: ["ml-connection"],
+    queryFn: () => getMLConn(),
+  });
+
+  const disconnectMLMut = useMutation({
+    mutationFn: () => disconnectMLFn(),
+    onSuccess: () => {
+      toast.success("Mercado Livre desconectado");
+      qc.invalidateQueries({ queryKey: ["ml-connection"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-16 text-muted-foreground">
@@ -145,8 +178,64 @@ function BlingPage() {
 
   const fmt = (d?: string | null) => d ? new Date(d).toLocaleString("pt-BR") : "—";
 
+  const fmtDate = (d?: string | null) => d ? new Date(d).toLocaleString("pt-BR") : "—";
+
   return (
     <>
+    {/* ── Mercado Livre ───────────────────────────────────────────────────── */}
+    <div className="bg-card border rounded-xl shadow-sm overflow-hidden mb-6">
+      <div className="p-6 flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <ShoppingCart className="h-6 w-6 text-yellow-500" />
+          <div>
+            <h2 className="text-base font-semibold">Mercado Livre</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Usado como fallback para etiquetas de transporte quando o Bling não retorna ZPL.
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3 shrink-0">
+          {mlLoading ? (
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          ) : mlConn?.connected ? (
+            <>
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border bg-emerald-100 text-emerald-700 border-emerald-200">
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                Conectado · user {mlConn.ml_user_id}
+              </span>
+              <span className="text-xs text-muted-foreground">expira {fmtDate(mlConn.expires_at)}</span>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="outline" size="sm" className="text-rose-600 hover:text-rose-700">
+                    <Trash2 className="h-4 w-4 mr-2" /> Desconectar
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Desconectar Mercado Livre?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      O fallback de etiquetas ML ficará indisponível até reconectar.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                    <AlertDialogAction onClick={() => disconnectMLMut.mutate()}>
+                      Desconectar
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </>
+          ) : (
+            <Button size="sm" onClick={() => { window.location.href = "/api/ml/auth"; }}>
+              <Plug className="h-4 w-4 mr-2" />
+              Conectar Mercado Livre
+            </Button>
+          )}
+        </div>
+      </div>
+    </div>
+
     <div className="bg-card border rounded-xl shadow-sm overflow-hidden">
 
       <div className="p-6 border-b flex items-start justify-between gap-4">

@@ -19,6 +19,8 @@ import { Route as AppDashboardRouteImport } from './routes/_app/dashboard'
 import { Route as AppConfiguracoesRouteImport } from './routes/_app/configuracoes'
 import { Route as AppConfiguracoesIndexRouteImport } from './routes/_app/configuracoes.index'
 import { Route as OauthBlingCallbackRouteImport } from './routes/oauth/bling/callback'
+import { Route as ApiMlCallbackRouteImport } from './routes/api/ml/callback'
+import { Route as ApiMlAuthRouteImport } from './routes/api/ml/auth'
 import { Route as ApiDebugEtiquetaTesteRouteImport } from './routes/api/debug/etiqueta-teste'
 import { Route as AppConfiguracoesBlingRouteImport } from './routes/_app/configuracoes.bling'
 import { Route as ApiPublicHooksBlingSyncProductsRunRouteImport } from './routes/api/public/hooks/bling-sync-products-run'
@@ -75,6 +77,16 @@ const OauthBlingCallbackRoute = OauthBlingCallbackRouteImport.update({
   path: '/oauth/bling/callback',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiMlCallbackRoute = ApiMlCallbackRouteImport.update({
+  id: '/api/ml/callback',
+  path: '/api/ml/callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiMlAuthRoute = ApiMlAuthRouteImport.update({
+  id: '/api/ml/auth',
+  path: '/api/ml/auth',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiDebugEtiquetaTesteRoute = ApiDebugEtiquetaTesteRouteImport.update({
   id: '/api/debug/etiqueta-teste',
   path: '/api/debug/etiqueta-teste',
@@ -120,6 +132,8 @@ export interface FileRoutesByFullPath {
   '/produtos': typeof AppProdutosRoute
   '/configuracoes/bling': typeof AppConfiguracoesBlingRoute
   '/api/debug/etiqueta-teste': typeof ApiDebugEtiquetaTesteRoute
+  '/api/ml/auth': typeof ApiMlAuthRoute
+  '/api/ml/callback': typeof ApiMlCallbackRoute
   '/oauth/bling/callback': typeof OauthBlingCallbackRoute
   '/configuracoes/': typeof AppConfiguracoesIndexRoute
   '/api/public/hooks/bling-pedidos': typeof ApiPublicHooksBlingPedidosRoute
@@ -136,6 +150,8 @@ export interface FileRoutesByTo {
   '/produtos': typeof AppProdutosRoute
   '/configuracoes/bling': typeof AppConfiguracoesBlingRoute
   '/api/debug/etiqueta-teste': typeof ApiDebugEtiquetaTesteRoute
+  '/api/ml/auth': typeof ApiMlAuthRoute
+  '/api/ml/callback': typeof ApiMlCallbackRoute
   '/oauth/bling/callback': typeof OauthBlingCallbackRoute
   '/configuracoes': typeof AppConfiguracoesIndexRoute
   '/api/public/hooks/bling-pedidos': typeof ApiPublicHooksBlingPedidosRoute
@@ -155,6 +171,8 @@ export interface FileRoutesById {
   '/_app/produtos': typeof AppProdutosRoute
   '/_app/configuracoes/bling': typeof AppConfiguracoesBlingRoute
   '/api/debug/etiqueta-teste': typeof ApiDebugEtiquetaTesteRoute
+  '/api/ml/auth': typeof ApiMlAuthRoute
+  '/api/ml/callback': typeof ApiMlCallbackRoute
   '/oauth/bling/callback': typeof OauthBlingCallbackRoute
   '/_app/configuracoes/': typeof AppConfiguracoesIndexRoute
   '/api/public/hooks/bling-pedidos': typeof ApiPublicHooksBlingPedidosRoute
@@ -174,6 +192,8 @@ export interface FileRouteTypes {
     | '/produtos'
     | '/configuracoes/bling'
     | '/api/debug/etiqueta-teste'
+    | '/api/ml/auth'
+    | '/api/ml/callback'
     | '/oauth/bling/callback'
     | '/configuracoes/'
     | '/api/public/hooks/bling-pedidos'
@@ -190,6 +210,8 @@ export interface FileRouteTypes {
     | '/produtos'
     | '/configuracoes/bling'
     | '/api/debug/etiqueta-teste'
+    | '/api/ml/auth'
+    | '/api/ml/callback'
     | '/oauth/bling/callback'
     | '/configuracoes'
     | '/api/public/hooks/bling-pedidos'
@@ -208,6 +230,8 @@ export interface FileRouteTypes {
     | '/_app/produtos'
     | '/_app/configuracoes/bling'
     | '/api/debug/etiqueta-teste'
+    | '/api/ml/auth'
+    | '/api/ml/callback'
     | '/oauth/bling/callback'
     | '/_app/configuracoes/'
     | '/api/public/hooks/bling-pedidos'
@@ -221,6 +245,8 @@ export interface RootRouteChildren {
   AppRoute: typeof AppRouteWithChildren
   LoginRoute: typeof LoginRoute
   ApiDebugEtiquetaTesteRoute: typeof ApiDebugEtiquetaTesteRoute
+  ApiMlAuthRoute: typeof ApiMlAuthRoute
+  ApiMlCallbackRoute: typeof ApiMlCallbackRoute
   OauthBlingCallbackRoute: typeof OauthBlingCallbackRoute
   ApiPublicHooksBlingPedidosRoute: typeof ApiPublicHooksBlingPedidosRoute
   ApiPublicHooksBlingRefreshRoute: typeof ApiPublicHooksBlingRefreshRoute
@@ -298,6 +324,20 @@ declare module '@tanstack/react-router' {
       path: '/oauth/bling/callback'
       fullPath: '/oauth/bling/callback'
       preLoaderRoute: typeof OauthBlingCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/ml/callback': {
+      id: '/api/ml/callback'
+      path: '/api/ml/callback'
+      fullPath: '/api/ml/callback'
+      preLoaderRoute: typeof ApiMlCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/ml/auth': {
+      id: '/api/ml/auth'
+      path: '/api/ml/auth'
+      fullPath: '/api/ml/auth'
+      preLoaderRoute: typeof ApiMlAuthRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/debug/etiqueta-teste': {
@@ -381,6 +421,8 @@ const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRouteWithChildren,
   LoginRoute: LoginRoute,
   ApiDebugEtiquetaTesteRoute: ApiDebugEtiquetaTesteRoute,
+  ApiMlAuthRoute: ApiMlAuthRoute,
+  ApiMlCallbackRoute: ApiMlCallbackRoute,
   OauthBlingCallbackRoute: OauthBlingCallbackRoute,
   ApiPublicHooksBlingPedidosRoute: ApiPublicHooksBlingPedidosRoute,
   ApiPublicHooksBlingRefreshRoute: ApiPublicHooksBlingRefreshRoute,
