@@ -2,19 +2,11 @@ import { createFileRoute } from "@tanstack/react-router";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { getDecryptedAccessToken } from "@/lib/bling.functions";
 
-const BASE = "https://api.bling.com.br/Api/v3/logisticas/etiquetas";
+const BLING = "https://api.bling.com.br/Api/v3";
 
-const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-async function fetchBlingPost(token: string, bodyPayload: unknown) {
-  const res = await fetch(BASE, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
-    body: JSON.stringify(bodyPayload),
+async function blingGet(url: string, token: string) {
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
   });
   const text = await res.text();
   let body: unknown;
@@ -51,32 +43,17 @@ export const Route = createFileRoute("/api/debug/etiqueta-teste")({
           );
         }
 
-        const { data: pedidos, error: pedidosErr } = await supabaseAdmin
-          .from("pedidos")
-          .select("numero, bling_pedido_id")
-          .not("bling_pedido_id", "is", null)
-          .order("created_at", { ascending: false })
-          .limit(3);
+        const [r1, r2, r3] = await Promise.all([
+          blingGet(`${BLING}/notasfiscais/25977264250`, token),
+          blingGet(`${BLING}/nfe/25977264250`, token),
+          blingGet(`${BLING}/notasfiscais?numero=115645`, token),
+        ]);
 
-        if (pedidosErr || !pedidos?.length) {
-          return Response.json(
-            { ok: false, error: "no_pedidos", detail: pedidosErr?.message },
-            { status: 500 },
-          );
-        }
-
-        const results: Record<string, unknown> = {};
-        for (const pedido of pedidos) {
-          const res = await fetchBlingPost(token, { idVendas: [pedido.bling_pedido_id] });
-          results[`pedido_${pedido.numero}`] = {
-            numero: pedido.numero,
-            bling_pedido_id: pedido.bling_pedido_id,
-            ...res,
-          };
-          await delay(400);
-        }
-
-        return Response.json(results);
+        return Response.json({
+          r1: { desc: "GET /notasfiscais/25977264250 (id NF pedido 7873)", ...r1 },
+          r2: { desc: "GET /nfe/25977264250 (endpoint alternativo NF-e)", ...r2 },
+          r3: { desc: "GET /notasfiscais?numero=115645 (busca por numero NF)", ...r3 },
+        });
       },
     },
   },
