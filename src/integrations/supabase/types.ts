@@ -162,6 +162,36 @@ export type Database = {
         }
         Relationships: []
       }
+      ml_connections: {
+        Row: {
+          access_token: string
+          created_at: string | null
+          expires_at: string
+          id: string
+          ml_user_id: number
+          refresh_token: string
+          updated_at: string | null
+        }
+        Insert: {
+          access_token: string
+          created_at?: string | null
+          expires_at: string
+          id?: string
+          ml_user_id: number
+          refresh_token: string
+          updated_at?: string | null
+        }
+        Update: {
+          access_token?: string
+          created_at?: string | null
+          expires_at?: string
+          id?: string
+          ml_user_id?: number
+          refresh_token?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       oauth_states: {
         Row: {
           created_at: string
