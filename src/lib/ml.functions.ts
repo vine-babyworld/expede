@@ -25,7 +25,7 @@ export function getMLAuthUrl(): string {
 export async function exchangeMLCode(code: string): Promise<void> {
   const res = await fetch(ML_TOKEN_URL, {
     method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
+    headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json", "User-Agent": "EXPEDE/1.0 (expede.lovable.app)" },
     body: new URLSearchParams({
       grant_type: "authorization_code",
       client_id: ML_CLIENT_ID,
