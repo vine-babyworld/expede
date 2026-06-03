@@ -255,6 +255,7 @@ export type Database = {
           cliente: Json | null
           created_at: string
           data_pedido: string | null
+          etiqueta_zpl: string | null
           id: string
           numero: string
           numero_loja: string | null
@@ -272,6 +273,7 @@ export type Database = {
           cliente?: Json | null
           created_at?: string
           data_pedido?: string | null
+          etiqueta_zpl?: string | null
           id?: string
           numero: string
           numero_loja?: string | null
@@ -289,6 +291,7 @@ export type Database = {
           cliente?: Json | null
           created_at?: string
           data_pedido?: string | null
+          etiqueta_zpl?: string | null
           id?: string
           numero?: string
           numero_loja?: string | null
