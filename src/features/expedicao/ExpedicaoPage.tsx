@@ -161,6 +161,31 @@ export function ExpedicaoPage() {
         return;
       }
 
+      const isFlex = !!(pedido.raw_json as any)
+        ?.transporte?.volumes?.[0]?.servico?.toLowerCase().includes("flex");
+      const semNf = !pedido.bling_nota_fiscal_id;
+
+      // FLEX sem NF: imprime apenas etiqueta, sem DANFE (esperado não ter NF)
+      if (isFlex && semNf) {
+        toast.loading("Buscando etiqueta FLEX...", { id: "print" });
+        const blingId = Number(pedido.bling_pedido_id);
+        if (!blingId) { toast.warning("Pedido FLEX sem ID Bling", { id: "print" }); return; }
+        try {
+          const et = await buscarEtiquetaBling({ data: { pedidoId: blingId } });
+          if (et.ok && et.tipo === "zpl") {
+            await qzTray.imprimirZpl(et.conteudo, impressora);
+            toast.success("Etiqueta impressa — pedido FLEX sem NF", { id: "print" });
+          } else {
+            console.warn("[impressao] etiqueta FLEX indisponível:", (et as any).error);
+            toast.warning("Etiqueta FLEX não disponível", { id: "print" });
+          }
+        } catch (err) {
+          console.error("[impressao] erro FLEX:", err);
+          toast.error("Erro ao imprimir etiqueta — verifique o QZ Tray", { id: "print" });
+        }
+        return;
+      }
+
       toast.loading("Gerando documentos...", { id: "print" });
 
       // Busca etiqueta e DANFE em paralelo — falha de uma não cancela a outra
@@ -329,6 +354,8 @@ function PedidoCard({
   const marketplace = detectarMarketplace(pedido.numero_loja);
   const numeroPrincipal = pedido.numero_loja || pedido.numero;
   const numeroSecundario = pedido.numero_loja ? pedido.numero : null;
+  const isFlex = logistica?.toLowerCase().includes("flex") ?? false;
+  const semNf = !pedido.bling_nota_fiscal_id;
 
   return (
     <div
@@ -361,6 +388,16 @@ function PedidoCard({
           {marketplace && (
             <span className={`shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded border ${marketplace.cor}`}>
               {marketplace.nome}
+            </span>
+          )}
+          {isFlex && (
+            <span className="shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded border bg-yellow-100 text-yellow-800 border-yellow-300">
+              FLEX
+            </span>
+          )}
+          {isFlex && semNf && (
+            <span className="shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded border bg-orange-100 text-orange-700 border-orange-300">
+              ⚠ Sem NF
             </span>
           )}
           {done && (

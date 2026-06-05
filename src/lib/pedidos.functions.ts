@@ -6,6 +6,7 @@ import { getDecryptedAccessToken } from "@/lib/bling.functions";
 const BLING_PEDIDOS_URL = "https://api.bling.com.br/Api/v3/pedidos/vendas";
 const BLING_LISTA_URL = "https://api.bling.com.br/Api/v3/pedidosvendas";
 const DEPOSITO_ALVO = "Geral";
+const ML_LOJA_ID = "203482894";
 
 export type PedidoRow = {
   id: string;
@@ -86,6 +87,7 @@ async function processarPedidoBling(
   blingPedidoId: number | string,
   connId: string,
   token: string,
+  opts: { permitirSemNf?: boolean } = {},
 ): Promise<{ ok: boolean; skipped?: string; error?: string }> {
   const res = await fetch(`${BLING_PEDIDOS_URL}/${blingPedidoId}`, {
     headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
@@ -101,7 +103,14 @@ async function processarPedidoBling(
   const d = json?.data;
   if (!d) return { ok: false, error: "empty_response" };
 
-  if (!d.notaFiscal?.id) return { ok: true, skipped: "no_invoice" };
+  if (!d.notaFiscal?.id) {
+    if (!opts.permitirSemNf) return { ok: true, skipped: "no_invoice" };
+    const servico: string = d.transporte?.volumes?.[0]?.servico ?? "";
+    if (!servico.toLowerCase().includes("flex")) {
+      return { ok: true, skipped: "no_invoice_not_flex" };
+    }
+    console.log(`[processarPedido] FLEX sem NF: pedido ${blingPedidoId} servico="${servico}"`);
+  }
 
   const itens: any[] = d.itens ?? [];
   const itemForaDoDeposito = itens.find(
@@ -119,8 +128,8 @@ async function processarPedidoBling(
     data_pedido:              d.data ? new Date(d.data).toISOString() : null,
     total:                    d.total ?? null,
     cliente:                  d.contato ?? null,
-    bling_nota_fiscal_id:     d.notaFiscal.id,
-    bling_nota_fiscal_numero: d.notaFiscal.numero ?? null,
+    bling_nota_fiscal_id:     d.notaFiscal?.id ?? null,
+    bling_nota_fiscal_numero: d.notaFiscal?.numero ?? null,
     raw_json:                 d,
   };
 
@@ -200,35 +209,54 @@ export async function reconciliarPedidos(): Promise<void> {
     return;
   }
 
-  const res = await fetch(`${BLING_LISTA_URL}?situacao=9&limite=50`, {
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
-  });
+  const headers = { Authorization: `Bearer ${token}`, Accept: "application/json" };
 
-  if (!res.ok) {
-    console.error("[reconciliar] GET lista falhou:", res.status, await res.text().catch(() => ""));
-    return;
+  // Query 1: faturados (situacao=9) — qualquer marketplace
+  // Query 2: loja ML FLEX (idLoja=203482894) — inclui pedidos sem NF
+  const [resFaturados, resLoja] = await Promise.allSettled([
+    fetch(`${BLING_LISTA_URL}?situacao=9&limite=50`, { headers }),
+    fetch(`${BLING_PEDIDOS_URL}?idLoja=${ML_LOJA_ID}&limite=50`, { headers }),
+  ]);
+
+  // Agrega IDs únicos de ambas as listas; loja tem permitirSemNf=true
+  const candidatos = new Map<number, { id: number; permitirSemNf: boolean }>();
+
+  if (resFaturados.status === "fulfilled" && resFaturados.value.ok) {
+    const json: any = await resFaturados.value.json().catch(() => null);
+    for (const p of json?.data ?? []) {
+      if (!candidatos.has(p.id)) candidatos.set(p.id, { id: p.id, permitirSemNf: false });
+    }
+  } else {
+    console.error("[reconciliar] GET faturados falhou:", resFaturados.status === "rejected" ? resFaturados.reason : (resFaturados.value as any)?.status);
   }
 
-  const json: any = await res.json().catch(() => null);
-  const pedidos: any[] = json?.data ?? [];
+  if (resLoja.status === "fulfilled" && resLoja.value.ok) {
+    const json: any = await resLoja.value.json().catch(() => null);
+    for (const p of json?.data ?? []) {
+      // Se já estava como permitirSemNf=false, promove para true (loja pode ser FLEX)
+      candidatos.set(p.id, { id: p.id, permitirSemNf: true });
+    }
+  } else {
+    console.error("[reconciliar] GET loja ML falhou:", resLoja.status === "rejected" ? resLoja.reason : (resLoja.value as any)?.status);
+  }
 
-  if (pedidos.length === 0) { console.log("[reconciliar] lista vazia"); return; }
+  if (candidatos.size === 0) { console.log("[reconciliar] nenhum candidato"); return; }
 
-  const blingIds = pedidos.map((p: any) => p.id);
+  const allIds = [...candidatos.keys()];
   const { data: existentes } = await supabaseAdmin
     .from("pedidos")
     .select("bling_pedido_id")
-    .in("bling_pedido_id", blingIds);
+    .in("bling_pedido_id", allIds);
 
   const existentesSet = new Set((existentes ?? []).map((e: any) => e.bling_pedido_id));
-  const novos = pedidos.filter((p: any) => !existentesSet.has(p.id));
+  const novos = [...candidatos.values()].filter((p) => !existentesSet.has(p.id));
 
   if (novos.length === 0) { console.log("[reconciliar] nenhum pedido novo"); return; }
 
   console.log(`[reconciliar] ${novos.length} pedido(s) novo(s) a processar`);
 
   for (const p of novos) {
-    const result = await processarPedidoBling(p.id, conn.id, token);
-    console.log(`[reconciliar] pedido ${p.id}:`, JSON.stringify(result));
+    const result = await processarPedidoBling(p.id, conn.id, token, { permitirSemNf: p.permitirSemNf });
+    console.log(`[reconciliar] pedido ${p.id} (permitirSemNf=${p.permitirSemNf}):`, JSON.stringify(result));
   }
 }
