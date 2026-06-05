@@ -22,6 +22,7 @@ import { Route as OauthBlingCallbackRouteImport } from './routes/oauth/bling/cal
 import { Route as ApiMlCallbackRouteImport } from './routes/api/ml/callback'
 import { Route as ApiMlAuthRouteImport } from './routes/api/ml/auth'
 import { Route as ApiDebugEtiquetaTesteRouteImport } from './routes/api/debug/etiqueta-teste'
+import { Route as ApiAdminReconciliarRouteImport } from './routes/api/admin/reconciliar'
 import { Route as AppConfiguracoesBlingRouteImport } from './routes/_app/configuracoes.bling'
 import { Route as ApiPublicHooksBlingSyncProductsRunRouteImport } from './routes/api/public/hooks/bling-sync-products-run'
 import { Route as ApiPublicHooksBlingSyncProductsDailyRouteImport } from './routes/api/public/hooks/bling-sync-products-daily'
@@ -92,6 +93,11 @@ const ApiDebugEtiquetaTesteRoute = ApiDebugEtiquetaTesteRouteImport.update({
   path: '/api/debug/etiqueta-teste',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiAdminReconciliarRoute = ApiAdminReconciliarRouteImport.update({
+  id: '/api/admin/reconciliar',
+  path: '/api/admin/reconciliar',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AppConfiguracoesBlingRoute = AppConfiguracoesBlingRouteImport.update({
   id: '/bling',
   path: '/bling',
@@ -131,6 +137,7 @@ export interface FileRoutesByFullPath {
   '/pedidos': typeof AppPedidosRoute
   '/produtos': typeof AppProdutosRoute
   '/configuracoes/bling': typeof AppConfiguracoesBlingRoute
+  '/api/admin/reconciliar': typeof ApiAdminReconciliarRoute
   '/api/debug/etiqueta-teste': typeof ApiDebugEtiquetaTesteRoute
   '/api/ml/auth': typeof ApiMlAuthRoute
   '/api/ml/callback': typeof ApiMlCallbackRoute
@@ -149,6 +156,7 @@ export interface FileRoutesByTo {
   '/pedidos': typeof AppPedidosRoute
   '/produtos': typeof AppProdutosRoute
   '/configuracoes/bling': typeof AppConfiguracoesBlingRoute
+  '/api/admin/reconciliar': typeof ApiAdminReconciliarRoute
   '/api/debug/etiqueta-teste': typeof ApiDebugEtiquetaTesteRoute
   '/api/ml/auth': typeof ApiMlAuthRoute
   '/api/ml/callback': typeof ApiMlCallbackRoute
@@ -170,6 +178,7 @@ export interface FileRoutesById {
   '/_app/pedidos': typeof AppPedidosRoute
   '/_app/produtos': typeof AppProdutosRoute
   '/_app/configuracoes/bling': typeof AppConfiguracoesBlingRoute
+  '/api/admin/reconciliar': typeof ApiAdminReconciliarRoute
   '/api/debug/etiqueta-teste': typeof ApiDebugEtiquetaTesteRoute
   '/api/ml/auth': typeof ApiMlAuthRoute
   '/api/ml/callback': typeof ApiMlCallbackRoute
@@ -191,6 +200,7 @@ export interface FileRouteTypes {
     | '/pedidos'
     | '/produtos'
     | '/configuracoes/bling'
+    | '/api/admin/reconciliar'
     | '/api/debug/etiqueta-teste'
     | '/api/ml/auth'
     | '/api/ml/callback'
@@ -209,6 +219,7 @@ export interface FileRouteTypes {
     | '/pedidos'
     | '/produtos'
     | '/configuracoes/bling'
+    | '/api/admin/reconciliar'
     | '/api/debug/etiqueta-teste'
     | '/api/ml/auth'
     | '/api/ml/callback'
@@ -229,6 +240,7 @@ export interface FileRouteTypes {
     | '/_app/pedidos'
     | '/_app/produtos'
     | '/_app/configuracoes/bling'
+    | '/api/admin/reconciliar'
     | '/api/debug/etiqueta-teste'
     | '/api/ml/auth'
     | '/api/ml/callback'
@@ -244,6 +256,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AppRoute: typeof AppRouteWithChildren
   LoginRoute: typeof LoginRoute
+  ApiAdminReconciliarRoute: typeof ApiAdminReconciliarRoute
   ApiDebugEtiquetaTesteRoute: typeof ApiDebugEtiquetaTesteRoute
   ApiMlAuthRoute: typeof ApiMlAuthRoute
   ApiMlCallbackRoute: typeof ApiMlCallbackRoute
@@ -347,6 +360,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiDebugEtiquetaTesteRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/admin/reconciliar': {
+      id: '/api/admin/reconciliar'
+      path: '/api/admin/reconciliar'
+      fullPath: '/api/admin/reconciliar'
+      preLoaderRoute: typeof ApiAdminReconciliarRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_app/configuracoes/bling': {
       id: '/_app/configuracoes/bling'
       path: '/bling'
@@ -420,6 +440,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AppRoute: AppRouteWithChildren,
   LoginRoute: LoginRoute,
+  ApiAdminReconciliarRoute: ApiAdminReconciliarRoute,
   ApiDebugEtiquetaTesteRoute: ApiDebugEtiquetaTesteRoute,
   ApiMlAuthRoute: ApiMlAuthRoute,
   ApiMlCallbackRoute: ApiMlCallbackRoute,
