@@ -7,6 +7,7 @@ const BLING_PEDIDOS_URL = "https://api.bling.com.br/Api/v3/pedidos/vendas";
 const BLING_LISTA_URL = "https://api.bling.com.br/Api/v3/pedidosvendas";
 const DEPOSITO_ALVO = "Geral";
 const ML_LOJA_ID = "203482894";
+const BLING_PRODUTOS_URL = "https://api.bling.com.br/Api/v3/produtos";
 
 export type PedidoRow = {
   id: string;
@@ -82,6 +83,61 @@ export const listarPedidos = createServerFn({ method: "POST" })
     };
   });
 
+// ---- Kit explosion helpers ----
+
+export function parseComponentesKit(codigo: string): string[] {
+  if (!codigo.includes("/")) return [codigo];
+  return codigo
+    .split("/")
+    .map((part) => part.replace(/^c[oó]d:\s*/i, "").trim())
+    .filter(Boolean);
+}
+
+async function buscarProdutoPorSku(
+  sku: string,
+  blingConnectionId: string,
+): Promise<{ id: string; gtin: string | null; nome: string } | null> {
+  const { data } = await supabaseAdmin
+    .from("produtos")
+    .select("id, gtin, nome")
+    .eq("sku", sku)
+    .eq("bling_connection_id", blingConnectionId)
+    .limit(1)
+    .maybeSingle();
+  return data ?? null;
+}
+
+async function buscarEanPorSku(
+  sku: string,
+  blingConnectionId: string,
+  blingToken: string,
+): Promise<string | null> {
+  try {
+    const { data } = await supabaseAdmin
+      .from("produtos")
+      .select("gtin")
+      .eq("sku", sku)
+      .eq("bling_connection_id", blingConnectionId)
+      .not("gtin", "is", null)
+      .limit(1)
+      .maybeSingle();
+    if (data?.gtin) return data.gtin as string;
+
+    const res = await fetch(
+      `${BLING_PRODUTOS_URL}?codigo=${encodeURIComponent(sku)}&limite=1`,
+      { headers: { Authorization: `Bearer ${blingToken}`, Accept: "application/json" } },
+    );
+    if (!res.ok) return null;
+    const json: any = await res.json();
+    return (json?.data?.[0]?.gtin as string) ?? null;
+  } catch (err) {
+    console.error(`[buscarEanPorSku] sku=${sku}:`, err);
+    return null;
+  }
+}
+
+// ---- / Kit explosion helpers ----
+
 // Shared helper — mesma lógica do webhook bling-pedidos.ts
 async function processarPedidoBling(
   blingPedidoId: number | string,
@@ -145,13 +201,52 @@ async function processarPedidoBling(
   }
 
   const pedidoDbId: string = upserted.id;
-  await supabaseAdmin.from("pedido_itens").delete().eq("pedido_id", pedidoDbId);
 
-  const itensPrepared = await Promise.all(
-    itens.map(async (it: any) => {
+  // Identifica SKUs de componentes de kits neste pedido (antes do delete)
+  const componentSkusFromKits = new Set<string>();
+  for (const it of itens) {
+    const componentes = parseComponentesKit(it.codigo ?? "");
+    if (componentes.length >= 2) componentes.forEach((s) => componentSkusFromKits.add(s));
+  }
+
+  // Verifica quais componentes já existem no DB (para preservar quantidade_bipada)
+  let jaExplodidosSkus = new Set<string>();
+  if (componentSkusFromKits.size > 0) {
+    const { data: existentes } = await supabaseAdmin
+      .from("pedido_itens")
+      .select("sku")
+      .eq("pedido_id", pedidoDbId)
+      .in("sku", [...componentSkusFromKits]);
+    jaExplodidosSkus = new Set((existentes ?? []).map((r: any) => r.sku as string).filter(Boolean));
+  }
+
+  // Delete: preserva rows de componentes já explodidos (carregam progresso de bipagem)
+  if (jaExplodidosSkus.size > 0) {
+    const { data: toDelete } = await supabaseAdmin
+      .from("pedido_itens")
+      .select("id, sku")
+      .eq("pedido_id", pedidoDbId);
+    const idsToDelete = (toDelete ?? [])
+      .filter((r: any) => !jaExplodidosSkus.has(r.sku))
+      .map((r: any) => r.id as string);
+    if (idsToDelete.length > 0) {
+      await supabaseAdmin.from("pedido_itens").delete().in("id", idsToDelete);
+    }
+  } else {
+    await supabaseAdmin.from("pedido_itens").delete().eq("pedido_id", pedidoDbId);
+  }
+
+  // Monta rows de itens — kits são explodidos em componentes individuais
+  const itensPrepared: any[] = [];
+
+  for (const it of itens) {
+    const sku = it.codigo ?? null;
+    const componentes = parseComponentesKit(sku ?? "");
+
+    if (componentes.length < 2) {
+      // Item simples — comportamento existente
       let produtoId: string | null = null;
       const gtin = it.gtin ?? null;
-      const sku  = it.codigo ?? null;
 
       if (gtin) {
         const { data: p } = await supabaseAdmin
@@ -166,7 +261,7 @@ async function processarPedidoBling(
         produtoId = p?.id ?? null;
       }
 
-      return {
+      itensPrepared.push({
         pedido_id:          pedidoDbId,
         produto_id:         produtoId,
         bling_item_id:      it.id ?? null,
@@ -177,16 +272,43 @@ async function processarPedidoBling(
         valor_unitario:     it.valor ?? null,
         deposito_id:        it.deposito?.id ?? null,
         deposito_descricao: it.deposito?.descricao ?? null,
-      };
-    }),
-  );
+      });
+    } else {
+      // Kit — explode em componentes individuais
+      for (const skuComponente of componentes) {
+        if (jaExplodidosSkus.has(skuComponente)) continue; // já no DB, preserva bipagem
+
+        const produto = await buscarProdutoPorSku(skuComponente, connId);
+        let ean = produto?.gtin ?? null;
+        if (!ean) ean = await buscarEanPorSku(skuComponente, connId, token);
+
+        itensPrepared.push({
+          pedido_id:          pedidoDbId,
+          produto_id:         produto?.id ?? null,
+          bling_item_id:      it.id ?? null,
+          sku:                skuComponente,
+          ean,
+          descricao:          produto?.nome ?? `${it.descricao ?? ""} (componente ${skuComponente})`,
+          quantidade:         it.quantidade ?? 1,
+          quantidade_bipada:  0,
+          valor_unitario:     null,
+          deposito_id:        it.deposito?.id ?? null,
+          deposito_descricao: it.deposito?.descricao ?? null,
+        });
+      }
+      console.log(`[processarPedido] kit explodido: sku="${sku}" → [${componentes.join(", ")}]`);
+    }
+  }
 
   if (itensPrepared.length > 0) {
     const { error: itemsErr } = await supabaseAdmin.from("pedido_itens").insert(itensPrepared);
     if (itemsErr) console.error("[processarPedido] insert itens falhou:", itemsErr.message);
   }
 
-  console.log(`[processarPedido] OK pedido=${blingPedidoId} db_id=${pedidoDbId} itens=${itensPrepared.length}`);
+  console.log(
+    `[processarPedido] OK pedido=${blingPedidoId} db_id=${pedidoDbId}` +
+    ` inseridos=${itensPrepared.length} preservados=${jaExplodidosSkus.size}`,
+  );
   return { ok: true };
 }
 
