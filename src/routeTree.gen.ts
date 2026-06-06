@@ -23,6 +23,7 @@ import { Route as ApiMlCallbackRouteImport } from './routes/api/ml/callback'
 import { Route as ApiMlAuthRouteImport } from './routes/api/ml/auth'
 import { Route as ApiDebugEtiquetaTesteRouteImport } from './routes/api/debug/etiqueta-teste'
 import { Route as ApiAdminReconciliarRouteImport } from './routes/api/admin/reconciliar'
+import { Route as AppConfiguracoesMarketplacesRouteImport } from './routes/_app/configuracoes.marketplaces'
 import { Route as AppConfiguracoesBlingRouteImport } from './routes/_app/configuracoes.bling'
 import { Route as ApiPublicHooksBlingSyncProductsRunRouteImport } from './routes/api/public/hooks/bling-sync-products-run'
 import { Route as ApiPublicHooksBlingSyncProductsDailyRouteImport } from './routes/api/public/hooks/bling-sync-products-daily'
@@ -98,6 +99,12 @@ const ApiAdminReconciliarRoute = ApiAdminReconciliarRouteImport.update({
   path: '/api/admin/reconciliar',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppConfiguracoesMarketplacesRoute =
+  AppConfiguracoesMarketplacesRouteImport.update({
+    id: '/marketplaces',
+    path: '/marketplaces',
+    getParentRoute: () => AppConfiguracoesRoute,
+  } as any)
 const AppConfiguracoesBlingRoute = AppConfiguracoesBlingRouteImport.update({
   id: '/bling',
   path: '/bling',
@@ -137,6 +144,7 @@ export interface FileRoutesByFullPath {
   '/pedidos': typeof AppPedidosRoute
   '/produtos': typeof AppProdutosRoute
   '/configuracoes/bling': typeof AppConfiguracoesBlingRoute
+  '/configuracoes/marketplaces': typeof AppConfiguracoesMarketplacesRoute
   '/api/admin/reconciliar': typeof ApiAdminReconciliarRoute
   '/api/debug/etiqueta-teste': typeof ApiDebugEtiquetaTesteRoute
   '/api/ml/auth': typeof ApiMlAuthRoute
@@ -156,6 +164,7 @@ export interface FileRoutesByTo {
   '/pedidos': typeof AppPedidosRoute
   '/produtos': typeof AppProdutosRoute
   '/configuracoes/bling': typeof AppConfiguracoesBlingRoute
+  '/configuracoes/marketplaces': typeof AppConfiguracoesMarketplacesRoute
   '/api/admin/reconciliar': typeof ApiAdminReconciliarRoute
   '/api/debug/etiqueta-teste': typeof ApiDebugEtiquetaTesteRoute
   '/api/ml/auth': typeof ApiMlAuthRoute
@@ -178,6 +187,7 @@ export interface FileRoutesById {
   '/_app/pedidos': typeof AppPedidosRoute
   '/_app/produtos': typeof AppProdutosRoute
   '/_app/configuracoes/bling': typeof AppConfiguracoesBlingRoute
+  '/_app/configuracoes/marketplaces': typeof AppConfiguracoesMarketplacesRoute
   '/api/admin/reconciliar': typeof ApiAdminReconciliarRoute
   '/api/debug/etiqueta-teste': typeof ApiDebugEtiquetaTesteRoute
   '/api/ml/auth': typeof ApiMlAuthRoute
@@ -200,6 +210,7 @@ export interface FileRouteTypes {
     | '/pedidos'
     | '/produtos'
     | '/configuracoes/bling'
+    | '/configuracoes/marketplaces'
     | '/api/admin/reconciliar'
     | '/api/debug/etiqueta-teste'
     | '/api/ml/auth'
@@ -219,6 +230,7 @@ export interface FileRouteTypes {
     | '/pedidos'
     | '/produtos'
     | '/configuracoes/bling'
+    | '/configuracoes/marketplaces'
     | '/api/admin/reconciliar'
     | '/api/debug/etiqueta-teste'
     | '/api/ml/auth'
@@ -240,6 +252,7 @@ export interface FileRouteTypes {
     | '/_app/pedidos'
     | '/_app/produtos'
     | '/_app/configuracoes/bling'
+    | '/_app/configuracoes/marketplaces'
     | '/api/admin/reconciliar'
     | '/api/debug/etiqueta-teste'
     | '/api/ml/auth'
@@ -367,6 +380,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAdminReconciliarRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_app/configuracoes/marketplaces': {
+      id: '/_app/configuracoes/marketplaces'
+      path: '/marketplaces'
+      fullPath: '/configuracoes/marketplaces'
+      preLoaderRoute: typeof AppConfiguracoesMarketplacesRouteImport
+      parentRoute: typeof AppConfiguracoesRoute
+    }
     '/_app/configuracoes/bling': {
       id: '/_app/configuracoes/bling'
       path: '/bling'
@@ -407,11 +427,13 @@ declare module '@tanstack/react-router' {
 
 interface AppConfiguracoesRouteChildren {
   AppConfiguracoesBlingRoute: typeof AppConfiguracoesBlingRoute
+  AppConfiguracoesMarketplacesRoute: typeof AppConfiguracoesMarketplacesRoute
   AppConfiguracoesIndexRoute: typeof AppConfiguracoesIndexRoute
 }
 
 const AppConfiguracoesRouteChildren: AppConfiguracoesRouteChildren = {
   AppConfiguracoesBlingRoute: AppConfiguracoesBlingRoute,
+  AppConfiguracoesMarketplacesRoute: AppConfiguracoesMarketplacesRoute,
   AppConfiguracoesIndexRoute: AppConfiguracoesIndexRoute,
 }
 
