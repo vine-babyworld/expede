@@ -23,6 +23,7 @@ function ConfiguracoesLayout() {
   const tabs = [
     { to: "/configuracoes", label: "Usuários", match: (p: string) => p === "/configuracoes" },
     { to: "/configuracoes/bling", label: "Bling", match: (p: string) => p.startsWith("/configuracoes/bling") },
+    { to: "/configuracoes/marketplaces", label: "Marketplaces", match: (p: string) => p.startsWith("/configuracoes/marketplaces") },
   ];
 
   return (
