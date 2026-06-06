@@ -16,7 +16,7 @@ import {
 import { useAuth } from "@/hooks/useAuth";
 import {
   listProdutos, listBlingConnectionsForFilter, getActiveSyncJobs,
-  getProdutosOverview, syncProductsStart, atualizarProduto,
+  getProdutosOverview, syncProductsStart, atualizarProduto, sincronizarProduto,
 } from "@/lib/produtos.functions";
 
 export const Route = createFileRoute("/_app/produtos")({
@@ -124,6 +124,8 @@ function ProdutosPage() {
   const [tipo, setTipo] = useState<"simples" | "pai" | "filho" | "todos">("todos");
   const [page, setPage] = useState(1);
   const [editingProduto, setEditingProduto] = useState<any | null>(null);
+  const [sincronizando, setSincronizando] = useState<Set<number>>(new Set());
+  const syncFn = useServerFn(sincronizarProduto);
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(search), 300);
@@ -227,6 +229,24 @@ function ProdutosPage() {
     },
     onError: (e: Error) => toast.error(e.message),
   });
+
+  const handleSyncProduto = async (p: any) => {
+    if (!p.bling_product_id) return;
+    setSincronizando((prev) => new Set(prev).add(p.bling_product_id));
+    try {
+      const result = await syncFn({ data: { blingProductId: p.bling_product_id, blingConnectionId: p.bling_connection_id } });
+      if (result.ok) {
+        toast.success("Produto sincronizado");
+        qc.invalidateQueries({ queryKey: ["produtos"] });
+      } else {
+        toast.error(result.error ?? "Erro ao sincronizar produto");
+      }
+    } catch (e: any) {
+      toast.error(e?.message ?? "Erro ao sincronizar produto");
+    } finally {
+      setSincronizando((prev) => { const s = new Set(prev); s.delete(p.bling_product_id); return s; });
+    }
+  };
 
   const handleSync = () => {
     const allConns = (connsQ.data ?? []).filter((c: any) => c.status === "connected");
@@ -392,14 +412,26 @@ function ProdutosPage() {
                 )}
                 <td className="px-3 py-2 text-xs text-muted-foreground">{fmtRel(p.synced_at)}</td>
                 <td className="px-3 py-2">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7"
-                    onClick={() => setEditingProduto(p)}
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                  </Button>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      disabled={!p.bling_product_id || sincronizando.has(p.bling_product_id)}
+                      onClick={() => handleSyncProduto(p)}
+                      title="Sincronizar produto"
+                    >
+                      <RefreshCw className={`h-3.5 w-3.5 ${sincronizando.has(p.bling_product_id) ? "animate-spin" : ""}`} />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      onClick={() => setEditingProduto(p)}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
                 </td>
               </tr>
             ))}

@@ -16,15 +16,14 @@ import { PrinterConfig } from "@/components/PrinterConfig";
 const IMPRESSORA_KEY = "qztray_impressora_padrao";
 const PAGE_SIZE = 50;
 
-const SITUACAO_LABEL: Record<number, string> = {
-  6: "Em aberto",
-  9: "Atendido",
-  12: "Cancelado",
-};
-
-function situacaoLabel(valor: number | null): string {
-  if (valor === null) return "—";
-  return SITUACAO_LABEL[valor] ?? String(valor);
+function SituacaoBadge({ situacaoId }: { situacaoId: number | null }) {
+  if (situacaoId === 9)
+    return <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">Faturado</span>;
+  if (situacaoId === 12)
+    return <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">Cancelado</span>;
+  if (situacaoId === 24)
+    return <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800">Em andamento</span>;
+  return <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700">Em aberto</span>;
 }
 
 function formatBRL(value: number | null): string {
@@ -218,7 +217,7 @@ function PedidosPage() {
                   (row.cliente as any)?.nome ??
                   (row.cliente as any)?.razaoSocial ??
                   "—";
-                const isCanceled = row.situacao_valor === 12;
+                const isCanceled = row.situacao_id === 12;
                 const isLoading = reimprimindo === row.id;
                 const isVisualizando = visualizando === row.id;
                 const jaImpresso = Boolean(row.etiqueta_zpl);
@@ -252,7 +251,7 @@ function PedidosPage() {
                     <td className="px-4 py-3 font-mono text-xs">
                       {row.bling_nota_fiscal_numero ?? "—"}
                     </td>
-                    <td className="px-4 py-3">{situacaoLabel(row.situacao_valor)}</td>
+                    <td className="px-4 py-3"><SituacaoBadge situacaoId={row.situacao_id} /></td>
                     <td className="px-4 py-3 text-right text-muted-foreground">
                       {row.items_count}
                     </td>

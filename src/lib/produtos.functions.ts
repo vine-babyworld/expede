@@ -584,3 +584,49 @@ export const atualizarProduto = createServerFn({ method: "POST" })
     if (error) throw new Error(error.message);
     return { ok: true };
   });
+
+const sincronizarProdutoSchema = z.object({
+  blingProductId: z.number().int().positive(),
+  blingConnectionId: z.string().uuid(),
+});
+
+export const sincronizarProduto = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) => sincronizarProdutoSchema.parse(d))
+  .handler(async ({ data }) => {
+    let token: string;
+    try {
+      token = await getDecryptedAccessToken(data.blingConnectionId);
+    } catch (e: any) {
+      return { ok: false as const, error: String(e?.message ?? e) };
+    }
+
+    const res = await fetch(`${BLING_PRODUTOS_URL}/${data.blingProductId}`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+    });
+    if (!res.ok) {
+      const txt = await res.text().catch(() => "");
+      return { ok: false as const, error: `Bling API ${res.status}: ${txt.slice(0, 200)}` };
+    }
+
+    const payload: any = await res.json().catch(() => ({}));
+    const p = payload?.data ?? payload;
+    const now = new Date().toISOString();
+
+    const { error: upErr } = await supabaseAdmin
+      .from("produtos")
+      .update({
+        nome: String(p.nome ?? "(sem nome)"),
+        gtin: p.gtin ? String(p.gtin) : null,
+        imagem_url: p?.imagemURL ?? p?.midia?.imagens?.externas?.[0]?.link ?? null,
+        raw_data: p,
+        synced_at: now,
+        detail_synced_at: now,
+        updated_at: now,
+      })
+      .eq("bling_product_id", data.blingProductId)
+      .eq("bling_connection_id", data.blingConnectionId);
+
+    if (upErr) return { ok: false as const, error: upErr.message };
+    return { ok: true as const };
+  });
