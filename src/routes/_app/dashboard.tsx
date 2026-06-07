@@ -1,14 +1,16 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
+import { toast } from "sonner";
 import {
-  Package, CheckCircle2, TrendingUp, ShoppingCart, Zap,
+  Package, CheckCircle2, TrendingUp, ShoppingCart, Zap, RefreshCw,
 } from "lucide-react";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import { getDashboardExpedicao, getDashboardVendas } from "@/lib/dashboard.functions";
+import { Button } from "@/components/ui/button";
+import { getDashboardExpedicao, getDashboardVendas, triggerReconciliar } from "@/lib/dashboard.functions";
 import { getMLConnection } from "@/lib/ml.functions";
 import { getBlingConnection } from "@/lib/bling.functions";
 import { getProdutosOverview } from "@/lib/produtos.functions";
@@ -84,11 +86,23 @@ function ChartTooltip({ active, payload, label }: any) {
 }
 
 function DashboardPage() {
+  const queryClient = useQueryClient();
   const expFn = useServerFn(getDashboardExpedicao);
   const vendasFn = useServerFn(getDashboardVendas);
   const mlFn = useServerFn(getMLConnection);
   const blingFn = useServerFn(getBlingConnection);
   const ovFn = useServerFn(getProdutosOverview);
+  const triggerFn = useServerFn(triggerReconciliar);
+
+  const syncMutation = useMutation({
+    mutationFn: () => triggerFn(),
+    onSuccess: () => {
+      toast.success("Pedidos sincronizados com sucesso");
+      queryClient.invalidateQueries({ queryKey: ["dash-expedicao"] });
+      queryClient.invalidateQueries({ queryKey: ["expedicao-pedidos"] });
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
 
   const expQ = useQuery({ queryKey: ["dash-expedicao"], queryFn: () => expFn(), refetchInterval: 60_000 });
   const vendasQ = useQuery({ queryKey: ["dash-vendas"], queryFn: () => vendasFn(), refetchInterval: 60_000 });
@@ -101,7 +115,19 @@ function DashboardPage() {
 
   return (
     <div className="p-6 max-w-6xl space-y-8">
-      <h1 className="text-2xl font-semibold">Dashboard</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold">Dashboard</h1>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => syncMutation.mutate()}
+          disabled={syncMutation.isPending}
+          className="gap-2"
+        >
+          <RefreshCw className={`h-4 w-4 ${syncMutation.isPending ? "animate-spin" : ""}`} />
+          {syncMutation.isPending ? "Sincronizando..." : "Sincronizar pedidos"}
+        </Button>
+      </div>
 
       {/* SEÇÃO 1 — Cards de expedição hoje */}
       <div className="grid grid-cols-3 gap-4">

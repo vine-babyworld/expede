@@ -70,3 +70,21 @@ export const getDashboardVendas = createServerFn({ method: "GET" })
       valor: Math.round(v.valor * 100) / 100,
     }));
   });
+
+export const triggerReconciliar = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async () => {
+    const adminKey = process.env.ADMIN_KEY;
+    if (!adminKey) throw new Error("ADMIN_KEY não configurado");
+
+    const res = await fetch(
+      "https://expede.lovable.app/api/admin/reconciliar",
+      {
+        method: "POST",
+        headers: { "X-Admin-Key": adminKey },
+      }
+    );
+    const json = await res.json() as { ok: boolean; error?: string };
+    if (!json.ok) throw new Error(json.error ?? "Erro ao reconciliar");
+    return { ok: true };
+  });
