@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import type { ReconciliarReport } from "@/lib/pedidos.functions";
 
 function brTodayRange(): { gte: string; lt: string } {
   const now = new Date();
@@ -84,7 +85,7 @@ export const triggerReconciliar = createServerFn({ method: "POST" })
         headers: { "X-Admin-Key": adminKey },
       }
     );
-    const json = await res.json() as { ok: boolean; error?: string; resultado?: unknown };
+    const json = await res.json() as { ok: boolean; error?: string; resultado?: ReconciliarReport };
     if (!json.ok) throw new Error(json.error ?? "Erro ao reconciliar");
-    return { ok: true, resultado: json.resultado };
+    return { ok: true as const, resultado: json.resultado as ReconciliarReport };
   });

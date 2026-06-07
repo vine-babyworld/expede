@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
@@ -10,6 +11,13 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { getDashboardExpedicao, getDashboardVendas, triggerReconciliar } from "@/lib/dashboard.functions";
 import { getMLConnection } from "@/lib/ml.functions";
 import { getBlingConnection } from "@/lib/bling.functions";
@@ -85,8 +93,44 @@ function ChartTooltip({ active, payload, label }: any) {
   );
 }
 
+function QueryReportSection({
+  title, report,
+}: {
+  title: string;
+  report: { encontrados: number; importados: number; pulados: number; erros: string[] };
+}) {
+  return (
+    <div className="rounded-lg border p-3">
+      <p className="font-semibold text-sm mb-2">{title}</p>
+      <div className="grid grid-cols-3 gap-2 text-sm mb-2">
+        <div>
+          <p className="text-muted-foreground text-xs">Encontrados</p>
+          <p className="font-semibold">{report.encontrados}</p>
+        </div>
+        <div>
+          <p className="text-muted-foreground text-xs">Importados</p>
+          <p className="font-semibold text-emerald-600">{report.importados}</p>
+        </div>
+        <div>
+          <p className="text-muted-foreground text-xs">Pulados</p>
+          <p className="font-semibold text-amber-600">{report.pulados}</p>
+        </div>
+      </div>
+      {report.erros.length > 0 && (
+        <div>
+          <p className="text-muted-foreground text-xs mb-1">Erros ({report.erros.length})</p>
+          <ul className="font-mono text-xs text-destructive space-y-0.5">
+            {report.erros.map((e, i) => <li key={i}>{e}</li>)}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DashboardPage() {
   const queryClient = useQueryClient();
+  const [syncReport, setSyncReport] = useState<any>(null);
   const expFn = useServerFn(getDashboardExpedicao);
   const vendasFn = useServerFn(getDashboardVendas);
   const mlFn = useServerFn(getMLConnection);
@@ -97,8 +141,8 @@ function DashboardPage() {
   const syncMutation = useMutation({
     mutationFn: () => triggerFn(),
     onSuccess: (data) => {
-      toast.success("Pedidos sincronizados com sucesso");
-      console.log("[sync]", data.resultado);
+      setSyncReport(data.resultado);
+      toast.success(`Sincronizado: ${data.resultado.query1.importados + data.resultado.query2.importados} importados`);
       queryClient.invalidateQueries({ queryKey: ["dash-expedicao"] });
       queryClient.invalidateQueries({ queryKey: ["expedicao-pedidos"] });
     },
@@ -253,6 +297,33 @@ function DashboardPage() {
           )}
         </div>
       </div>
+
+      <Dialog open={syncReport !== null} onOpenChange={(o) => !o && setSyncReport(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Relatório de Sincronização</DialogTitle>
+          </DialogHeader>
+          {syncReport && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <QueryReportSection title="Query 1 — Faturados (situação=9)" report={syncReport.query1} />
+                <QueryReportSection title="Query 2 — Loja ML / FLEX" report={syncReport.query2} />
+              </div>
+              <div>
+                <p className="font-semibold text-sm mb-1">Detalhes</p>
+                <div className="max-h-64 overflow-y-auto rounded-lg border bg-muted/30 p-3">
+                  <ul className="font-mono text-xs space-y-1">
+                    {(syncReport.detalhes ?? []).map((d: string, i: number) => <li key={i}>{d}</li>)}
+                  </ul>
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSyncReport(null)}>Fechar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
