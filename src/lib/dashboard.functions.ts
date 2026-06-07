@@ -3,16 +3,16 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 
 function brTodayRange(): { gte: string; lt: string } {
-  // "hoje" no fuso de Brasília = UTC-3
   const now = new Date();
-  const offsetMs = 3 * 60 * 60 * 1000;
-  const brNow = new Date(now.getTime() - offsetMs);
+  // Brasília = UTC-3: subtrai 3h para obter o "agora" no horário local
+  const brNow = new Date(now.getTime() - 3 * 60 * 60 * 1000);
   const y = brNow.getUTCFullYear();
   const m = brNow.getUTCMonth();
   const d = brNow.getUTCDate();
-  // início e fim do dia BR em UTC
-  const start = new Date(Date.UTC(y, m, d) + offsetMs);
-  const end   = new Date(Date.UTC(y, m, d + 1) + offsetMs);
+  // Meia-noite de hoje em Brasília = 03:00 UTC
+  const start = new Date(Date.UTC(y, m, d,     3, 0, 0));
+  // Meia-noite de amanhã em Brasília = 03:00 UTC do dia +1
+  const end   = new Date(Date.UTC(y, m, d + 1, 3, 0, 0));
   return { gte: start.toISOString(), lt: end.toISOString() };
 }
 

@@ -31,9 +31,13 @@ function formatBRL(value: number | null): string {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
 }
 
-function formatDate(iso: string | null): string {
+function formatDateTime(iso: string | null): string {
   if (!iso) return "—";
-  return new Date(iso).toLocaleDateString("pt-BR");
+  return new Date(iso).toLocaleString("pt-BR", {
+    day: "2-digit", month: "2-digit", year: "numeric",
+    hour: "2-digit", minute: "2-digit",
+    timeZone: "America/Sao_Paulo",
+  }).replace(",", "");
 }
 
 export const Route = createFileRoute("/_app/pedidos")({
@@ -262,7 +266,7 @@ function PedidosPage() {
                       )}
                     </td>
                     <td className="px-4 py-3 text-muted-foreground">
-                      {formatDate(row.data_pedido)}
+                      {formatDateTime(row.data_pedido)}
                     </td>
                     <td
                       className="px-4 py-3 max-w-[180px] truncate"

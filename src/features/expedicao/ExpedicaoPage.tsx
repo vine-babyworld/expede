@@ -69,9 +69,13 @@ function nomeCliente(p: PedidoExpedicao): string {
   return p.cliente?.nome ?? p.cliente?.razaoSocial ?? "—";
 }
 
-function formatDate(iso: string | null): string {
+function formatDateTime(iso: string | null): string {
   if (!iso) return "—";
-  return new Date(iso).toLocaleDateString("pt-BR");
+  return new Date(iso).toLocaleString("pt-BR", {
+    day: "2-digit", month: "2-digit", year: "numeric",
+    hour: "2-digit", minute: "2-digit",
+    timeZone: "America/Sao_Paulo",
+  }).replace(",", "");
 }
 
 // ─── Fetch ────────────────────────────────────────────────────────────────────
@@ -425,7 +429,7 @@ function PedidoCard({
               </span>
             )}
           </span>
-          <span>{formatDate(pedido.data_pedido)}</span>
+          <span>{formatDateTime(pedido.data_pedido)}</span>
           <span>
             {logistica ? (
               <span className="inline-block bg-muted text-muted-foreground text-[10px] px-1.5 py-0.5 rounded font-medium truncate max-w-[120px]">
