@@ -4,7 +4,6 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { getDecryptedAccessToken } from "@/lib/bling.functions";
 
 const BLING_PEDIDOS_URL = "https://api.bling.com.br/Api/v3/pedidos/vendas";
-const BLING_LISTA_URL = "https://api.bling.com.br/Api/v3/pedidosvendas";
 const DEPOSITO_ALVO = "Geral";
 const ML_LOJA_ID = "203482894";
 const BLING_PRODUTOS_URL = "https://api.bling.com.br/Api/v3/produtos";
@@ -365,11 +364,14 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
 
   const headers = { Authorization: `Bearer ${token}`, Accept: "application/json" };
 
-  // Query 1: faturados (situacao=9) — qualquer marketplace
-  // Query 2: loja ML FLEX (idLoja=203482894) — inclui pedidos sem NF
+  // Janela de 7 dias — traz os pedidos mais recentes primeiro, evita reprocessar antigos
+  const dataInicio = new Date(Date.now() - 7 * 86_400_000).toISOString().substring(0, 10);
+
+  // Query 1: faturados (idSituacao=9) — qualquer marketplace
+  // Query 2: loja ML FLEX (idLoja=203482894) — últimos 7 dias, inclui pedidos sem NF
   const [resFaturados, resLoja] = await Promise.allSettled([
-    fetch(`${BLING_LISTA_URL}?situacao=9&limite=50`, { headers }),
-    fetch(`${BLING_PEDIDOS_URL}?idLoja=${ML_LOJA_ID}&limite=50`, { headers }),
+    fetch(`${BLING_PEDIDOS_URL}?idSituacao=9&limite=50&pagina=1`, { headers }),
+    fetch(`${BLING_PEDIDOS_URL}?idLoja=${ML_LOJA_ID}&limite=50&pagina=1&dataInicio=${dataInicio}`, { headers }),
   ]);
 
   // Agrega candidatos das duas listas; loja (Q2) sempre promove para permitirSemNf=true
@@ -442,6 +444,9 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
       bucket.importados++;
       report.detalhes.push(`${label} importado: ${cand.id} — ${result.detalhe}`);
     }
+
+    // Respeita rate limit da API Bling (3 req/seg)
+    await new Promise((r) => setTimeout(r, 350));
   }
 
   return report;
