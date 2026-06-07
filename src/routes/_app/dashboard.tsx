@@ -64,11 +64,16 @@ function StatCard({
   );
 }
 
+function fmtDia(dia: string): string {
+  const [y, m, d] = dia.split("-");
+  return `${d}/${m}/${y}`;
+}
+
 function ChartTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
   return (
     <div className="bg-background border rounded-lg shadow-lg px-3 py-2 text-sm">
-      <p className="font-medium mb-1">{label}</p>
+      <p className="font-medium mb-1">{fmtDia(label)}</p>
       {payload.map((entry: any) => (
         <p key={entry.dataKey} style={{ color: entry.color }}>
           {entry.dataKey === "valor" ? `Vendas: ${fmtBRL(entry.value)}` : `Pedidos: ${entry.value}`}
@@ -139,7 +144,7 @@ function DashboardPage() {
               <XAxis
                 dataKey="dia"
                 tick={{ fontSize: 11 }}
-                tickFormatter={(v: string) => v.substring(5)}
+                tickFormatter={(v: string) => { const [, m, d] = v.split("-"); return `${d}/${m}`; }}
               />
               <YAxis
                 yAxisId="left"

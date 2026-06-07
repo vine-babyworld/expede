@@ -2,19 +2,24 @@ import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 
-function utcTodayRange(): { gte: string; lt: string } {
+function brTodayRange(): { gte: string; lt: string } {
+  // "hoje" no fuso de Brasília = UTC-3
   const now = new Date();
-  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  return {
-    gte: today.toISOString(),
-    lt: new Date(today.getTime() + 86_400_000).toISOString(),
-  };
+  const offsetMs = 3 * 60 * 60 * 1000;
+  const brNow = new Date(now.getTime() - offsetMs);
+  const y = brNow.getUTCFullYear();
+  const m = brNow.getUTCMonth();
+  const d = brNow.getUTCDate();
+  // início e fim do dia BR em UTC
+  const start = new Date(Date.UTC(y, m, d) + offsetMs);
+  const end   = new Date(Date.UTC(y, m, d + 1) + offsetMs);
+  return { gte: start.toISOString(), lt: end.toISOString() };
 }
 
 export const getDashboardExpedicao = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async () => {
-    const { gte, lt } = utcTodayRange();
+    const { gte, lt } = brTodayRange();
 
     const { data } = await supabaseAdmin
       .from("pedidos")

@@ -1,12 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { Loader2, Search, ClipboardList, Printer, RefreshCw, Eye } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { listarPedidos } from "@/lib/pedidos.functions";
+import { listarPedidos, buscarNumeroNF } from "@/lib/pedidos.functions";
 import { buscarEtiquetaBling } from "@/lib/etiqueta.functions";
 import { gerarDanfeCustom } from "@/lib/danfe.functions";
 import { abrirEtiquetaPDF } from "@/lib/zpl-to-pdf";
@@ -49,7 +49,9 @@ function PedidosPage() {
   const [visualizando, setVisualizando] = useState<string | null>(null);
 
   const qzTray = useQzTray();
+  const qc = useQueryClient();
   const listFn = useServerFn(listarPedidos);
+  const buscarNumeroNFFn = useServerFn(buscarNumeroNF);
 
   const q = useQuery({
     queryKey: ["pedidos", search, hidecanceled, page],
@@ -64,7 +66,23 @@ function PedidosPage() {
   function handleSearch(value: string) { setSearch(value); setPage(1); }
   function handleToggle(checked: boolean) { setHideCanceled(checked); setPage(1); }
 
-  async function handleReimprimir(row: { id: string; bling_pedido_id: number }) {
+  function garantirNumeroNF(row: { id: string; bling_nota_fiscal_id: number | null; bling_nota_fiscal_numero: string | null }) {
+    if (!row.bling_nota_fiscal_id || row.bling_nota_fiscal_numero) return;
+    buscarNumeroNFFn({ data: { pedidoId: row.id, notaFiscalId: row.bling_nota_fiscal_id } })
+      .then(({ numero }) => {
+        if (numero) qc.invalidateQueries({ queryKey: ["pedidos"] });
+      })
+      .catch((err) => console.warn("[garantirNumeroNF]", err));
+  }
+
+  async function handleReimprimir(row: {
+    id: string;
+    bling_pedido_id: number;
+    bling_nota_fiscal_id: number | null;
+    bling_nota_fiscal_numero: string | null;
+  }) {
+    garantirNumeroNF(row);
+
     const impressora = localStorage.getItem(IMPRESSORA_KEY);
     if (!impressora) {
       setShowPrinterConfig(true);
@@ -123,7 +141,14 @@ function PedidosPage() {
     setReimprimindo(null);
   }
 
-  async function handleVisualizar(row: { id: string; bling_pedido_id: number; etiqueta_zpl: string | null }) {
+  async function handleVisualizar(row: {
+    id: string;
+    bling_pedido_id: number;
+    etiqueta_zpl: string | null;
+    bling_nota_fiscal_id: number | null;
+    bling_nota_fiscal_numero: string | null;
+  }) {
+    garantirNumeroNF(row);
     setVisualizando(row.id);
     try {
       let zpl = row.etiqueta_zpl ?? null;
@@ -261,7 +286,15 @@ function PedidosPage() {
                           variant="ghost"
                           size="sm"
                           disabled={isVisualizando || isCanceled}
-                          onClick={() => handleVisualizar({ id: row.id, bling_pedido_id: row.bling_pedido_id, etiqueta_zpl: row.etiqueta_zpl })}
+                          onClick={() =>
+                            handleVisualizar({
+                              id: row.id,
+                              bling_pedido_id: row.bling_pedido_id,
+                              etiqueta_zpl: row.etiqueta_zpl,
+                              bling_nota_fiscal_id: row.bling_nota_fiscal_id,
+                              bling_nota_fiscal_numero: row.bling_nota_fiscal_numero,
+                            })
+                          }
                           title="Visualizar etiqueta como PDF"
                           className="gap-1.5 text-muted-foreground hover:text-foreground"
                         >
@@ -276,6 +309,8 @@ function PedidosPage() {
                             handleReimprimir({
                               id: row.id,
                               bling_pedido_id: row.bling_pedido_id,
+                              bling_nota_fiscal_id: row.bling_nota_fiscal_id,
+                              bling_nota_fiscal_numero: row.bling_nota_fiscal_numero,
                             })
                           }
                           className="gap-1.5 text-muted-foreground hover:text-foreground"

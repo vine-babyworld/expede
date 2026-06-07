@@ -8,6 +8,7 @@ const BLING_LISTA_URL = "https://api.bling.com.br/Api/v3/pedidosvendas";
 const DEPOSITO_ALVO = "Geral";
 const ML_LOJA_ID = "203482894";
 const BLING_PRODUTOS_URL = "https://api.bling.com.br/Api/v3/produtos";
+const BLING_NFE_URL = "https://api.bling.com.br/Api/v3/nfe";
 
 export type PedidoRow = {
   id: string;
@@ -382,3 +383,43 @@ export async function reconciliarPedidos(): Promise<void> {
     console.log(`[reconciliar] pedido ${p.id} (permitirSemNf=${p.permitirSemNf}):`, JSON.stringify(result));
   }
 }
+
+export const buscarNumeroNF = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { pedidoId: string; notaFiscalId: number }) => d)
+  .handler(async ({ data }): Promise<{ numero: string | null }> => {
+    const { data: conn } = await supabaseAdmin
+      .from("bling_connections")
+      .select("id")
+      .eq("status", "connected")
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (!conn) return { numero: null };
+
+    let token: string;
+    try {
+      token = await getDecryptedAccessToken(conn.id);
+    } catch (e) {
+      console.error("[buscarNumeroNF] erro ao obter token:", e);
+      return { numero: null };
+    }
+
+    const res = await fetch(BLING_NFE_URL, {
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+    });
+    if (!res.ok) return { numero: null };
+
+    const json: any = await res.json().catch(() => null);
+    const nf = (json?.data ?? []).find((n: any) => n.id === data.notaFiscalId);
+    const numero = nf?.numero != null ? String(nf.numero) : null;
+
+    if (numero) {
+      await supabaseAdmin
+        .from("pedidos")
+        .update({ bling_nota_fiscal_numero: numero })
+        .eq("id", data.pedidoId);
+    }
+
+    return { numero };
+  });
