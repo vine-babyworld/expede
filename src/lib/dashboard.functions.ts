@@ -84,7 +84,7 @@ export const triggerReconciliar = createServerFn({ method: "POST" })
         headers: { "X-Admin-Key": adminKey },
       }
     );
-    const json = await res.json() as { ok: boolean; error?: string };
+    const json = await res.json() as { ok: boolean; error?: string; resultado?: unknown };
     if (!json.ok) throw new Error(json.error ?? "Erro ao reconciliar");
-    return { ok: true };
+    return { ok: true, resultado: json.resultado };
   });

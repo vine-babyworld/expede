@@ -96,8 +96,9 @@ function DashboardPage() {
 
   const syncMutation = useMutation({
     mutationFn: () => triggerFn(),
-    onSuccess: () => {
+    onSuccess: (data) => {
       toast.success("Pedidos sincronizados com sucesso");
+      console.log("[sync]", data.resultado);
       queryClient.invalidateQueries({ queryKey: ["dash-expedicao"] });
       queryClient.invalidateQueries({ queryKey: ["expedicao-pedidos"] });
     },

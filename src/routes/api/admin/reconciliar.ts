@@ -12,8 +12,8 @@ export const Route = createFileRoute("/api/admin/reconciliar")({
         }
 
         try {
-          await reconciliarPedidos();
-          return Response.json({ ok: true });
+          const resultado = await reconciliarPedidos();
+          return Response.json({ ok: true, resultado });
         } catch (err) {
           console.error("[reconciliar-admin] erro:", err);
           return Response.json(

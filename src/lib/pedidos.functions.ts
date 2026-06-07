@@ -145,7 +145,7 @@ async function processarPedidoBling(
   connId: string,
   token: string,
   opts: { permitirSemNf?: boolean } = {},
-): Promise<{ ok: boolean; skipped?: string; error?: string }> {
+): Promise<{ ok: boolean; skipped?: string; error?: string; detalhe: string }> {
   const res = await fetch(`${BLING_PEDIDOS_URL}/${blingPedidoId}`, {
     headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
   });
@@ -153,18 +153,18 @@ async function processarPedidoBling(
   if (!res.ok) {
     const txt = await res.text().catch(() => "");
     console.error(`[processarPedido] GET ${blingPedidoId} falhou: ${res.status}`, txt);
-    return { ok: false, error: `bling_api_error:${res.status}` };
+    return { ok: false, error: `bling_api_error:${res.status}`, detalhe: `erro HTTP ${res.status} ao buscar pedido` };
   }
 
   const json: any = await res.json();
   const d = json?.data;
-  if (!d) return { ok: false, error: "empty_response" };
+  if (!d) return { ok: false, error: "empty_response", detalhe: "resposta vazia da API Bling" };
 
   if (!d.notaFiscal?.id) {
-    if (!opts.permitirSemNf) return { ok: true, skipped: "no_invoice" };
+    if (!opts.permitirSemNf) return { ok: true, skipped: "no_invoice", detalhe: "sem nota fiscal" };
     const servico: string = d.transporte?.volumes?.[0]?.servico ?? "";
     if (!servico.toLowerCase().includes("flex")) {
-      return { ok: true, skipped: "no_invoice_not_flex" };
+      return { ok: true, skipped: "no_invoice_not_flex", detalhe: `não é FLEX (servico: ${servico || "—"})` };
     }
     console.log(`[processarPedido] FLEX sem NF: pedido ${blingPedidoId} servico="${servico}"`);
   }
@@ -173,7 +173,7 @@ async function processarPedidoBling(
   const itemForaDoDeposito = itens.find(
     (it: any) => it.deposito?.descricao !== undefined && it.deposito?.descricao !== DEPOSITO_ALVO,
   );
-  if (itemForaDoDeposito) return { ok: true, skipped: "wrong_warehouse" };
+  if (itemForaDoDeposito) return { ok: true, skipped: "wrong_warehouse", detalhe: "depósito incorreto" };
 
   const pedidoPayload = {
     bling_connection_id:      connId,
@@ -198,7 +198,7 @@ async function processarPedidoBling(
 
   if (upsertErr || !upserted) {
     console.error("[processarPedido] upsert falhou:", upsertErr?.message);
-    return { ok: false, error: "upsert_error: " + upsertErr?.message };
+    return { ok: false, error: "upsert_error: " + upsertErr?.message, detalhe: "falha ao salvar pedido no banco" };
   }
 
   const pedidoDbId: string = upserted.id;
@@ -310,10 +310,36 @@ async function processarPedidoBling(
     `[processarPedido] OK pedido=${blingPedidoId} db_id=${pedidoDbId}` +
     ` inseridos=${itensPrepared.length} preservados=${jaExplodidosSkus.size}`,
   );
-  return { ok: true };
+  const nfDetalhe = pedidoPayload.bling_nota_fiscal_numero
+    ? `NF ${pedidoPayload.bling_nota_fiscal_numero}`
+    : "FLEX sem NF";
+  return { ok: true, detalhe: nfDetalhe };
 }
 
-export async function reconciliarPedidos(): Promise<void> {
+export type ReconciliarQueryReport = {
+  encontrados: number;
+  importados: number;
+  pulados: number;
+  erros: string[];
+};
+
+export type ReconciliarReport = {
+  query1: ReconciliarQueryReport;
+  query2: ReconciliarQueryReport;
+  detalhes: string[];
+};
+
+function novoQueryReport(): ReconciliarQueryReport {
+  return { encontrados: 0, importados: 0, pulados: 0, erros: [] };
+}
+
+export async function reconciliarPedidos(): Promise<ReconciliarReport> {
+  const report: ReconciliarReport = {
+    query1: novoQueryReport(),
+    query2: novoQueryReport(),
+    detalhes: [],
+  };
+
   const { data: conn } = await supabaseAdmin
     .from("bling_connections")
     .select("id")
@@ -322,14 +348,19 @@ export async function reconciliarPedidos(): Promise<void> {
     .limit(1)
     .maybeSingle();
 
-  if (!conn) { console.log("[reconciliar] nenhuma conexão ativa"); return; }
+  if (!conn) {
+    console.log("[reconciliar] nenhuma conexão ativa");
+    report.detalhes.push("nenhuma conexão Bling ativa");
+    return report;
+  }
 
   let token: string;
   try {
     token = await getDecryptedAccessToken(conn.id);
   } catch (e) {
     console.error("[reconciliar] erro ao obter token:", e);
-    return;
+    report.detalhes.push(`erro ao obter token Bling: ${e instanceof Error ? e.message : String(e)}`);
+    return report;
   }
 
   const headers = { Authorization: `Bearer ${token}`, Accept: "application/json" };
@@ -341,29 +372,41 @@ export async function reconciliarPedidos(): Promise<void> {
     fetch(`${BLING_PEDIDOS_URL}?idLoja=${ML_LOJA_ID}&limite=50`, { headers }),
   ]);
 
-  // Agrega IDs únicos de ambas as listas; loja tem permitirSemNf=true
-  const candidatos = new Map<number, { id: number; permitirSemNf: boolean }>();
+  // Agrega candidatos das duas listas; loja (Q2) sempre promove para permitirSemNf=true
+  const candidatos = new Map<number, { id: number; permitirSemNf: boolean; origem: "q1" | "q2" }>();
 
   if (resFaturados.status === "fulfilled" && resFaturados.value.ok) {
     const json: any = await resFaturados.value.json().catch(() => null);
-    for (const p of json?.data ?? []) {
-      if (!candidatos.has(p.id)) candidatos.set(p.id, { id: p.id, permitirSemNf: false });
+    const lista = json?.data ?? [];
+    report.query1.encontrados = lista.length;
+    for (const p of lista) {
+      if (!candidatos.has(p.id)) candidatos.set(p.id, { id: p.id, permitirSemNf: false, origem: "q1" });
     }
   } else {
-    console.error("[reconciliar] GET faturados falhou:", resFaturados.status === "rejected" ? resFaturados.reason : (resFaturados.value as any)?.status);
+    const motivo = resFaturados.status === "rejected" ? resFaturados.reason : (resFaturados.value as any)?.status;
+    console.error("[reconciliar] GET faturados falhou:", motivo);
+    report.detalhes.push(`Q1 erro ao buscar lista: ${String(motivo)}`);
   }
 
   if (resLoja.status === "fulfilled" && resLoja.value.ok) {
     const json: any = await resLoja.value.json().catch(() => null);
-    for (const p of json?.data ?? []) {
-      // Se já estava como permitirSemNf=false, promove para true (loja pode ser FLEX)
-      candidatos.set(p.id, { id: p.id, permitirSemNf: true });
+    const lista = json?.data ?? [];
+    report.query2.encontrados = lista.length;
+    for (const p of lista) {
+      // Se já estava como permitirSemNf=false (Q1), promove para true e re-atribui à Q2 (loja pode ser FLEX)
+      candidatos.set(p.id, { id: p.id, permitirSemNf: true, origem: "q2" });
     }
   } else {
-    console.error("[reconciliar] GET loja ML falhou:", resLoja.status === "rejected" ? resLoja.reason : (resLoja.value as any)?.status);
+    const motivo = resLoja.status === "rejected" ? resLoja.reason : (resLoja.value as any)?.status;
+    console.error("[reconciliar] GET loja ML falhou:", motivo);
+    report.detalhes.push(`Q2 erro ao buscar lista: ${String(motivo)}`);
   }
 
-  if (candidatos.size === 0) { console.log("[reconciliar] nenhum candidato"); return; }
+  if (candidatos.size === 0) {
+    console.log("[reconciliar] nenhum candidato");
+    report.detalhes.push("nenhum candidato encontrado");
+    return report;
+  }
 
   const allIds = [...candidatos.keys()];
   const { data: existentes } = await supabaseAdmin
@@ -372,16 +415,36 @@ export async function reconciliarPedidos(): Promise<void> {
     .in("bling_pedido_id", allIds);
 
   const existentesSet = new Set((existentes ?? []).map((e: any) => e.bling_pedido_id));
-  const novos = [...candidatos.values()].filter((p) => !existentesSet.has(p.id));
 
-  if (novos.length === 0) { console.log("[reconciliar] nenhum pedido novo"); return; }
+  console.log(`[reconciliar] ${candidatos.size} candidato(s), ${existentesSet.size} já existem no banco`);
 
-  console.log(`[reconciliar] ${novos.length} pedido(s) novo(s) a processar`);
+  for (const cand of candidatos.values()) {
+    const label = cand.origem === "q1" ? "Q1" : "Q2";
+    const bucket = cand.origem === "q1" ? report.query1 : report.query2;
 
-  for (const p of novos) {
-    const result = await processarPedidoBling(p.id, conn.id, token, { permitirSemNf: p.permitirSemNf });
-    console.log(`[reconciliar] pedido ${p.id} (permitirSemNf=${p.permitirSemNf}):`, JSON.stringify(result));
+    if (existentesSet.has(cand.id)) {
+      bucket.pulados++;
+      report.detalhes.push(`${label} skip: ${cand.id} — já existe no banco`);
+      continue;
+    }
+
+    const result = await processarPedidoBling(cand.id, conn.id, token, { permitirSemNf: cand.permitirSemNf });
+    console.log(`[reconciliar] pedido ${cand.id} (permitirSemNf=${cand.permitirSemNf}):`, JSON.stringify(result));
+
+    if (!result.ok) {
+      const msg = result.error ?? result.detalhe;
+      bucket.erros.push(`${cand.id}: ${msg}`);
+      report.detalhes.push(`${label} erro: ${cand.id} — ${msg}`);
+    } else if (result.skipped) {
+      bucket.pulados++;
+      report.detalhes.push(`${label} skip: ${cand.id} — ${result.detalhe}`);
+    } else {
+      bucket.importados++;
+      report.detalhes.push(`${label} importado: ${cand.id} — ${result.detalhe}`);
+    }
   }
+
+  return report;
 }
 
 export const buscarNumeroNF = createServerFn({ method: "POST" })
