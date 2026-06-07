@@ -33,11 +33,14 @@ function formatBRL(value: number | null): string {
 
 function formatDateTime(iso: string | null): string {
   if (!iso) return "—";
-  return new Date(iso).toLocaleString("pt-BR", {
-    day: "2-digit", month: "2-digit", year: "numeric",
-    hour: "2-digit", minute: "2-digit",
-    timeZone: "America/Sao_Paulo",
-  }).replace(",", "");
+  // Brasília = UTC-3: subtrai 3h manualmente para compatibilidade com CF Workers
+  const d = new Date(new Date(iso).getTime() - 3 * 60 * 60 * 1000);
+  const day   = String(d.getUTCDate()).padStart(2, "0");
+  const month = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const year  = d.getUTCFullYear();
+  const hour  = String(d.getUTCHours()).padStart(2, "0");
+  const min   = String(d.getUTCMinutes()).padStart(2, "0");
+  return `${day}/${month}/${year} ${hour}:${min}`;
 }
 
 export const Route = createFileRoute("/_app/pedidos")({
