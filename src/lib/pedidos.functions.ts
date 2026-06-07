@@ -367,10 +367,10 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
   // Janela de 7 dias — traz os pedidos mais recentes primeiro, evita reprocessar antigos
   const dataInicio = new Date(Date.now() - 7 * 86_400_000).toISOString().substring(0, 10);
 
-  // Query 1: faturados (idSituacao=9) — qualquer marketplace
+  // Query 1: faturados (idSituacao=9) — últimos 7 dias, qualquer marketplace
   // Query 2: loja ML FLEX (idLoja=203482894) — últimos 7 dias, inclui pedidos sem NF
   const [resFaturados, resLoja] = await Promise.allSettled([
-    fetch(`${BLING_PEDIDOS_URL}?idSituacao=9&limite=50&pagina=1`, { headers }),
+    fetch(`${BLING_PEDIDOS_URL}?idSituacao=9&limite=50&pagina=1&dataInicio=${dataInicio}`, { headers }),
     fetch(`${BLING_PEDIDOS_URL}?idLoja=${ML_LOJA_ID}&limite=50&pagina=1&dataInicio=${dataInicio}`, { headers }),
   ]);
 
