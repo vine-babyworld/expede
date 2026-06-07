@@ -185,7 +185,7 @@ function DashboardPage() {
         />
         <StatCard
           title="Expedidos hoje"
-          value={exp?.expedidos ?? 0}
+          value={exp?.expedidosHoje ?? 0}
           loading={expQ.isLoading}
           icon={CheckCircle2}
           bg="bg-green-600"

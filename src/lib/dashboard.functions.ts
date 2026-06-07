@@ -22,27 +22,35 @@ export const getDashboardExpedicao = createServerFn({ method: "GET" })
   .handler(async () => {
     const { gte, lt } = brTodayRange();
 
-    const { data } = await supabaseAdmin
-      .from("pedidos")
-      .select("id, total, pedido_itens(quantidade, quantidade_bipada)")
-      .gte("data_pedido", gte)
-      .lt("data_pedido", lt)
-      .neq("situacao_id", 12);
+    const [{ data: todosAbertos }, { data: hoje }] = await Promise.all([
+      supabaseAdmin
+        .from("pedidos")
+        .select("id, pedido_itens(quantidade, quantidade_bipada)")
+        .neq("situacao_id", 12),
+      supabaseAdmin
+        .from("pedidos")
+        .select("id, total, pedido_itens(quantidade, quantidade_bipada)")
+        .gte("data_pedido", gte)
+        .lt("data_pedido", lt)
+        .neq("situacao_id", 12),
+    ]);
 
-    const pedidos = data ?? [];
-
-    const pendentes = pedidos.filter((p: any) =>
+    // Pendentes: TODOS os pedidos em aberto com algum item não bipado, sem filtro de data
+    const pendentes = (todosAbertos ?? []).filter((p: any) =>
       (p.pedido_itens as any[]).some((it: any) => (it.quantidade_bipada ?? 0) < it.quantidade)
     ).length;
 
-    const expedidos = pedidos.filter((p: any) => {
+    const pedidosHoje = hoje ?? [];
+
+    // Expedidos hoje: pedidos de hoje com todos os itens bipados
+    const expedidosHoje = pedidosHoje.filter((p: any) => {
       const itens = p.pedido_itens as any[];
       return itens.length > 0 && itens.every((it: any) => (it.quantidade_bipada ?? 0) >= it.quantidade);
     }).length;
 
-    const totalValor = pedidos.reduce((s: number, p: any) => s + (p.total ?? 0), 0);
+    const totalValor = pedidosHoje.reduce((s: number, p: any) => s + (p.total ?? 0), 0);
 
-    return { pendentes, expedidos, totalValor, totalHoje: pedidos.length };
+    return { pendentes, expedidosHoje, totalValor, totalHoje: pedidosHoje.length };
   });
 
 export const getDashboardVendas = createServerFn({ method: "GET" })
