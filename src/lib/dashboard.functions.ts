@@ -20,9 +20,9 @@ function brTodayRange(): { gte: string; lt: string } {
 export const getDashboardExpedicao = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async () => {
-    const { gte, lt } = brTodayRange();
+    const { gte: hojeBR, lt: amanhaBR } = brTodayRange();
 
-    const [{ data: todosAbertos }, { data: hoje }] = await Promise.all([
+    const [{ data: todosAbertos }, { data: hoje }, { data: bipHoje }] = await Promise.all([
       supabaseAdmin
         .from("pedidos")
         .select("id, pedido_itens(quantidade, quantidade_bipada)")
@@ -30,9 +30,15 @@ export const getDashboardExpedicao = createServerFn({ method: "GET" })
       supabaseAdmin
         .from("pedidos")
         .select("id, total, pedido_itens(quantidade, quantidade_bipada)")
-        .gte("data_pedido", gte)
-        .lt("data_pedido", lt)
+        .gte("data_pedido", hojeBR)
+        .lt("data_pedido", amanhaBR)
         .neq("situacao_id", 12),
+      supabaseAdmin
+        .from("bipagens")
+        .select("pedido_id")
+        .gte("created_at", hojeBR)
+        .lt("created_at", amanhaBR)
+        .eq("resultado", "sucesso"),
     ]);
 
     // Pendentes: TODOS os pedidos em aberto com algum item não bipado, sem filtro de data
@@ -42,11 +48,23 @@ export const getDashboardExpedicao = createServerFn({ method: "GET" })
 
     const pedidosHoje = hoje ?? [];
 
-    // Expedidos hoje: pedidos de hoje com todos os itens bipados
-    const expedidosHoje = pedidosHoje.filter((p: any) => {
-      const itens = p.pedido_itens as any[];
-      return itens.length > 0 && itens.every((it: any) => (it.quantidade_bipada ?? 0) >= it.quantidade);
-    }).length;
+    // Expedidos hoje: pedidos completamente bipados cuja última bipagem ocorreu hoje (BR)
+    const pedidosComBipHoje = [...new Set((bipHoje ?? []).map((b: any) => b.pedido_id))];
+
+    let expedidosHoje = 0;
+    if (pedidosComBipHoje.length > 0) {
+      const { data: completos } = await supabaseAdmin
+        .from("pedidos")
+        .select("id, pedido_itens(quantidade, quantidade_bipada)")
+        .in("id", pedidosComBipHoje)
+        .neq("situacao_id", 12);
+
+      expedidosHoje = (completos ?? []).filter((p: any) => {
+        const itens = p.pedido_itens as any[];
+        return itens.length > 0 &&
+          itens.every((i: any) => (i.quantidade_bipada ?? 0) >= i.quantidade);
+      }).length;
+    }
 
     const totalValor = pedidosHoje.reduce((s: number, p: any) => s + (p.total ?? 0), 0);
 
