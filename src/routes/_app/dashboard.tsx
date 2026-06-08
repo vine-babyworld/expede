@@ -177,7 +177,7 @@ function DashboardPage() {
       {/* SEÇÃO 1 — Cards de expedição hoje */}
       <div className="grid grid-cols-3 gap-4">
         <StatCard
-          title="Pendentes agora"
+          title="A expedir"
           value={exp?.pendentes ?? 0}
           loading={expQ.isLoading}
           icon={Package}
@@ -191,7 +191,7 @@ function DashboardPage() {
           bg="bg-green-600"
         />
         <StatCard
-          title="Total hoje"
+          title="Faturado hoje"
           value={fmtBRL(exp?.totalValor ?? 0)}
           loading={expQ.isLoading}
           icon={TrendingUp}
