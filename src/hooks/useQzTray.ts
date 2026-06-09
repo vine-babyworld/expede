@@ -58,6 +58,9 @@ export function useQzTray(): QzTrayHook {
       qz.security.setCertificatePromise(
         (resolve: (v: string) => void) => resolve(QZ_CERTIFICATE),
       );
+      qz.security.setSignaturePromise(function(_toSign: string) {
+        return function(resolve: () => void) { resolve(); };
+      });
       qz.security.setSignatureAlgorithm("SHA1");
       qz.security.setSignaturePromise((toSign: string) => {
         return (resolve: (sig: string) => void, reject: (err: any) => void) => {
@@ -66,6 +69,7 @@ export function useQzTray(): QzTrayHook {
             .catch(reject);
         };
       });
+      qz.api.setTrustLevel('local');
       await qz.websocket.connect();
       setIsConectado(true);
       qz.websocket.setClosedCallbacks([(evt: any) => {
