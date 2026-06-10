@@ -287,6 +287,8 @@ export type Database = {
           data_pedido: string | null
           etiqueta_zpl: string | null
           id: string
+          marketplace: string | null
+          marketplace_order_id: string | null
           numero: string
           numero_loja: string | null
           raw_json: Json
@@ -305,6 +307,8 @@ export type Database = {
           data_pedido?: string | null
           etiqueta_zpl?: string | null
           id?: string
+          marketplace?: string | null
+          marketplace_order_id?: string | null
           numero: string
           numero_loja?: string | null
           raw_json: Json
@@ -323,6 +327,8 @@ export type Database = {
           data_pedido?: string | null
           etiqueta_zpl?: string | null
           id?: string
+          marketplace?: string | null
+          marketplace_order_id?: string | null
           numero?: string
           numero_loja?: string | null
           raw_json?: Json
@@ -465,6 +471,48 @@ export type Database = {
           id?: string
           nome?: string
           updated_at?: string
+        }
+        Relationships: []
+      }
+      shopee_connections: {
+        Row: {
+          access_token: string | null
+          access_token_expires_at: string | null
+          created_at: string | null
+          id: string
+          is_sandbox: boolean | null
+          partner_id: number
+          refresh_token: string | null
+          refresh_token_expires_at: string | null
+          shop_id: number
+          shop_name: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          access_token?: string | null
+          access_token_expires_at?: string | null
+          created_at?: string | null
+          id?: string
+          is_sandbox?: boolean | null
+          partner_id: number
+          refresh_token?: string | null
+          refresh_token_expires_at?: string | null
+          shop_id: number
+          shop_name?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          access_token?: string | null
+          access_token_expires_at?: string | null
+          created_at?: string | null
+          id?: string
+          is_sandbox?: boolean | null
+          partner_id?: number
+          refresh_token?: string | null
+          refresh_token_expires_at?: string | null
+          shop_id?: number
+          shop_name?: string | null
+          updated_at?: string | null
         }
         Relationships: []
       }
