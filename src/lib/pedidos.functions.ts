@@ -325,6 +325,7 @@ export type ReconciliarQueryReport = {
 export type ReconciliarReport = {
   query1: ReconciliarQueryReport;
   query2: ReconciliarQueryReport;
+  query3: ReconciliarQueryReport;
   detalhes: string[];
 };
 
@@ -336,6 +337,7 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
   const report: ReconciliarReport = {
     query1: novoQueryReport(),
     query2: novoQueryReport(),
+    query3: novoQueryReport(),
     detalhes: [],
   };
 
@@ -369,13 +371,15 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
 
   // Query 1: faturados (idSituacao=9) — últimos 7 dias, qualquer marketplace
   // Query 2: loja ML FLEX (idLoja=203482894) — últimos 7 dias, inclui pedidos sem NF
-  const [resFaturados, resLoja] = await Promise.allSettled([
+  // Query 3: atendidos (idSituacao=15) — últimos 7 dias, qualquer marketplace
+  const [resFaturados, resAtendidos, resLoja] = await Promise.allSettled([
     fetch(`${BLING_PEDIDOS_URL}?idSituacao=9&limite=50&pagina=1&dataInicio=${dataInicio}`, { headers }),
+    fetch(`${BLING_PEDIDOS_URL}?idSituacao=15&limite=50&pagina=1&dataInicio=${dataInicio}`, { headers }),
     fetch(`${BLING_PEDIDOS_URL}?idLoja=${ML_LOJA_ID}&limite=50&pagina=1&dataInicio=${dataInicio}`, { headers }),
   ]);
 
-  // Agrega candidatos das duas listas; loja (Q2) sempre promove para permitirSemNf=true
-  const candidatos = new Map<number, { id: number; permitirSemNf: boolean; origem: "q1" | "q2" }>();
+  // Agrega candidatos das três listas; loja (Q2) sempre promove para permitirSemNf=true
+  const candidatos = new Map<number, { id: number; permitirSemNf: boolean; origem: "q1" | "q2" | "q3" }>();
 
   if (resFaturados.status === "fulfilled" && resFaturados.value.ok) {
     const json: any = await resFaturados.value.json().catch(() => null);
@@ -388,6 +392,19 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
     const motivo = resFaturados.status === "rejected" ? resFaturados.reason : (resFaturados.value as any)?.status;
     console.error("[reconciliar] GET faturados falhou:", motivo);
     report.detalhes.push(`Q1 erro ao buscar lista: ${String(motivo)}`);
+  }
+
+  if (resAtendidos.status === "fulfilled" && resAtendidos.value.ok) {
+    const json: any = await resAtendidos.value.json().catch(() => null);
+    const lista = json?.data ?? [];
+    report.query3.encontrados = lista.length;
+    for (const p of lista) {
+      if (!candidatos.has(p.id)) candidatos.set(p.id, { id: p.id, permitirSemNf: false, origem: "q3" });
+    }
+  } else {
+    const motivo = resAtendidos.status === "rejected" ? resAtendidos.reason : (resAtendidos.value as any)?.status;
+    console.error("[reconciliar] GET atendidos falhou:", motivo);
+    report.detalhes.push(`Q3 erro ao buscar lista: ${String(motivo)}`);
   }
 
   if (resLoja.status === "fulfilled" && resLoja.value.ok) {
@@ -426,8 +443,8 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
   console.log(`[reconciliar] ${candidatos.size} candidato(s), ${existentesComNfSet.size} já existem com NF no banco`);
 
   for (const cand of candidatos.values()) {
-    const label = cand.origem === "q1" ? "Q1" : "Q2";
-    const bucket = cand.origem === "q1" ? report.query1 : report.query2;
+    const label = cand.origem === "q1" ? "Q1" : cand.origem === "q3" ? "Q3" : "Q2";
+    const bucket = cand.origem === "q1" ? report.query1 : cand.origem === "q3" ? report.query3 : report.query2;
 
     if (existentesComNfSet.has(cand.id)) {
       bucket.pulados++;
