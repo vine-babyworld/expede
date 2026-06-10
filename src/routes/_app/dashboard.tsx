@@ -5,6 +5,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import {
   Package, CheckCircle2, TrendingUp, ShoppingCart, Zap, RefreshCw,
+  Download, ScanLine, Printer, FileCheck2,
 } from "lucide-react";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
