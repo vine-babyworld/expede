@@ -107,6 +107,7 @@ async function fetchPedidos(): Promise<PedidoExpedicao[]> {
     bling_nota_fiscal_numero: p.bling_nota_fiscal_numero ?? null,
     situacao_valor: p.situacao_valor ?? null,
     raw_json: p.raw_json ?? null,
+    printed_at: p.printed_at ?? null,
     itens: (p.pedido_itens ?? []).map((i: any) => ({
       id: i.id,
       sku: i.sku ?? null,
