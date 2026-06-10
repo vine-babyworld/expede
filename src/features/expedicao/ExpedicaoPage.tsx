@@ -58,6 +58,7 @@ type PedidoExpedicao = {
   situacao_valor: number | null;
   raw_json: any;
   itens: ItemExpedicao[];
+  printed_at: string | null;
 };
 
 function pedidoProgress(p: PedidoExpedicao) {
