@@ -378,8 +378,8 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
     fetch(`${BLING_PEDIDOS_URL}?idSituacao=9&idLoja=${ML_LOJA_ID}&limite=50&pagina=1&dataInicio=${dataInicio}`, { headers }),
     fetch(`${BLING_PEDIDOS_URL}?idLoja=${ML_LOJA_ID}&limite=50&pagina=1&dataInicio=${dataInicio}`, { headers }),
   ]);
-  const resAtendidos: PromiseSettledResult<Response> = { status: "rejected", reason: "desativado" };
-  const resAtendidosML: PromiseSettledResult<Response> = { status: "rejected", reason: "desativado" };
+  const resAtendidos: PromiseSettledResult<Response> = { status: "rejected", reason: "desativado" } as PromiseSettledResult<Response>;
+  const resAtendidosML: PromiseSettledResult<Response> = { status: "rejected", reason: "desativado" } as PromiseSettledResult<Response>;
 
   // Agrega candidatos das quatro listas; loja (Q2) sempre promove para permitirSemNf=true
   const candidatos = new Map<number, { id: number; permitirSemNf: boolean; origem: "q1" | "q2" | "q3" | "q4" }>();
