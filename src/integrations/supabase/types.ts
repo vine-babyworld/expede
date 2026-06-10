@@ -291,6 +291,7 @@ export type Database = {
           marketplace_order_id: string | null
           numero: string
           numero_loja: string | null
+          printed_at: string | null
           raw_json: Json
           situacao_id: number | null
           situacao_valor: number | null
@@ -311,6 +312,7 @@ export type Database = {
           marketplace_order_id?: string | null
           numero: string
           numero_loja?: string | null
+          printed_at?: string | null
           raw_json: Json
           situacao_id?: number | null
           situacao_valor?: number | null
@@ -331,6 +333,7 @@ export type Database = {
           marketplace_order_id?: string | null
           numero?: string
           numero_loja?: string | null
+          printed_at?: string | null
           raw_json?: Json
           situacao_id?: number | null
           situacao_valor?: number | null
