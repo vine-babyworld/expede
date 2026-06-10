@@ -5,6 +5,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import {
   Package, CheckCircle2, TrendingUp, ShoppingCart, Zap, RefreshCw,
+  Download, ScanLine, Printer, FileCheck2,
 } from "lucide-react";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -18,7 +19,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { getDashboardExpedicao, getDashboardVendas, triggerReconciliar } from "@/lib/dashboard.functions";
+import { getDashboardExpedicao, getDashboardVendas, getFunilExpedicao, triggerReconciliar } from "@/lib/dashboard.functions";
 import { getMLConnection } from "@/lib/ml.functions";
 import { getBlingConnection } from "@/lib/bling.functions";
 import { getProdutosOverview } from "@/lib/produtos.functions";
@@ -128,6 +129,44 @@ function QueryReportSection({
   );
 }
 
+type FunilData = { importado: number; bipado: number; impresso: number; faturado: number };
+
+function FunilExpedicao({ loading, data }: { loading: boolean; data: FunilData }) {
+  const steps = [
+    { key: "importado", label: "Importado", value: data.importado, icon: Download, color: "bg-blue-500", text: "text-blue-700" },
+    { key: "bipado", label: "Bipado", value: data.bipado, icon: ScanLine, color: "bg-violet-500", text: "text-violet-700" },
+    { key: "impresso", label: "Impresso", value: data.impresso, icon: Printer, color: "bg-amber-500", text: "text-amber-700" },
+    { key: "faturado", label: "Faturado", value: data.faturado, icon: FileCheck2, color: "bg-emerald-500", text: "text-emerald-700" },
+  ];
+  const base = Math.max(1, data.importado);
+
+  return (
+    <div className="space-y-3">
+      {steps.map((s) => {
+        const pct = Math.round((s.value / base) * 100);
+        const Icon = s.icon;
+        return (
+          <div key={s.key} className="flex items-center gap-3">
+            <div className="flex items-center gap-2 w-32 shrink-0">
+              <Icon className={`h-4 w-4 ${s.text}`} />
+              <span className="text-sm font-medium">{s.label}</span>
+            </div>
+            <div className="flex-1 h-7 rounded-md bg-muted overflow-hidden relative">
+              <div
+                className={`h-full ${s.color} transition-all`}
+                style={{ width: loading ? "0%" : `${pct}%` }}
+              />
+              <div className="absolute inset-0 flex items-center justify-end pr-3 text-xs font-semibold tabular-nums text-foreground/80">
+                {loading ? "…" : `${s.value} · ${pct}%`}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function DashboardPage() {
   const queryClient = useQueryClient();
   const [syncReport, setSyncReport] = useState<any>(null);
@@ -136,6 +175,7 @@ function DashboardPage() {
   const mlFn = useServerFn(getMLConnection);
   const blingFn = useServerFn(getBlingConnection);
   const ovFn = useServerFn(getProdutosOverview);
+  const funilFn = useServerFn(getFunilExpedicao);
   const triggerFn = useServerFn(triggerReconciliar);
 
   const syncMutation = useMutation({
@@ -144,6 +184,7 @@ function DashboardPage() {
       setSyncReport(data.resultado);
       toast.success(`Sincronizado: ${data.resultado.query1.importados + data.resultado.query2.importados + (data.resultado.query3?.importados ?? 0) + (data.resultado.query4?.importados ?? 0)} importados`);
       queryClient.invalidateQueries({ queryKey: ["dash-expedicao"] });
+      queryClient.invalidateQueries({ queryKey: ["dash-funil"] });
       queryClient.invalidateQueries({ queryKey: ["expedicao-pedidos"] });
     },
     onError: (err: Error) => toast.error(err.message),
@@ -154,6 +195,7 @@ function DashboardPage() {
   const mlQ = useQuery({ queryKey: ["ml-connection"], queryFn: () => mlFn(), refetchInterval: 60_000 });
   const blingQ = useQuery({ queryKey: ["bling-connection"], queryFn: () => blingFn(), refetchInterval: 60_000 });
   const ovQ = useQuery({ queryKey: ["produtos-overview"], queryFn: () => ovFn(), refetchInterval: 60_000 });
+  const funilQ = useQuery({ queryKey: ["dash-funil"], queryFn: () => funilFn(), refetchInterval: 60_000 });
 
   const exp = expQ.data;
   const vendas = vendasQ.data ?? [];
@@ -198,6 +240,20 @@ function DashboardPage() {
           bg="bg-slate-700"
         />
       </div>
+
+      {/* SEÇÃO 1.5 — Funil de expedição (últimos 30 dias) */}
+      <div className="bg-card border rounded-xl shadow-sm p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-base font-semibold">Situação dos pedidos</h2>
+          <span className="text-xs text-muted-foreground">últimos 30 dias · exclui cancelados</span>
+        </div>
+        <FunilExpedicao
+          loading={funilQ.isLoading}
+          data={funilQ.data ?? { importado: 0, bipado: 0, impresso: 0, faturado: 0 }}
+        />
+      </div>
+
+
 
       {/* SEÇÃO 2 — Gráfico de vendas últimos 30 dias */}
       <div className="bg-card border rounded-xl shadow-sm p-6">

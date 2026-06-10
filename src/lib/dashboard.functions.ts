@@ -74,6 +74,36 @@ export const getDashboardVendas = createServerFn({ method: "GET" })
     }));
   });
 
+export const getFunilExpedicao = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async () => {
+    // Janela: últimos 30 dias por data_pedido, excluindo cancelados
+    const since = new Date(Date.now() - 30 * 86_400_000).toISOString();
+
+    const { data } = await supabaseAdmin
+      .from("pedidos")
+      .select("id, situacao_id, printed_at, pedido_itens(quantidade, quantidade_bipada)")
+      .gte("data_pedido", since)
+      .neq("situacao_id", 12);
+
+    const rows = data ?? [];
+    const importado = rows.length;
+
+    let bipado = 0;
+    let impresso = 0;
+    let faturado = 0;
+
+    for (const p of rows as any[]) {
+      const itens = (p.pedido_itens as any[]) ?? [];
+      const totalBipado = itens.length > 0 && itens.every((it) => (it.quantidade_bipada ?? 0) >= it.quantidade);
+      if (totalBipado) bipado++;
+      if (p.printed_at) impresso++;
+      if (p.situacao_id === 9) faturado++;
+    }
+
+    return { importado, bipado, impresso, faturado };
+  });
+
 export const triggerReconciliar = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async () => {
