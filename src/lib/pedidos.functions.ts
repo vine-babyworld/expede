@@ -366,15 +366,15 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
 
   const headers = { Authorization: `Bearer ${token}`, Accept: "application/json" };
 
-  // Janela de 7 dias — traz os pedidos mais recentes primeiro, evita reprocessar antigos
-  const dataInicio = new Date(Date.now() - 7 * 86_400_000).toISOString().substring(0, 10);
+  // Janela de 10 dias — traz os pedidos mais recentes primeiro, evita reprocessar antigos
+  const dataInicio = new Date(Date.now() - 10 * 86_400_000).toISOString().substring(0, 10);
 
-  // Query 1: faturados (idSituacao=9) — últimos 7 dias, qualquer marketplace
-  // Query 2: loja ML FLEX (idLoja=203482894) — últimos 7 dias, inclui pedidos sem NF
-  // Query 3: atendidos (idSituacao=15) — últimos 7 dias, loja ML FLEX
+  // Query 1: faturados (idSituacao=9) — últimos 10 dias, loja ML FLEX
+  // Query 2: loja ML FLEX (idLoja=203482894) — últimos 10 dias, inclui pedidos sem NF
+  // Query 3: atendidos (idSituacao=15) — últimos 10 dias, qualquer marketplace
   const [resFaturados, resAtendidos, resLoja] = await Promise.allSettled([
-    fetch(`${BLING_PEDIDOS_URL}?idSituacao=9&limite=50&pagina=1&dataInicio=${dataInicio}`, { headers }),
-    fetch(`${BLING_PEDIDOS_URL}?idSituacao=15&idLoja=${ML_LOJA_ID}&limite=50&pagina=1&dataInicio=${dataInicio}`, { headers }),
+    fetch(`${BLING_PEDIDOS_URL}?idSituacao=9&idLoja=${ML_LOJA_ID}&limite=50&pagina=1&dataInicio=${dataInicio}`, { headers }),
+    fetch(`${BLING_PEDIDOS_URL}?idSituacao=15&limite=50&pagina=1&dataInicio=${dataInicio}`, { headers }),
     fetch(`${BLING_PEDIDOS_URL}?idLoja=${ML_LOJA_ID}&limite=50&pagina=1&dataInicio=${dataInicio}`, { headers }),
   ]);
 
@@ -399,7 +399,7 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
     const lista = json?.data ?? [];
     report.query3.encontrados = lista.length;
     for (const p of lista) {
-      if (!candidatos.has(p.id)) candidatos.set(p.id, { id: p.id, permitirSemNf: false, origem: "q3" });
+      if (!candidatos.has(p.id) && p.notaFiscal?.id) candidatos.set(p.id, { id: p.id, permitirSemNf: false, origem: "q3" });
     }
   } else {
     const motivo = resAtendidos.status === "rejected" ? resAtendidos.reason : (resAtendidos.value as any)?.status;
