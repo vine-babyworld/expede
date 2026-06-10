@@ -203,6 +203,20 @@ function DashboardPage() {
         />
       </div>
 
+      {/* SEÇÃO 1.5 — Funil de expedição (últimos 30 dias) */}
+      <div className="bg-card border rounded-xl shadow-sm p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-base font-semibold">Situação dos pedidos</h2>
+          <span className="text-xs text-muted-foreground">últimos 30 dias · exclui cancelados</span>
+        </div>
+        <FunilExpedicao
+          loading={funilQ.isLoading}
+          data={funilQ.data ?? { importado: 0, bipado: 0, impresso: 0, faturado: 0 }}
+        />
+      </div>
+
+
+
       {/* SEÇÃO 2 — Gráfico de vendas últimos 30 dias */}
       <div className="bg-card border rounded-xl shadow-sm p-6">
         <h2 className="text-base font-semibold mb-4">Vendas — últimos 30 dias</h2>
