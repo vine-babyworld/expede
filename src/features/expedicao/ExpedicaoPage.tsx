@@ -27,6 +27,7 @@ import { playBeep } from "./beep";
 import { registrarBipagem } from "@/lib/bipagem.functions";
 import { buscarEtiquetaBling } from "@/lib/etiqueta.functions";
 import { gerarDanfeCustom } from "@/lib/danfe.functions";
+import { marcarPedidoImpresso } from "@/lib/pedidos.functions";
 import { useQzTray } from "@/hooks/useQzTray";
 import { PrinterConfig } from "@/components/PrinterConfig";
 
