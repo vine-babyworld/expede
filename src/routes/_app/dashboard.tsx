@@ -133,33 +133,43 @@ type FunilData = { importado: number; bipado: number; impresso: number; faturado
 
 function FunilExpedicao({ loading, data }: { loading: boolean; data: FunilData }) {
   const steps = [
-    { key: "importado", label: "Importado", value: data.importado, icon: Download, color: "bg-blue-500", text: "text-blue-700" },
-    { key: "bipado", label: "Bipado", value: data.bipado, icon: ScanLine, color: "bg-violet-500", text: "text-violet-700" },
-    { key: "impresso", label: "Impresso", value: data.impresso, icon: Printer, color: "bg-amber-500", text: "text-amber-700" },
-    { key: "faturado", label: "Faturado", value: data.faturado, icon: FileCheck2, color: "bg-emerald-500", text: "text-emerald-700" },
+    { key: "importado", label: "Importado", value: data.importado, icon: Download, accent: "blue" },
+    { key: "faturado", label: "Faturado", value: data.faturado, icon: FileCheck2, accent: "emerald" },
+    { key: "bipado", label: "Bipado", value: data.bipado, icon: ScanLine, accent: "violet" },
+    { key: "impresso", label: "Impresso", value: data.impresso, icon: Printer, accent: "amber" },
   ];
   const base = Math.max(1, data.importado);
 
+  const accentMap: Record<string, { bg: string; border: string; icon: string; text: string }> = {
+    blue:    { bg: "bg-blue-50",    border: "border-blue-200",    icon: "text-blue-600",    text: "text-blue-700" },
+    emerald: { bg: "bg-emerald-50", border: "border-emerald-200", icon: "text-emerald-600", text: "text-emerald-700" },
+    violet:  { bg: "bg-violet-50",  border: "border-violet-200",  icon: "text-violet-600",  text: "text-violet-700" },
+    amber:   { bg: "bg-amber-50",   border: "border-amber-200",   icon: "text-amber-600",   text: "text-amber-700" },
+  };
+
   return (
-    <div className="space-y-3">
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
       {steps.map((s) => {
         const pct = Math.round((s.value / base) * 100);
+        const c = accentMap[s.accent];
         const Icon = s.icon;
         return (
-          <div key={s.key} className="flex items-center gap-3">
-            <div className="flex items-center gap-2 w-32 shrink-0">
-              <Icon className={`h-4 w-4 ${s.text}`} />
-              <span className="text-sm font-medium">{s.label}</span>
+          <div
+            key={s.key}
+            className={`rounded-xl border p-5 ${c.border} ${c.bg} flex flex-col items-center text-center`}
+          >
+            <div className={`mb-3 inline-flex items-center justify-center rounded-lg p-2 bg-white/70`}>
+              <Icon className={`h-5 w-5 ${c.icon}`} />
             </div>
-            <div className="flex-1 h-7 rounded-md bg-muted overflow-hidden relative">
-              <div
-                className={`h-full ${s.color} transition-all`}
-                style={{ width: loading ? "0%" : `${pct}%` }}
-              />
-              <div className="absolute inset-0 flex items-center justify-end pr-3 text-xs font-semibold tabular-nums text-foreground/80">
-                {loading ? "…" : `${s.value} · ${pct}%`}
-              </div>
-            </div>
+            <p className={`text-sm font-medium ${c.text}`}>{s.label}</p>
+            {loading ? (
+              <div className="mt-2 h-8 w-16 bg-white/60 rounded animate-pulse" />
+            ) : (
+              <p className="text-3xl font-bold tracking-tight mt-1 text-foreground">{s.value}</p>
+            )}
+            <p className="text-xs text-muted-foreground mt-1">
+              {loading ? "…" : `${pct}% do total`}
+            </p>
           </div>
         );
       })}
