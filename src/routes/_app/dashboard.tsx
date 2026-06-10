@@ -146,6 +146,7 @@ function DashboardPage() {
       setSyncReport(data.resultado);
       toast.success(`Sincronizado: ${data.resultado.query1.importados + data.resultado.query2.importados + (data.resultado.query3?.importados ?? 0) + (data.resultado.query4?.importados ?? 0)} importados`);
       queryClient.invalidateQueries({ queryKey: ["dash-expedicao"] });
+      queryClient.invalidateQueries({ queryKey: ["dash-funil"] });
       queryClient.invalidateQueries({ queryKey: ["expedicao-pedidos"] });
     },
     onError: (err: Error) => toast.error(err.message),
