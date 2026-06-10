@@ -137,6 +137,7 @@ function DashboardPage() {
   const mlFn = useServerFn(getMLConnection);
   const blingFn = useServerFn(getBlingConnection);
   const ovFn = useServerFn(getProdutosOverview);
+  const funilFn = useServerFn(getFunilExpedicao);
   const triggerFn = useServerFn(triggerReconciliar);
 
   const syncMutation = useMutation({
