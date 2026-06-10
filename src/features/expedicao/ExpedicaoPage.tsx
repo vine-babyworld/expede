@@ -176,6 +176,8 @@ export function ExpedicaoPage() {
         ?.transporte?.volumes?.[0]?.servico?.toLowerCase().includes("flex");
       const semNf = !pedido.bling_nota_fiscal_id;
 
+      let imprimiuAlgo = false;
+
       // FLEX sem NF: imprime apenas etiqueta, sem DANFE (esperado não ter NF)
       if (isFlex && semNf) {
         toast.loading("Buscando etiqueta FLEX...", { id: "print" });
@@ -185,6 +187,7 @@ export function ExpedicaoPage() {
           const et = await buscarEtiquetaBling({ data: { pedidoId: blingId } });
           if (et.ok && et.tipo === "zpl") {
             await qzTray.imprimirZpl(et.conteudo, impressora);
+            imprimiuAlgo = true;
             toast.success("Etiqueta impressa — pedido FLEX sem NF", { id: "print" });
           } else {
             console.warn("[impressao] etiqueta FLEX indisponível:", (et as any).error);
@@ -193,6 +196,15 @@ export function ExpedicaoPage() {
         } catch (err) {
           console.error("[impressao] erro FLEX:", err);
           toast.error("Erro ao imprimir etiqueta — verifique o QZ Tray", { id: "print" });
+        }
+        if (imprimiuAlgo) {
+          try {
+            await marcarImpresso({ data: { pedidoId: pedido.id } });
+            queryClient.invalidateQueries({ queryKey: ["expedicao-pedidos"] });
+            queryClient.invalidateQueries({ queryKey: ["dash-expedicao"] });
+          } catch (err) {
+            console.warn("[printed_at] falha ao registrar:", err);
+          }
         }
         return;
       }
@@ -216,6 +228,7 @@ export function ExpedicaoPage() {
         if (et.ok && et.tipo === "zpl") {
           try {
             await qzTray.imprimirZpl(et.conteudo, impressora);
+            imprimiuAlgo = true;
           } catch (err) {
             console.warn("[impressao] falha ao imprimir etiqueta:", err);
           }
@@ -230,6 +243,7 @@ export function ExpedicaoPage() {
       if (danfeSettled.status === "fulfilled" && danfeSettled.value.ok) {
         try {
           await qzTray.imprimirPdf(danfeSettled.value.pdf, impressora);
+          imprimiuAlgo = true;
           toast.success("DANFE impressa", { id: "print" });
         } catch (err) {
           console.error("[impressao] falha ao imprimir DANFE:", err);
@@ -243,8 +257,18 @@ export function ExpedicaoPage() {
         console.warn("[impressao] DANFE não gerada:", motivo);
         toast.warning("DANFE não disponível", { id: "print" });
       }
+
+      if (imprimiuAlgo) {
+        try {
+          await marcarImpresso({ data: { pedidoId: pedido.id } });
+          queryClient.invalidateQueries({ queryKey: ["expedicao-pedidos"] });
+          queryClient.invalidateQueries({ queryKey: ["dash-expedicao"] });
+        } catch (err) {
+          console.warn("[printed_at] falha ao registrar:", err);
+        }
+      }
     },
-    [qzTray],
+    [qzTray, marcarImpresso, queryClient],
   );
 
   return (
