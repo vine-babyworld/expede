@@ -23,6 +23,7 @@ import { Route as ApiMlCallbackRouteImport } from './routes/api/ml/callback'
 import { Route as ApiMlAuthRouteImport } from './routes/api/ml/auth'
 import { Route as ApiDebugEtiquetaTesteRouteImport } from './routes/api/debug/etiqueta-teste'
 import { Route as ApiAdminReconciliarRouteImport } from './routes/api/admin/reconciliar'
+import { Route as ApiAdminImportarPedidoRouteImport } from './routes/api/admin/importar-pedido'
 import { Route as AppConfiguracoesMarketplacesRouteImport } from './routes/_app/configuracoes.marketplaces'
 import { Route as AppConfiguracoesBlingRouteImport } from './routes/_app/configuracoes.bling'
 import { Route as ApiPublicHooksBlingSyncProductsRunRouteImport } from './routes/api/public/hooks/bling-sync-products-run'
@@ -99,6 +100,11 @@ const ApiAdminReconciliarRoute = ApiAdminReconciliarRouteImport.update({
   path: '/api/admin/reconciliar',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiAdminImportarPedidoRoute = ApiAdminImportarPedidoRouteImport.update({
+  id: '/api/admin/importar-pedido',
+  path: '/api/admin/importar-pedido',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AppConfiguracoesMarketplacesRoute =
   AppConfiguracoesMarketplacesRouteImport.update({
     id: '/marketplaces',
@@ -145,6 +151,7 @@ export interface FileRoutesByFullPath {
   '/produtos': typeof AppProdutosRoute
   '/configuracoes/bling': typeof AppConfiguracoesBlingRoute
   '/configuracoes/marketplaces': typeof AppConfiguracoesMarketplacesRoute
+  '/api/admin/importar-pedido': typeof ApiAdminImportarPedidoRoute
   '/api/admin/reconciliar': typeof ApiAdminReconciliarRoute
   '/api/debug/etiqueta-teste': typeof ApiDebugEtiquetaTesteRoute
   '/api/ml/auth': typeof ApiMlAuthRoute
@@ -165,6 +172,7 @@ export interface FileRoutesByTo {
   '/produtos': typeof AppProdutosRoute
   '/configuracoes/bling': typeof AppConfiguracoesBlingRoute
   '/configuracoes/marketplaces': typeof AppConfiguracoesMarketplacesRoute
+  '/api/admin/importar-pedido': typeof ApiAdminImportarPedidoRoute
   '/api/admin/reconciliar': typeof ApiAdminReconciliarRoute
   '/api/debug/etiqueta-teste': typeof ApiDebugEtiquetaTesteRoute
   '/api/ml/auth': typeof ApiMlAuthRoute
@@ -188,6 +196,7 @@ export interface FileRoutesById {
   '/_app/produtos': typeof AppProdutosRoute
   '/_app/configuracoes/bling': typeof AppConfiguracoesBlingRoute
   '/_app/configuracoes/marketplaces': typeof AppConfiguracoesMarketplacesRoute
+  '/api/admin/importar-pedido': typeof ApiAdminImportarPedidoRoute
   '/api/admin/reconciliar': typeof ApiAdminReconciliarRoute
   '/api/debug/etiqueta-teste': typeof ApiDebugEtiquetaTesteRoute
   '/api/ml/auth': typeof ApiMlAuthRoute
@@ -211,6 +220,7 @@ export interface FileRouteTypes {
     | '/produtos'
     | '/configuracoes/bling'
     | '/configuracoes/marketplaces'
+    | '/api/admin/importar-pedido'
     | '/api/admin/reconciliar'
     | '/api/debug/etiqueta-teste'
     | '/api/ml/auth'
@@ -231,6 +241,7 @@ export interface FileRouteTypes {
     | '/produtos'
     | '/configuracoes/bling'
     | '/configuracoes/marketplaces'
+    | '/api/admin/importar-pedido'
     | '/api/admin/reconciliar'
     | '/api/debug/etiqueta-teste'
     | '/api/ml/auth'
@@ -253,6 +264,7 @@ export interface FileRouteTypes {
     | '/_app/produtos'
     | '/_app/configuracoes/bling'
     | '/_app/configuracoes/marketplaces'
+    | '/api/admin/importar-pedido'
     | '/api/admin/reconciliar'
     | '/api/debug/etiqueta-teste'
     | '/api/ml/auth'
@@ -269,6 +281,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AppRoute: typeof AppRouteWithChildren
   LoginRoute: typeof LoginRoute
+  ApiAdminImportarPedidoRoute: typeof ApiAdminImportarPedidoRoute
   ApiAdminReconciliarRoute: typeof ApiAdminReconciliarRoute
   ApiDebugEtiquetaTesteRoute: typeof ApiDebugEtiquetaTesteRoute
   ApiMlAuthRoute: typeof ApiMlAuthRoute
@@ -380,6 +393,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAdminReconciliarRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/admin/importar-pedido': {
+      id: '/api/admin/importar-pedido'
+      path: '/api/admin/importar-pedido'
+      fullPath: '/api/admin/importar-pedido'
+      preLoaderRoute: typeof ApiAdminImportarPedidoRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_app/configuracoes/marketplaces': {
       id: '/_app/configuracoes/marketplaces'
       path: '/marketplaces'
@@ -462,6 +482,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AppRoute: AppRouteWithChildren,
   LoginRoute: LoginRoute,
+  ApiAdminImportarPedidoRoute: ApiAdminImportarPedidoRoute,
   ApiAdminReconciliarRoute: ApiAdminReconciliarRoute,
   ApiDebugEtiquetaTesteRoute: ApiDebugEtiquetaTesteRoute,
   ApiMlAuthRoute: ApiMlAuthRoute,
