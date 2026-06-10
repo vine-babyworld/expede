@@ -126,6 +126,7 @@ async function fetchPedidos(): Promise<PedidoExpedicao[]> {
 export function ExpedicaoPage() {
   const queryClient = useQueryClient();
   const qzTray = useQzTray();
+  const marcarImpresso = useServerFn(marcarPedidoImpresso);
 
   const { data: pedidos = [], isLoading } = useQuery({
     queryKey: ["expedicao-pedidos"],
