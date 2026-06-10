@@ -142,7 +142,7 @@ function DashboardPage() {
     mutationFn: () => triggerFn(),
     onSuccess: (data) => {
       setSyncReport(data.resultado);
-      toast.success(`Sincronizado: ${data.resultado.query1.importados + data.resultado.query2.importados + (data.resultado.query3?.importados ?? 0)} importados`);
+      toast.success(`Sincronizado: ${data.resultado.query1.importados + data.resultado.query2.importados + (data.resultado.query3?.importados ?? 0) + (data.resultado.query4?.importados ?? 0)} importados`);
       queryClient.invalidateQueries({ queryKey: ["dash-expedicao"] });
       queryClient.invalidateQueries({ queryKey: ["expedicao-pedidos"] });
     },
@@ -310,6 +310,9 @@ function DashboardPage() {
                 <QueryReportSection title="Query 2 — Loja ML / FLEX" report={syncReport.query2} />
                 {syncReport.query3 && (
                   <QueryReportSection title="Query 3 — Atendidos (situação=15)" report={syncReport.query3} />
+                )}
+                {syncReport.query4 && (
+                  <QueryReportSection title="Query 4 — Atendidos ML (situação=15+loja)" report={syncReport.query4} />
                 )}
               </div>
               <div>

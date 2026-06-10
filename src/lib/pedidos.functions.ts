@@ -326,6 +326,7 @@ export type ReconciliarReport = {
   query1: ReconciliarQueryReport;
   query2: ReconciliarQueryReport;
   query3: ReconciliarQueryReport;
+  query4: ReconciliarQueryReport;
   detalhes: string[];
 };
 
@@ -338,6 +339,7 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
     query1: novoQueryReport(),
     query2: novoQueryReport(),
     query3: novoQueryReport(),
+    query4: novoQueryReport(),
     detalhes: [],
   };
 
@@ -372,14 +374,15 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
   // Query 1: faturados (idSituacao=9) — últimos 10 dias, loja ML FLEX
   // Query 2: loja ML FLEX (idLoja=203482894) — últimos 10 dias, inclui pedidos sem NF
   // Query 3: atendidos (idSituacao=15) — últimos 10 dias, qualquer marketplace
-  const [resFaturados, resAtendidos, resLoja] = await Promise.allSettled([
+  const [resFaturados, resAtendidos, resLoja, resAtendidosML] = await Promise.allSettled([
     fetch(`${BLING_PEDIDOS_URL}?idSituacao=9&idLoja=${ML_LOJA_ID}&limite=50&pagina=1&dataInicio=${dataInicio}`, { headers }),
     fetch(`${BLING_PEDIDOS_URL}?idSituacao=15&limite=50&pagina=1&dataInicio=${dataInicio}`, { headers }),
     fetch(`${BLING_PEDIDOS_URL}?idLoja=${ML_LOJA_ID}&limite=50&pagina=1&dataInicio=${dataInicio}`, { headers }),
+    fetch(`${BLING_PEDIDOS_URL}?idSituacao=15&idLoja=${ML_LOJA_ID}&limite=50&pagina=1&dataInicio=${dataInicio}`, { headers }),
   ]);
 
-  // Agrega candidatos das três listas; loja (Q2) sempre promove para permitirSemNf=true
-  const candidatos = new Map<number, { id: number; permitirSemNf: boolean; origem: "q1" | "q2" | "q3" }>();
+  // Agrega candidatos das quatro listas; loja (Q2) sempre promove para permitirSemNf=true
+  const candidatos = new Map<number, { id: number; permitirSemNf: boolean; origem: "q1" | "q2" | "q3" | "q4" }>();
 
   if (resFaturados.status === "fulfilled" && resFaturados.value.ok) {
     const json: any = await resFaturados.value.json().catch(() => null);
@@ -399,12 +402,25 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
     const lista = json?.data ?? [];
     report.query3.encontrados = lista.length;
     for (const p of lista) {
-      if (!candidatos.has(p.id) && p.notaFiscal?.id) candidatos.set(p.id, { id: p.id, permitirSemNf: false, origem: "q3" });
+      if (!candidatos.has(p.id)) candidatos.set(p.id, { id: p.id, permitirSemNf: false, origem: "q3" });
     }
   } else {
     const motivo = resAtendidos.status === "rejected" ? resAtendidos.reason : (resAtendidos.value as any)?.status;
     console.error("[reconciliar] GET atendidos falhou:", motivo);
     report.detalhes.push(`Q3 erro ao buscar lista: ${String(motivo)}`);
+  }
+
+  if (resAtendidosML.status === "fulfilled" && resAtendidosML.value.ok) {
+    const json: any = await resAtendidosML.value.json().catch(() => null);
+    const lista = json?.data ?? [];
+    report.query4.encontrados = lista.length;
+    for (const p of lista) {
+      if (!candidatos.has(p.id)) candidatos.set(p.id, { id: p.id, permitirSemNf: false, origem: "q4" });
+    }
+  } else {
+    const motivo = resAtendidosML.status === "rejected" ? resAtendidosML.reason : (resAtendidosML.value as any)?.status;
+    console.error("[reconciliar] GET atendidos ML falhou:", motivo);
+    report.detalhes.push(`Q4 erro ao buscar lista: ${String(motivo)}`);
   }
 
   if (resLoja.status === "fulfilled" && resLoja.value.ok) {
@@ -443,8 +459,8 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
   console.log(`[reconciliar] ${candidatos.size} candidato(s), ${existentesComNfSet.size} já existem com NF no banco`);
 
   for (const cand of candidatos.values()) {
-    const label = cand.origem === "q1" ? "Q1" : cand.origem === "q3" ? "Q3" : "Q2";
-    const bucket = cand.origem === "q1" ? report.query1 : cand.origem === "q3" ? report.query3 : report.query2;
+    const label = cand.origem === "q1" ? "Q1" : cand.origem === "q3" ? "Q3" : cand.origem === "q4" ? "Q4" : "Q2";
+    const bucket = cand.origem === "q1" ? report.query1 : cand.origem === "q3" ? report.query3 : cand.origem === "q4" ? report.query4 : report.query2;
 
     if (existentesComNfSet.has(cand.id)) {
       bucket.pulados++;
