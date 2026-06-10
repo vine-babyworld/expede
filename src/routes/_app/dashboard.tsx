@@ -142,7 +142,7 @@ function DashboardPage() {
     mutationFn: () => triggerFn(),
     onSuccess: (data) => {
       setSyncReport(data.resultado);
-      toast.success(`Sincronizado: ${data.resultado.query1.importados + data.resultado.query2.importados} importados`);
+      toast.success(`Sincronizado: ${data.resultado.query1.importados + data.resultado.query2.importados + (data.resultado.query3?.importados ?? 0)} importados`);
       queryClient.invalidateQueries({ queryKey: ["dash-expedicao"] });
       queryClient.invalidateQueries({ queryKey: ["expedicao-pedidos"] });
     },
@@ -308,6 +308,9 @@ function DashboardPage() {
               <div className="grid grid-cols-2 gap-3">
                 <QueryReportSection title="Query 1 — Faturados (situação=9)" report={syncReport.query1} />
                 <QueryReportSection title="Query 2 — Loja ML / FLEX" report={syncReport.query2} />
+                {syncReport.query3 && (
+                  <QueryReportSection title="Query 3 — Atendidos (situação=15)" report={syncReport.query3} />
+                )}
               </div>
               <div>
                 <p className="font-semibold text-sm mb-1">Detalhes</p>
