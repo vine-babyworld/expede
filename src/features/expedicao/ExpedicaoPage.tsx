@@ -440,6 +440,15 @@ function PedidoCard({
               Concluído
             </span>
           )}
+          {pedido.printed_at && (
+            <span
+              className="shrink-0 inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded border bg-blue-50 text-blue-700 border-blue-200"
+              title={`Impresso em ${formatDateTime(pedido.printed_at)}`}
+            >
+              <Printer className="h-3 w-3" />
+              Impresso {formatDateTime(pedido.printed_at)}
+            </span>
+          )}
         </div>
         <div className="grid grid-cols-3 gap-x-6 gap-y-1 text-xs">
           <span className="text-muted-foreground">SKU</span>
