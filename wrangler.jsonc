@@ -6,5 +6,10 @@
   "main": "src/server.ts",
   "triggers": {
     "crons": ["* * * * *"]
+  },
+  "vars": {
+    "SHOPEE_SANDBOX": "true",
+    "SHOPEE_TEST_PARTNER_ID": "1235356",
+    "SHOPEE_TEST_SHOP_ID": "996685175"
   }
 }
