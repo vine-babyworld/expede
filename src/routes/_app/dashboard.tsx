@@ -156,6 +156,7 @@ function DashboardPage() {
   const mlQ = useQuery({ queryKey: ["ml-connection"], queryFn: () => mlFn(), refetchInterval: 60_000 });
   const blingQ = useQuery({ queryKey: ["bling-connection"], queryFn: () => blingFn(), refetchInterval: 60_000 });
   const ovQ = useQuery({ queryKey: ["produtos-overview"], queryFn: () => ovFn(), refetchInterval: 60_000 });
+  const funilQ = useQuery({ queryKey: ["dash-funil"], queryFn: () => funilFn(), refetchInterval: 60_000 });
 
   const exp = expQ.data;
   const vendas = vendasQ.data ?? [];
