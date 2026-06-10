@@ -19,7 +19,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { getDashboardExpedicao, getDashboardVendas, triggerReconciliar } from "@/lib/dashboard.functions";
+import { getDashboardExpedicao, getDashboardVendas, getFunilExpedicao, triggerReconciliar } from "@/lib/dashboard.functions";
 import { getMLConnection } from "@/lib/ml.functions";
 import { getBlingConnection } from "@/lib/bling.functions";
 import { getProdutosOverview } from "@/lib/produtos.functions";
