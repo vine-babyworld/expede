@@ -529,3 +529,29 @@ export const buscarNumeroNF = createServerFn({ method: "POST" })
 
     return { numero };
   });
+
+export const marcarPedidoImpresso = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { pedidoId: string }) => d)
+  .handler(async ({ data }): Promise<{ ok: boolean; printed_at: string | null }> => {
+    // Só grava o printed_at na primeira impressão (preserva o horário real de montagem)
+    const { data: row } = await supabaseAdmin
+      .from("pedidos")
+      .select("printed_at")
+      .eq("id", data.pedidoId)
+      .maybeSingle();
+
+    if (row?.printed_at) return { ok: true, printed_at: row.printed_at as string };
+
+    const nowIso = new Date().toISOString();
+    const { error } = await supabaseAdmin
+      .from("pedidos")
+      .update({ printed_at: nowIso })
+      .eq("id", data.pedidoId)
+      .is("printed_at", null);
+    if (error) {
+      console.error("[marcarPedidoImpresso] erro:", error);
+      return { ok: false, printed_at: null };
+    }
+    return { ok: true, printed_at: nowIso };
+  });
