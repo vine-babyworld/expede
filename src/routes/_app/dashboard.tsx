@@ -129,6 +129,44 @@ function QueryReportSection({
   );
 }
 
+type FunilData = { importado: number; bipado: number; impresso: number; faturado: number };
+
+function FunilExpedicao({ loading, data }: { loading: boolean; data: FunilData }) {
+  const steps = [
+    { key: "importado", label: "Importado", value: data.importado, icon: Download, color: "bg-blue-500", text: "text-blue-700" },
+    { key: "bipado", label: "Bipado", value: data.bipado, icon: ScanLine, color: "bg-violet-500", text: "text-violet-700" },
+    { key: "impresso", label: "Impresso", value: data.impresso, icon: Printer, color: "bg-amber-500", text: "text-amber-700" },
+    { key: "faturado", label: "Faturado", value: data.faturado, icon: FileCheck2, color: "bg-emerald-500", text: "text-emerald-700" },
+  ];
+  const base = Math.max(1, data.importado);
+
+  return (
+    <div className="space-y-3">
+      {steps.map((s) => {
+        const pct = Math.round((s.value / base) * 100);
+        const Icon = s.icon;
+        return (
+          <div key={s.key} className="flex items-center gap-3">
+            <div className="flex items-center gap-2 w-32 shrink-0">
+              <Icon className={`h-4 w-4 ${s.text}`} />
+              <span className="text-sm font-medium">{s.label}</span>
+            </div>
+            <div className="flex-1 h-7 rounded-md bg-muted overflow-hidden relative">
+              <div
+                className={`h-full ${s.color} transition-all`}
+                style={{ width: loading ? "0%" : `${pct}%` }}
+              />
+              <div className="absolute inset-0 flex items-center justify-end pr-3 text-xs font-semibold tabular-nums text-foreground/80">
+                {loading ? "…" : `${s.value} · ${pct}%`}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function DashboardPage() {
   const queryClient = useQueryClient();
   const [syncReport, setSyncReport] = useState<any>(null);
