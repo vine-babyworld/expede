@@ -162,12 +162,10 @@ async function processarPedidoBling(
   if (!d.notaFiscal?.id) {
     if (!opts.permitirSemNf) return { ok: true, skipped: "no_invoice", detalhe: "sem nota fiscal" };
     const servico: string = d.transporte?.volumes?.[0]?.servico ?? "";
-    const situacaoId = d.situacao?.id;
-    // Atendidos (situacao 15) entram mesmo sem notaFiscal no objeto (NF pode ser de saída separada)
-    if (situacaoId !== 15 && !servico.toLowerCase().includes("flex")) {
+    if (!servico.toLowerCase().includes("flex")) {
       return { ok: true, skipped: "no_invoice_not_flex", detalhe: `não é FLEX (servico: ${servico || "—"})` };
     }
-    console.log(`[processarPedido] sem NF no objeto mas permitido: pedido ${blingPedidoId} situacao=${situacaoId} servico="${servico}"`);
+    console.log(`[processarPedido] FLEX sem NF: pedido ${blingPedidoId} servico="${servico}"`);
   }
 
   const itens: any[] = d.itens ?? [];
@@ -404,7 +402,7 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
     const lista = json?.data ?? [];
     report.query3.encontrados = lista.length;
     for (const p of lista) {
-      if (!candidatos.has(p.id)) candidatos.set(p.id, { id: p.id, permitirSemNf: true, origem: "q3" });
+      if (!candidatos.has(p.id)) candidatos.set(p.id, { id: p.id, permitirSemNf: false, origem: "q3" });
     }
   } else {
     const motivo = resAtendidos.status === "rejected" ? resAtendidos.reason : (resAtendidos.value as any)?.status;
@@ -417,7 +415,7 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
     const lista = json?.data ?? [];
     report.query4.encontrados = lista.length;
     for (const p of lista) {
-      if (!candidatos.has(p.id)) candidatos.set(p.id, { id: p.id, permitirSemNf: true, origem: "q4" });
+      if (!candidatos.has(p.id)) candidatos.set(p.id, { id: p.id, permitirSemNf: false, origem: "q4" });
     }
   } else {
     const motivo = resAtendidosML.status === "rejected" ? resAtendidosML.reason : (resAtendidosML.value as any)?.status;
