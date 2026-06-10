@@ -374,12 +374,12 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
   // Query 1: faturados (idSituacao=9) — últimos 10 dias, loja ML FLEX
   // Query 2: loja ML FLEX (idLoja=203482894) — últimos 10 dias, inclui pedidos sem NF
   // Query 3: atendidos (idSituacao=15) — últimos 10 dias, qualquer marketplace
-  const [resFaturados, resAtendidos, resLoja, resAtendidosML] = await Promise.allSettled([
+  const [resFaturados, resLoja] = await Promise.allSettled([
     fetch(`${BLING_PEDIDOS_URL}?idSituacao=9&idLoja=${ML_LOJA_ID}&limite=50&pagina=1&dataInicio=${dataInicio}`, { headers }),
-    fetch(`${BLING_PEDIDOS_URL}?idSituacao=15&limite=50&pagina=1&dataInicio=${dataInicio}`, { headers }),
     fetch(`${BLING_PEDIDOS_URL}?idLoja=${ML_LOJA_ID}&limite=50&pagina=1&dataInicio=${dataInicio}`, { headers }),
-    fetch(`${BLING_PEDIDOS_URL}?idSituacao=15&idLoja=${ML_LOJA_ID}&limite=50&pagina=1&dataInicio=${dataInicio}`, { headers }),
   ]);
+  const resAtendidos: PromiseSettledResult<Response> = { status: "rejected", reason: "desativado" };
+  const resAtendidosML: PromiseSettledResult<Response> = { status: "rejected", reason: "desativado" };
 
   // Agrega candidatos das quatro listas; loja (Q2) sempre promove para permitirSemNf=true
   const candidatos = new Map<number, { id: number; permitirSemNf: boolean; origem: "q1" | "q2" | "q3" | "q4" }>();
