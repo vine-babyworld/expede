@@ -413,20 +413,25 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
   const allIds = [...candidatos.keys()];
   const { data: existentes } = await supabaseAdmin
     .from("pedidos")
-    .select("bling_pedido_id")
+    .select("bling_pedido_id, bling_nota_fiscal_id")
     .in("bling_pedido_id", allIds);
 
-  const existentesSet = new Set((existentes ?? []).map((e: any) => e.bling_pedido_id));
+  // Pedidos que já existem E já têm NF não precisam ser reprocessados
+  const existentesComNfSet = new Set(
+    (existentes ?? [])
+      .filter((e: any) => e.bling_nota_fiscal_id != null)
+      .map((e: any) => e.bling_pedido_id)
+  );
 
-  console.log(`[reconciliar] ${candidatos.size} candidato(s), ${existentesSet.size} já existem no banco`);
+  console.log(`[reconciliar] ${candidatos.size} candidato(s), ${existentesComNfSet.size} já existem com NF no banco`);
 
   for (const cand of candidatos.values()) {
     const label = cand.origem === "q1" ? "Q1" : "Q2";
     const bucket = cand.origem === "q1" ? report.query1 : report.query2;
 
-    if (existentesSet.has(cand.id)) {
+    if (existentesComNfSet.has(cand.id)) {
       bucket.pulados++;
-      report.detalhes.push(`${label} skip: ${cand.id} — já existe no banco`);
+      report.detalhes.push(`${label} skip: ${cand.id} — já existe com NF`);
       continue;
     }
 
