@@ -160,6 +160,7 @@ async function processarPedidoBling(
   if (!d) return { ok: false, error: "empty_response", detalhe: "resposta vazia da API Bling" };
 
   if (!d.notaFiscal?.id) {
+    console.log(`[processarPedido] sem NF — pedido ${blingPedidoId} situacao=${d.situacao?.id} numeroLoja=${d.numeroLoja} notaFiscal=${JSON.stringify(d.notaFiscal)} nfe=${JSON.stringify(d.nfe)}`);
     if (!opts.permitirSemNf) return { ok: true, skipped: "no_invoice", detalhe: "sem nota fiscal" };
     const servico: string = d.transporte?.volumes?.[0]?.servico ?? "";
     if (!servico.toLowerCase().includes("flex")) {
