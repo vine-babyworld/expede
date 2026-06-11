@@ -58,10 +58,7 @@ export function useQzTray(): QzTrayHook {
       qz.security.setCertificatePromise(
         (resolve: (v: string) => void) => resolve(QZ_CERTIFICATE),
       );
-      qz.security.setSignaturePromise(function(_toSign: string) {
-        return function(resolve: () => void) { resolve(); };
-      });
-      qz.security.setSignatureAlgorithm("SHA1");
+      qz.security.setSignatureAlgorithm("SHA512");
       qz.security.setSignaturePromise((toSign: string) => {
         return (resolve: (sig: string) => void, reject: (err: any) => void) => {
           signFn({ data: { toSign } })
