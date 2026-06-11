@@ -66,7 +66,6 @@ export function useQzTray(): QzTrayHook {
             .catch(reject);
         };
       });
-      qz.api.setTrustLevel('local');
       await qz.websocket.connect();
       setIsConectado(true);
       qz.websocket.setClosedCallbacks([(evt: any) => {
