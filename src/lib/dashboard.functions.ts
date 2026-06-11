@@ -26,7 +26,8 @@ export const getDashboardExpedicao = createServerFn({ method: "GET" })
       supabaseAdmin
         .from("pedidos")
         .select("id, pedido_itens(quantidade, quantidade_bipada)")
-        .neq("situacao_id", 12),
+        .is("printed_at", null)
+        .eq("situacao_id", 9),
       supabaseAdmin
         .from("pedidos")
         .select("id, total")
@@ -35,7 +36,7 @@ export const getDashboardExpedicao = createServerFn({ method: "GET" })
         .neq("situacao_id", 12),
     ]);
 
-    // Pendentes: TODOS os pedidos em aberto com algum item não bipado, sem filtro de data
+    // Pendentes: pedidos faturados (situacao_id=9) ainda não impressos
     const pendentes = (todosAbertos ?? []).filter((p: any) =>
       (p.pedido_itens as any[]).some((it: any) => (it.quantidade_bipada ?? 0) < it.quantidade)
     ).length;
