@@ -83,6 +83,14 @@ export const listarPedidos = createServerFn({ method: "POST" })
     };
   });
 
+// Identifica pedidos FLEX (Mercado Livre Flex): pelo campo marketplace
+// ou pela presença da tag "flex" no serviço de transporte do pedido.
+export function isPedidoFlex(p: { marketplace?: string | null; raw_json?: any }): boolean {
+  if (p.marketplace === "mercadolivreflex") return true;
+  const servico: string = p.raw_json?.transporte?.volumes?.[0]?.servico ?? "";
+  return servico.toLowerCase().includes("flex");
+}
+
 // ---- Kit explosion helpers ----
 
 export function parseComponentesKit(codigo: string): string[] {

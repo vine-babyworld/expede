@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import type { ReconciliarReport } from "@/lib/pedidos.functions";
+import { isPedidoFlex, type ReconciliarReport } from "@/lib/pedidos.functions";
 
 function brTodayRange(): { gte: string; lt: string } {
   const now = new Date();
@@ -25,9 +25,9 @@ export const getDashboardExpedicao = createServerFn({ method: "GET" })
     const [{ data: todosAbertos }, { data: expedidosHojeRows }] = await Promise.all([
       supabaseAdmin
         .from("pedidos")
-        .select("id, pedido_itens(quantidade, quantidade_bipada)")
+        .select("id, situacao_id, marketplace, raw_json, pedido_itens(quantidade, quantidade_bipada)")
         .is("printed_at", null)
-        .eq("situacao_id", 9),
+        .neq("situacao_id", 12),
       supabaseAdmin
         .from("pedidos")
         .select("id, total")
@@ -36,8 +36,10 @@ export const getDashboardExpedicao = createServerFn({ method: "GET" })
         .neq("situacao_id", 12),
     ]);
 
-    // Pendentes: pedidos faturados (situacao_id=9) ainda não impressos
+    // Pendentes: pedidos faturados (situacao_id=9), ou FLEX não cancelados,
+    // ainda não impressos e com algum item não bipado
     const pendentes = (todosAbertos ?? []).filter((p: any) =>
+      (p.situacao_id === 9 || isPedidoFlex(p)) &&
       (p.pedido_itens as any[]).some((it: any) => (it.quantidade_bipada ?? 0) < it.quantidade)
     ).length;
 

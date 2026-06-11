@@ -27,7 +27,7 @@ import { playBeep } from "./beep";
 import { registrarBipagem } from "@/lib/bipagem.functions";
 import { buscarEtiquetaBling } from "@/lib/etiqueta.functions";
 import { gerarDanfeCustom } from "@/lib/danfe.functions";
-import { marcarPedidoImpresso } from "@/lib/pedidos.functions";
+import { isPedidoFlex, marcarPedidoImpresso } from "@/lib/pedidos.functions";
 import { useQzTray } from "@/hooks/useQzTray";
 import { PrinterConfig } from "@/components/PrinterConfig";
 
@@ -89,36 +89,40 @@ async function fetchPedidos(): Promise<PedidoExpedicao[]> {
   const { data, error } = await supabase
     .from("pedidos")
     .select(
-      "id, bling_pedido_id, numero, numero_loja, data_pedido, cliente, bling_nota_fiscal_id, bling_nota_fiscal_numero, situacao_valor, raw_json, printed_at, pedido_itens(id, sku, ean, descricao, quantidade, quantidade_bipada, produto:produtos(imagem_url, gtin))",
+      "id, bling_pedido_id, numero, numero_loja, data_pedido, cliente, bling_nota_fiscal_id, bling_nota_fiscal_numero, situacao_id, situacao_valor, marketplace, raw_json, printed_at, pedido_itens(id, sku, ean, descricao, quantidade, quantidade_bipada, produto:produtos(imagem_url, gtin))",
     )
-    .neq("situacao_valor", 12)
+    .neq("situacao_id", 12)
     .order("data_pedido", { ascending: false });
 
   if (error) throw error;
 
-  return (data as any[]).map((p) => ({
-    id: p.id,
-    bling_pedido_id: p.bling_pedido_id,
-    numero: p.numero,
-    numero_loja: p.numero_loja ?? null,
-    data_pedido: p.data_pedido ?? null,
-    cliente: p.cliente ?? null,
-    bling_nota_fiscal_id: p.bling_nota_fiscal_id ?? null,
-    bling_nota_fiscal_numero: p.bling_nota_fiscal_numero ?? null,
-    situacao_valor: p.situacao_valor ?? null,
-    raw_json: p.raw_json ?? null,
-    printed_at: p.printed_at ?? null,
-    itens: (p.pedido_itens ?? []).map((i: any) => ({
-      id: i.id,
-      sku: i.sku ?? null,
-      ean: i.ean ?? null,
-      descricao: i.descricao ?? "",
-      quantidade: Number(i.quantidade ?? 1),
-      quantidade_bipada: Number(i.quantidade_bipada ?? 0),
-      produto_gtin: i.produto?.gtin ?? null,
-      produto: i.produto ?? null,
-    })),
-  }));
+  // Regra de negócio: pedidos normais só entram na expedição quando faturados
+  // (situacao_id=9); pedidos FLEX entram independente de faturamento.
+  return (data as any[])
+    .filter((p) => p.situacao_id === 9 || isPedidoFlex(p))
+    .map((p) => ({
+      id: p.id,
+      bling_pedido_id: p.bling_pedido_id,
+      numero: p.numero,
+      numero_loja: p.numero_loja ?? null,
+      data_pedido: p.data_pedido ?? null,
+      cliente: p.cliente ?? null,
+      bling_nota_fiscal_id: p.bling_nota_fiscal_id ?? null,
+      bling_nota_fiscal_numero: p.bling_nota_fiscal_numero ?? null,
+      situacao_valor: p.situacao_valor ?? null,
+      raw_json: p.raw_json ?? null,
+      printed_at: p.printed_at ?? null,
+      itens: (p.pedido_itens ?? []).map((i: any) => ({
+        id: i.id,
+        sku: i.sku ?? null,
+        ean: i.ean ?? null,
+        descricao: i.descricao ?? "",
+        quantidade: Number(i.quantidade ?? 1),
+        quantidade_bipada: Number(i.quantidade_bipada ?? 0),
+        produto_gtin: i.produto?.gtin ?? null,
+        produto: i.produto ?? null,
+      })),
+    }));
 }
 
 // ─── Página principal ─────────────────────────────────────────────────────────
