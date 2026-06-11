@@ -17,17 +17,55 @@ function brTodayRange(): { gte: string; lt: string } {
   return { gte: start.toISOString(), lt: end.toISOString() };
 }
 
+// Pedidos que compõem o card "A expedir": ainda não impressos, não cancelados,
+// faturados (situacao_id=9) ou FLEX, e com algum item ainda não bipado.
+// Compartilhada entre o card do dashboard e a tela de listagem /a-expedir
+// para que a contagem e a listagem nunca divirjam.
+const PEDIDOS_A_EXPEDIR_SELECT =
+  "id, numero, numero_loja, situacao_id, marketplace, raw_json, cliente, data_pedido, total, pedido_itens(quantidade, quantidade_bipada)";
+
+export type PedidoAExpedir = {
+  id: string;
+  numero: string;
+  numero_loja: string | null;
+  situacao_id: number | null;
+  marketplace: string | null;
+  raw_json: any;
+  cliente: Record<string, any> | null;
+  data_pedido: string | null;
+  total: number | null;
+};
+
+async function fetchPedidosAExpedir(): Promise<PedidoAExpedir[]> {
+  const { data } = await supabaseAdmin
+    .from("pedidos")
+    .select(PEDIDOS_A_EXPEDIR_SELECT)
+    .is("printed_at", null)
+    .neq("situacao_id", 12)
+    .order("data_pedido", { ascending: false, nullsFirst: false });
+
+  return (data ?? [])
+    .filter((p: any) =>
+      (p.situacao_id === 9 || isPedidoFlex(p)) &&
+      (p.pedido_itens as any[]).some((it: any) => (it.quantidade_bipada ?? 0) < it.quantidade)
+    )
+    .map(({ pedido_itens, ...p }: any) => p as PedidoAExpedir);
+}
+
+export const getPedidosAExpedir = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async () => {
+    const rows = await fetchPedidosAExpedir();
+    return { rows, total: rows.length };
+  });
+
 export const getDashboardExpedicao = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async () => {
     const { gte: hojeBR, lt: amanhaBR } = brTodayRange();
 
-    const [{ data: todosAbertos }, { data: expedidosHojeRows }] = await Promise.all([
-      supabaseAdmin
-        .from("pedidos")
-        .select("id, situacao_id, marketplace, raw_json, pedido_itens(quantidade, quantidade_bipada)")
-        .is("printed_at", null)
-        .neq("situacao_id", 12),
+    const [aExpedir, { data: expedidosHojeRows }] = await Promise.all([
+      fetchPedidosAExpedir(),
       supabaseAdmin
         .from("pedidos")
         .select("id, total")
@@ -36,12 +74,7 @@ export const getDashboardExpedicao = createServerFn({ method: "GET" })
         .neq("situacao_id", 12),
     ]);
 
-    // Pendentes: pedidos faturados (situacao_id=9), ou FLEX não cancelados,
-    // ainda não impressos e com algum item não bipado
-    const pendentes = (todosAbertos ?? []).filter((p: any) =>
-      (p.situacao_id === 9 || isPedidoFlex(p)) &&
-      (p.pedido_itens as any[]).some((it: any) => (it.quantidade_bipada ?? 0) < it.quantidade)
-    ).length;
+    const pendentes = aExpedir.length;
 
     const expedidos = expedidosHojeRows ?? [];
     const expedidosHoje = expedidos.length;

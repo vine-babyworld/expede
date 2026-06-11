@@ -17,6 +17,7 @@ import { Route as AppPedidosRouteImport } from './routes/_app/pedidos'
 import { Route as AppExpedicaoRouteImport } from './routes/_app/expedicao'
 import { Route as AppDashboardRouteImport } from './routes/_app/dashboard'
 import { Route as AppConfiguracoesRouteImport } from './routes/_app/configuracoes'
+import { Route as AppAExpedirRouteImport } from './routes/_app/a-expedir'
 import { Route as AppConfiguracoesIndexRouteImport } from './routes/_app/configuracoes.index'
 import { Route as OauthBlingCallbackRouteImport } from './routes/oauth/bling/callback'
 import { Route as ApiMlCallbackRouteImport } from './routes/api/ml/callback'
@@ -68,6 +69,11 @@ const AppDashboardRoute = AppDashboardRouteImport.update({
 const AppConfiguracoesRoute = AppConfiguracoesRouteImport.update({
   id: '/configuracoes',
   path: '/configuracoes',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppAExpedirRoute = AppAExpedirRouteImport.update({
+  id: '/a-expedir',
+  path: '/a-expedir',
   getParentRoute: () => AppRoute,
 } as any)
 const AppConfiguracoesIndexRoute = AppConfiguracoesIndexRouteImport.update({
@@ -144,6 +150,7 @@ const ApiPublicHooksBlingPedidosRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
+  '/a-expedir': typeof AppAExpedirRoute
   '/configuracoes': typeof AppConfiguracoesRouteWithChildren
   '/dashboard': typeof AppDashboardRoute
   '/expedicao': typeof AppExpedicaoRoute
@@ -166,6 +173,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
+  '/a-expedir': typeof AppAExpedirRoute
   '/dashboard': typeof AppDashboardRoute
   '/expedicao': typeof AppExpedicaoRoute
   '/pedidos': typeof AppPedidosRoute
@@ -189,6 +197,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/_app': typeof AppRouteWithChildren
   '/login': typeof LoginRoute
+  '/_app/a-expedir': typeof AppAExpedirRoute
   '/_app/configuracoes': typeof AppConfiguracoesRouteWithChildren
   '/_app/dashboard': typeof AppDashboardRoute
   '/_app/expedicao': typeof AppExpedicaoRoute
@@ -213,6 +222,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/login'
+    | '/a-expedir'
     | '/configuracoes'
     | '/dashboard'
     | '/expedicao'
@@ -235,6 +245,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/login'
+    | '/a-expedir'
     | '/dashboard'
     | '/expedicao'
     | '/pedidos'
@@ -257,6 +268,7 @@ export interface FileRouteTypes {
     | '/'
     | '/_app'
     | '/login'
+    | '/_app/a-expedir'
     | '/_app/configuracoes'
     | '/_app/dashboard'
     | '/_app/expedicao'
@@ -349,6 +361,13 @@ declare module '@tanstack/react-router' {
       path: '/configuracoes'
       fullPath: '/configuracoes'
       preLoaderRoute: typeof AppConfiguracoesRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/a-expedir': {
+      id: '/_app/a-expedir'
+      path: '/a-expedir'
+      fullPath: '/a-expedir'
+      preLoaderRoute: typeof AppAExpedirRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/configuracoes/': {
@@ -461,6 +480,7 @@ const AppConfiguracoesRouteWithChildren =
   AppConfiguracoesRoute._addFileChildren(AppConfiguracoesRouteChildren)
 
 interface AppRouteChildren {
+  AppAExpedirRoute: typeof AppAExpedirRoute
   AppConfiguracoesRoute: typeof AppConfiguracoesRouteWithChildren
   AppDashboardRoute: typeof AppDashboardRoute
   AppExpedicaoRoute: typeof AppExpedicaoRoute
@@ -469,6 +489,7 @@ interface AppRouteChildren {
 }
 
 const AppRouteChildren: AppRouteChildren = {
+  AppAExpedirRoute: AppAExpedirRoute,
   AppConfiguracoesRoute: AppConfiguracoesRouteWithChildren,
   AppDashboardRoute: AppDashboardRoute,
   AppExpedicaoRoute: AppExpedicaoRoute,

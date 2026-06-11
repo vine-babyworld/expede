@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
@@ -52,16 +52,22 @@ function fmtExpira(iso?: string | null): string {
 }
 
 function StatCard({
-  title, value, loading, icon: Icon, bg,
+  title, value, loading, icon: Icon, bg, onClick,
 }: {
   title: string;
   value: string | number;
   loading: boolean;
   icon: React.ElementType;
   bg: string;
+  onClick?: () => void;
 }) {
   return (
-    <div className={`rounded-xl p-6 flex items-center gap-4 ${bg} text-white shadow-sm`}>
+    <div
+      className={`rounded-xl p-6 flex items-center gap-4 ${bg} text-white shadow-sm ${
+        onClick ? "cursor-pointer transition-opacity hover:opacity-90" : ""
+      }`}
+      onClick={onClick}
+    >
       <Icon className="h-10 w-10 opacity-80 shrink-0" />
       <div>
         <p className="text-sm font-medium opacity-80">{title}</p>
@@ -178,6 +184,7 @@ function FunilExpedicao({ loading, data }: { loading: boolean; data: FunilData }
 }
 
 function DashboardPage() {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [syncReport, setSyncReport] = useState<any>(null);
   const expFn = useServerFn(getDashboardExpedicao);
@@ -234,6 +241,7 @@ function DashboardPage() {
           loading={expQ.isLoading}
           icon={Package}
           bg="bg-blue-900"
+          onClick={() => navigate({ to: "/a-expedir" })}
         />
         <StatCard
           title="Expedidos hoje"
