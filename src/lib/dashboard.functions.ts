@@ -83,6 +83,48 @@ export const getDashboardExpedicao = createServerFn({ method: "GET" })
     return { pendentes, expedidosHoje, totalValor, totalHoje: expedidosHoje };
   });
 
+// Pedidos que aparecem no card "Expedidos hoje": já impressos, com printed_at
+// dentro do dia atual em horário de Brasília, excluindo cancelados.
+const PEDIDOS_EXPEDIDOS_HOJE_SELECT =
+  "id, numero, numero_loja, marketplace, cliente, total, printed_at";
+
+export type PedidoExpedidoHoje = {
+  id: string;
+  numero_loja: string | null;
+  marketplace: string | null;
+  cliente_nome: string;
+  valor_total: number | null;
+  printed_at: string | null;
+};
+
+async function fetchPedidosExpedidosHoje(): Promise<PedidoExpedidoHoje[]> {
+  const { gte: hojeBR, lt: amanhaBR } = brTodayRange();
+
+  const { data } = await supabaseAdmin
+    .from("pedidos")
+    .select(PEDIDOS_EXPEDIDOS_HOJE_SELECT)
+    .gte("printed_at", hojeBR)
+    .lt("printed_at", amanhaBR)
+    .neq("situacao_id", 12)
+    .order("printed_at", { ascending: false });
+
+  return (data ?? []).map((p: any) => ({
+    id: p.id,
+    numero_loja: p.numero_loja ?? p.numero,
+    marketplace: p.marketplace,
+    cliente_nome: p.cliente?.nome ?? p.cliente?.razaoSocial ?? "—",
+    valor_total: p.total,
+    printed_at: p.printed_at,
+  }));
+}
+
+export const getExpedidosHoje = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async () => {
+    const rows = await fetchPedidosExpedidosHoje();
+    return { rows, total: rows.length };
+  });
+
 export const getDashboardVendas = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async () => {

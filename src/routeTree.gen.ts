@@ -14,6 +14,7 @@ import { Route as AppRouteImport } from './routes/_app'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppProdutosRouteImport } from './routes/_app/produtos'
 import { Route as AppPedidosRouteImport } from './routes/_app/pedidos'
+import { Route as AppExpedidosHojeRouteImport } from './routes/_app/expedidos-hoje'
 import { Route as AppExpedicaoRouteImport } from './routes/_app/expedicao'
 import { Route as AppDashboardRouteImport } from './routes/_app/dashboard'
 import { Route as AppConfiguracoesRouteImport } from './routes/_app/configuracoes'
@@ -54,6 +55,11 @@ const AppProdutosRoute = AppProdutosRouteImport.update({
 const AppPedidosRoute = AppPedidosRouteImport.update({
   id: '/pedidos',
   path: '/pedidos',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppExpedidosHojeRoute = AppExpedidosHojeRouteImport.update({
+  id: '/expedidos-hoje',
+  path: '/expedidos-hoje',
   getParentRoute: () => AppRoute,
 } as any)
 const AppExpedicaoRoute = AppExpedicaoRouteImport.update({
@@ -154,6 +160,7 @@ export interface FileRoutesByFullPath {
   '/configuracoes': typeof AppConfiguracoesRouteWithChildren
   '/dashboard': typeof AppDashboardRoute
   '/expedicao': typeof AppExpedicaoRoute
+  '/expedidos-hoje': typeof AppExpedidosHojeRoute
   '/pedidos': typeof AppPedidosRoute
   '/produtos': typeof AppProdutosRoute
   '/configuracoes/bling': typeof AppConfiguracoesBlingRoute
@@ -176,6 +183,7 @@ export interface FileRoutesByTo {
   '/a-expedir': typeof AppAExpedirRoute
   '/dashboard': typeof AppDashboardRoute
   '/expedicao': typeof AppExpedicaoRoute
+  '/expedidos-hoje': typeof AppExpedidosHojeRoute
   '/pedidos': typeof AppPedidosRoute
   '/produtos': typeof AppProdutosRoute
   '/configuracoes/bling': typeof AppConfiguracoesBlingRoute
@@ -201,6 +209,7 @@ export interface FileRoutesById {
   '/_app/configuracoes': typeof AppConfiguracoesRouteWithChildren
   '/_app/dashboard': typeof AppDashboardRoute
   '/_app/expedicao': typeof AppExpedicaoRoute
+  '/_app/expedidos-hoje': typeof AppExpedidosHojeRoute
   '/_app/pedidos': typeof AppPedidosRoute
   '/_app/produtos': typeof AppProdutosRoute
   '/_app/configuracoes/bling': typeof AppConfiguracoesBlingRoute
@@ -226,6 +235,7 @@ export interface FileRouteTypes {
     | '/configuracoes'
     | '/dashboard'
     | '/expedicao'
+    | '/expedidos-hoje'
     | '/pedidos'
     | '/produtos'
     | '/configuracoes/bling'
@@ -248,6 +258,7 @@ export interface FileRouteTypes {
     | '/a-expedir'
     | '/dashboard'
     | '/expedicao'
+    | '/expedidos-hoje'
     | '/pedidos'
     | '/produtos'
     | '/configuracoes/bling'
@@ -272,6 +283,7 @@ export interface FileRouteTypes {
     | '/_app/configuracoes'
     | '/_app/dashboard'
     | '/_app/expedicao'
+    | '/_app/expedidos-hoje'
     | '/_app/pedidos'
     | '/_app/produtos'
     | '/_app/configuracoes/bling'
@@ -340,6 +352,13 @@ declare module '@tanstack/react-router' {
       path: '/pedidos'
       fullPath: '/pedidos'
       preLoaderRoute: typeof AppPedidosRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/expedidos-hoje': {
+      id: '/_app/expedidos-hoje'
+      path: '/expedidos-hoje'
+      fullPath: '/expedidos-hoje'
+      preLoaderRoute: typeof AppExpedidosHojeRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/expedicao': {
@@ -484,6 +503,7 @@ interface AppRouteChildren {
   AppConfiguracoesRoute: typeof AppConfiguracoesRouteWithChildren
   AppDashboardRoute: typeof AppDashboardRoute
   AppExpedicaoRoute: typeof AppExpedicaoRoute
+  AppExpedidosHojeRoute: typeof AppExpedidosHojeRoute
   AppPedidosRoute: typeof AppPedidosRoute
   AppProdutosRoute: typeof AppProdutosRoute
 }
@@ -493,6 +513,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppConfiguracoesRoute: AppConfiguracoesRouteWithChildren,
   AppDashboardRoute: AppDashboardRoute,
   AppExpedicaoRoute: AppExpedicaoRoute,
+  AppExpedidosHojeRoute: AppExpedidosHojeRoute,
   AppPedidosRoute: AppPedidosRoute,
   AppProdutosRoute: AppProdutosRoute,
 }

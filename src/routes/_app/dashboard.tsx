@@ -249,6 +249,7 @@ function DashboardPage() {
           loading={expQ.isLoading}
           icon={CheckCircle2}
           bg="bg-green-600"
+          onClick={() => navigate({ to: "/expedidos-hoje" })}
         />
         <StatCard
           title="Faturado hoje"

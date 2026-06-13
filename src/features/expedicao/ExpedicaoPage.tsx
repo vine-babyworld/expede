@@ -51,6 +51,7 @@ type PedidoExpedicao = {
   bling_pedido_id: number;
   numero: string;
   numero_loja: string | null;
+  marketplace: string | null;
   data_pedido: string | null;
   cliente: { nome?: string; razaoSocial?: string } | null;
   bling_nota_fiscal_id: number | null;
@@ -105,6 +106,7 @@ async function fetchPedidos(): Promise<PedidoExpedicao[]> {
       bling_pedido_id: p.bling_pedido_id,
       numero: p.numero,
       numero_loja: p.numero_loja ?? null,
+      marketplace: p.marketplace ?? null,
       data_pedido: p.data_pedido ?? null,
       cliente: p.cliente ?? null,
       bling_nota_fiscal_id: p.bling_nota_fiscal_id ?? null,
@@ -125,6 +127,21 @@ async function fetchPedidos(): Promise<PedidoExpedicao[]> {
     }));
 }
 
+// ─── Filtros de marketplace ────────────────────────────────────────────────────
+
+type MarketplaceFiltro = {
+  id: string;
+  label: string;
+  predicate: (p: PedidoExpedicao) => boolean;
+};
+
+const MARKETPLACE_FILTROS: MarketplaceFiltro[] = [
+  { id: "mercadolivre", label: "Mercado Livre", predicate: (p) => p.marketplace === "mercadolivre" && !isPedidoFlex(p) },
+  { id: "ml_flex", label: "ML Flex", predicate: (p) => isPedidoFlex(p) },
+  { id: "shopee", label: "Shopee", predicate: (p) => p.marketplace === "shopee" },
+  { id: "amazon", label: "Amazon", predicate: (p) => p.marketplace === "amazon" },
+];
+
 // ─── Página principal ─────────────────────────────────────────────────────────
 
 export function ExpedicaoPage() {
@@ -139,6 +156,7 @@ export function ExpedicaoPage() {
   });
 
   const [busca, setBusca] = useState("");
+  const [marketplaceFiltro, setMarketplaceFiltro] = useState<string>("todos");
   const [pedidoAtivo, setPedidoAtivo] = useState<PedidoExpedicao | null>(null);
   const [showPrinterConfig, setShowPrinterConfig] = useState(false);
 
@@ -147,16 +165,27 @@ export function ExpedicaoPage() {
     [pedidos],
   );
 
+  const marketplaceCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const f of MARKETPLACE_FILTROS) {
+      counts[f.id] = pendentes.filter(f.predicate).length;
+    }
+    return counts;
+  }, [pendentes]);
+
   const filtrados = useMemo(() => {
+    const filtro = MARKETPLACE_FILTROS.find((f) => f.id === marketplaceFiltro);
+    const base = filtro ? pendentes.filter(filtro.predicate) : pendentes;
+
     const q = busca.trim().toLowerCase();
-    if (!q) return pendentes;
-    return pendentes.filter(
+    if (!q) return base;
+    return base.filter(
       (p) =>
         p.numero.toLowerCase().includes(q) ||
         (p.numero_loja ?? "").toLowerCase().includes(q) ||
         nomeCliente(p).toLowerCase().includes(q),
     );
-  }, [pendentes, busca]);
+  }, [pendentes, busca, marketplaceFiltro]);
 
   const handleBiparPedido = useCallback(
     (pedido: PedidoExpedicao) => {
@@ -307,7 +336,7 @@ export function ExpedicaoPage() {
       </div>
 
       {/* Filtro */}
-      <div className="bg-card rounded-xl border p-4 mb-6 shadow-sm">
+      <div className="bg-card rounded-xl border p-4 mb-6 shadow-sm space-y-3">
         <div className="relative max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
@@ -316,6 +345,28 @@ export function ExpedicaoPage() {
             onChange={(e) => setBusca(e.target.value)}
             className="pl-9 h-11"
           />
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant={marketplaceFiltro === "todos" ? "default" : "outline"}
+            size="sm"
+            className="rounded-full"
+            onClick={() => setMarketplaceFiltro("todos")}
+          >
+            Todos ({pendentes.length})
+          </Button>
+          {MARKETPLACE_FILTROS.filter((f) => marketplaceCounts[f.id] > 0).map((f) => (
+            <Button
+              key={f.id}
+              variant={marketplaceFiltro === f.id ? "default" : "outline"}
+              size="sm"
+              className="rounded-full"
+              onClick={() => setMarketplaceFiltro(f.id)}
+            >
+              {f.label} ({marketplaceCounts[f.id]})
+            </Button>
+          ))}
         </div>
       </div>
 
@@ -328,7 +379,7 @@ export function ExpedicaoPage() {
       ) : filtrados.length === 0 ? (
         <div className="text-center py-20 text-muted-foreground bg-card border rounded-xl">
           <Package className="h-12 w-12 mx-auto mb-3 opacity-30" />
-          {busca ? "Nenhum pedido com esse filtro." : "Nenhum pedido pendente."}
+          {busca || marketplaceFiltro !== "todos" ? "Nenhum pedido com esse filtro." : "Nenhum pedido pendente."}
         </div>
       ) : (
         <div className="space-y-3">

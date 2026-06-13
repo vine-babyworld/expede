@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsr *)",
+      "Bash(claude plugin *)",
+      "Read(//c/Users/Vinicius/**)"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\Vinicius"
+    ]
+  },
+  "enabledPlugins": {
+    "superpowers@superpowers-marketplace": true
+  }
+}
