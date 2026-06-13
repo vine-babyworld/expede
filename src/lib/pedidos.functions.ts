@@ -330,16 +330,27 @@ export type ReconciliarQueryReport = {
   erros: string[];
 };
 
+export type AtualizarSituacoesReport = {
+  verificados: number;
+  atualizados: number;
+  erros: string[];
+};
+
 export type ReconciliarReport = {
   query1: ReconciliarQueryReport;
   query2: ReconciliarQueryReport;
   query3: ReconciliarQueryReport;
   query4: ReconciliarQueryReport;
+  situacoes: AtualizarSituacoesReport;
   detalhes: string[];
 };
 
 function novoQueryReport(): ReconciliarQueryReport {
   return { encontrados: 0, importados: 0, pulados: 0, erros: [] };
+}
+
+function novaSituacoesReport(): AtualizarSituacoesReport {
+  return { verificados: 0, atualizados: 0, erros: [] };
 }
 
 export async function reconciliarPedidos(): Promise<ReconciliarReport> {
@@ -348,6 +359,7 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
     query2: novoQueryReport(),
     query3: novoQueryReport(),
     query4: novoQueryReport(),
+    situacoes: novaSituacoesReport(),
     detalhes: [],
   };
 
@@ -448,54 +460,119 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
   if (candidatos.size === 0) {
     console.log("[reconciliar] nenhum candidato");
     report.detalhes.push("nenhum candidato encontrado");
-    return report;
+  } else {
+    const allIds = [...candidatos.keys()];
+    const { data: existentes } = await supabaseAdmin
+      .from("pedidos")
+      .select("bling_pedido_id, bling_nota_fiscal_id")
+      .in("bling_pedido_id", allIds);
+
+    // Pedidos que já existem E já têm NF não precisam ser reprocessados
+    const existentesComNfSet = new Set(
+      (existentes ?? [])
+        .filter((e: any) => e.bling_nota_fiscal_id != null)
+        .map((e: any) => e.bling_pedido_id)
+    );
+
+    console.log(`[reconciliar] ${candidatos.size} candidato(s), ${existentesComNfSet.size} já existem com NF no banco`);
+
+    for (const cand of candidatos.values()) {
+      const label = cand.origem === "q1" ? "Q1" : cand.origem === "q3" ? "Q3" : cand.origem === "q4" ? "Q4" : "Q2";
+      const bucket = cand.origem === "q1" ? report.query1 : cand.origem === "q3" ? report.query3 : cand.origem === "q4" ? report.query4 : report.query2;
+
+      if (existentesComNfSet.has(cand.id)) {
+        bucket.pulados++;
+        report.detalhes.push(`${label} skip: ${cand.id} — já existe com NF`);
+        continue;
+      }
+
+      const result = await processarPedidoBling(cand.id, conn.id, token, { permitirSemNf: cand.permitirSemNf });
+      console.log(`[reconciliar] pedido ${cand.id} (permitirSemNf=${cand.permitirSemNf}):`, JSON.stringify(result));
+
+      if (!result.ok) {
+        const msg = result.error ?? result.detalhe;
+        bucket.erros.push(`${cand.id}: ${msg}`);
+        report.detalhes.push(`${label} erro: ${cand.id} — ${msg}`);
+      } else if (result.skipped) {
+        bucket.pulados++;
+        report.detalhes.push(`${label} skip: ${cand.id} — ${result.detalhe}`);
+      } else {
+        bucket.importados++;
+        report.detalhes.push(`${label} importado: ${cand.id} — ${result.detalhe}`);
+      }
+
+      // Respeita rate limit da API Bling (3 req/seg)
+      await new Promise((r) => setTimeout(r, 350));
+    }
   }
 
-  const allIds = [...candidatos.keys()];
-  const { data: existentes } = await supabaseAdmin
+  // Passo 2: sync bidirecional — pedidos já existentes (últimos 30 dias, não
+  // cancelados) podem ter mudado de situação no Bling/ML (ex: entregue,
+  // cancelado) sem que o banco tenha sido atualizado.
+  await atualizarSituacoesExistentes(conn.id, token, report);
+
+  return report;
+}
+
+// Passo 2 do reconciliar: para pedidos já existentes no banco (últimos 30 dias,
+// situacao_id != 12), busca a situação atual no Bling pelo bling_pedido_id e
+// atualiza apenas o campo situacao_id caso tenha mudado.
+async function atualizarSituacoesExistentes(
+  connId: string,
+  token: string,
+  report: ReconciliarReport,
+): Promise<void> {
+  const desde = new Date(Date.now() - 30 * 86_400_000).toISOString();
+
+  const { data: existentes, error } = await supabaseAdmin
     .from("pedidos")
-    .select("bling_pedido_id, bling_nota_fiscal_id")
-    .in("bling_pedido_id", allIds);
+    .select("id, bling_pedido_id, situacao_id")
+    .eq("bling_connection_id", connId)
+    .gte("data_pedido", desde)
+    .neq("situacao_id", 12);
 
-  // Pedidos que já existem E já têm NF não precisam ser reprocessados
-  const existentesComNfSet = new Set(
-    (existentes ?? [])
-      .filter((e: any) => e.bling_nota_fiscal_id != null)
-      .map((e: any) => e.bling_pedido_id)
-  );
+  if (error) {
+    console.error("[reconciliar] erro ao listar pedidos p/ atualizar situação:", error.message);
+    report.situacoes.erros.push(`erro ao listar pedidos: ${error.message}`);
+    return;
+  }
 
-  console.log(`[reconciliar] ${candidatos.size} candidato(s), ${existentesComNfSet.size} já existem com NF no banco`);
+  const rows = existentes ?? [];
+  report.situacoes.verificados = rows.length;
 
-  for (const cand of candidatos.values()) {
-    const label = cand.origem === "q1" ? "Q1" : cand.origem === "q3" ? "Q3" : cand.origem === "q4" ? "Q4" : "Q2";
-    const bucket = cand.origem === "q1" ? report.query1 : cand.origem === "q3" ? report.query3 : cand.origem === "q4" ? report.query4 : report.query2;
+  for (const row of rows) {
+    const res = await fetch(`${BLING_PEDIDOS_URL}/${row.bling_pedido_id}`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+    });
 
-    if (existentesComNfSet.has(cand.id)) {
-      bucket.pulados++;
-      report.detalhes.push(`${label} skip: ${cand.id} — já existe com NF`);
+    if (!res.ok) {
+      console.error(`[reconciliar] GET situação ${row.bling_pedido_id} falhou: ${res.status}`);
+      report.situacoes.erros.push(`${row.bling_pedido_id}: erro HTTP ${res.status}`);
+      await new Promise((r) => setTimeout(r, 350));
       continue;
     }
 
-    const result = await processarPedidoBling(cand.id, conn.id, token, { permitirSemNf: cand.permitirSemNf });
-    console.log(`[reconciliar] pedido ${cand.id} (permitirSemNf=${cand.permitirSemNf}):`, JSON.stringify(result));
+    const json: any = await res.json().catch(() => null);
+    const novaSituacaoId: number | null = json?.data?.situacao?.id ?? null;
 
-    if (!result.ok) {
-      const msg = result.error ?? result.detalhe;
-      bucket.erros.push(`${cand.id}: ${msg}`);
-      report.detalhes.push(`${label} erro: ${cand.id} — ${msg}`);
-    } else if (result.skipped) {
-      bucket.pulados++;
-      report.detalhes.push(`${label} skip: ${cand.id} — ${result.detalhe}`);
-    } else {
-      bucket.importados++;
-      report.detalhes.push(`${label} importado: ${cand.id} — ${result.detalhe}`);
+    if (novaSituacaoId != null && novaSituacaoId !== row.situacao_id) {
+      const { error: updErr } = await supabaseAdmin
+        .from("pedidos")
+        .update({ situacao_id: novaSituacaoId })
+        .eq("id", row.id);
+
+      if (updErr) {
+        console.error(`[reconciliar] update situação ${row.bling_pedido_id} falhou:`, updErr.message);
+        report.situacoes.erros.push(`${row.bling_pedido_id}: erro ao atualizar — ${updErr.message}`);
+      } else {
+        report.situacoes.atualizados++;
+        report.detalhes.push(`situação atualizada: pedido ${row.bling_pedido_id} (${row.situacao_id} → ${novaSituacaoId})`);
+      }
     }
 
     // Respeita rate limit da API Bling (3 req/seg)
     await new Promise((r) => setTimeout(r, 350));
   }
-
-  return report;
 }
 
 export const buscarNumeroNF = createServerFn({ method: "POST" })

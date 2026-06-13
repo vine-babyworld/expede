@@ -199,7 +199,9 @@ function DashboardPage() {
     mutationFn: () => triggerFn(),
     onSuccess: (data) => {
       setSyncReport(data.resultado);
-      toast.success(`Sincronizado: ${data.resultado.query1.importados + data.resultado.query2.importados + (data.resultado.query3?.importados ?? 0) + (data.resultado.query4?.importados ?? 0)} importados`);
+      const importados = data.resultado.query1.importados + data.resultado.query2.importados + (data.resultado.query3?.importados ?? 0) + (data.resultado.query4?.importados ?? 0);
+      const atualizadas = data.resultado.situacoes?.atualizados ?? 0;
+      toast.success(`${importados} pedidos importados · ${atualizadas} situações atualizadas`);
       queryClient.invalidateQueries({ queryKey: ["dash-expedicao"] });
       queryClient.invalidateQueries({ queryKey: ["dash-funil"] });
       queryClient.invalidateQueries({ queryKey: ["expedicao-pedidos"] });
@@ -390,6 +392,12 @@ function DashboardPage() {
                   <QueryReportSection title="Query 4 — Atendidos ML (situação=15+loja)" report={syncReport.query4} />
                 )}
               </div>
+              {syncReport.situacoes && (
+                <p className="text-sm text-muted-foreground">
+                  Situações verificadas: {syncReport.situacoes.verificados} · atualizadas: {syncReport.situacoes.atualizados}
+                  {syncReport.situacoes.erros.length > 0 && ` · erros: ${syncReport.situacoes.erros.length}`}
+                </p>
+              )}
               <div>
                 <p className="font-semibold text-sm mb-1">Detalhes</p>
                 <div className="max-h-64 overflow-y-auto rounded-lg border bg-muted/30 p-3">
