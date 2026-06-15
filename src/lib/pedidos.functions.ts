@@ -57,7 +57,8 @@ export const listarPedidos = createServerFn({ method: "POST" })
       );
 
     if (search.trim()) {
-      query = query.ilike("numero", `%${search.trim()}%`);
+      const term = search.trim();
+      query = query.or(`numero.ilike.%${term}%,numero_loja.ilike.%${term}%`);
     }
 
     if (hidecanceled) {
