@@ -364,13 +364,15 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
     detalhes: [],
   };
 
-  const { data: conn } = await supabaseAdmin
+  const { data: conn, error: errConn } = await supabaseAdmin
     .from("bling_connections")
     .select("id")
     .eq("status", "connected")
     .order("created_at", { ascending: true })
     .limit(1)
     .maybeSingle();
+
+  console.log("[reconciliar] conn result:", JSON.stringify({ conn, error: errConn?.message }));
 
   if (!conn) {
     console.log("[reconciliar] nenhuma conexão ativa");
