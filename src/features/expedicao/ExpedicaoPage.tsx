@@ -93,6 +93,7 @@ async function fetchPedidos(): Promise<PedidoExpedicao[]> {
       "id, bling_pedido_id, numero, numero_loja, data_pedido, cliente, bling_nota_fiscal_id, bling_nota_fiscal_numero, situacao_id, situacao_valor, marketplace, raw_json, printed_at, pedido_itens(id, sku, ean, descricao, quantidade, quantidade_bipada, produto:produtos(imagem_url, gtin))",
     )
     .neq("situacao_id", 12)
+    .gte("data_pedido", new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString())
     .order("data_pedido", { ascending: false });
 
   if (error) throw error;
@@ -124,7 +125,8 @@ async function fetchPedidos(): Promise<PedidoExpedicao[]> {
         produto_gtin: i.produto?.gtin ?? null,
         produto: i.produto ?? null,
       })),
-    }));
+    }))
+    .filter((p) => !(p.printed_at && pedidoProgress(p).done));
 }
 
 // ─── Filtros de marketplace ────────────────────────────────────────────────────
