@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { getServerOrigin } from "@/lib/produtos.server";
 
 const BLING_AUTH_URL = "https://www.bling.com.br/Api/v3/oauth/authorize";
 const BLING_TOKEN_URL = "https://www.bling.com.br/Api/v3/oauth/token";
@@ -85,10 +86,12 @@ export const blingOAuthStart = createServerFn({ method: "POST" })
 
     try { await supabaseAdmin.rpc("cleanup_oauth_states"); } catch { /* ignore */ }
 
+    const origin = await getServerOrigin();
     const params = new URLSearchParams({
       response_type: "code",
       client_id: process.env.BLING_CLIENT_ID!,
       state,
+      redirect_uri: `${origin}/oauth/bling/callback`,
     });
     return { url: `${BLING_AUTH_URL}?${params.toString()}` };
   });
@@ -221,9 +224,11 @@ export async function exchangeCodeAndStore(params: {
   const ageMs = Date.now() - new Date(st.created_at).getTime();
   if (ageMs > 10 * 60 * 1000) return { ok: false, error: "state expirado" };
 
+  const origin = await getServerOrigin();
   const body = new URLSearchParams({
     grant_type: "authorization_code",
     code: params.code,
+    redirect_uri: `${origin}/oauth/bling/callback`,
   });
   const res = await fetch(BLING_TOKEN_URL, {
     method: "POST",
