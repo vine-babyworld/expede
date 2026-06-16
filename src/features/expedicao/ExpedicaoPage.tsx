@@ -126,7 +126,7 @@ async function fetchPedidos(): Promise<PedidoExpedicao[]> {
         produto: i.produto ?? null,
       })),
     }))
-    .filter((p) => !(p.printed_at && pedidoProgress(p).done));
+    .filter((p) => !p.printed_at);
 }
 
 // ─── Filtros de marketplace ────────────────────────────────────────────────────
