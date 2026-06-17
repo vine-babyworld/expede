@@ -537,7 +537,9 @@ async function atualizarSituacoesExistentes(
     .select("id, bling_pedido_id, situacao_id")
     .eq("bling_connection_id", connId)
     .gte("data_pedido", desde)
-    .neq("situacao_id", 12);
+    .neq("situacao_id", 12)
+    .order("data_pedido", { ascending: true })
+    .limit(15);
 
   if (error) {
     console.error("[reconciliar] erro ao listar pedidos p/ atualizar situação:", error.message);

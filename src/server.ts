@@ -74,7 +74,27 @@ const RECONCILIATION_INTERVAL_MS = 5 * 60 * 1000;
 
 async function cronReconciliar() {
   const now = Date.now();
+
+  // Verificação rápida em memória — evita subrequest ao banco quando o mesmo isolate já rodou recentemente
   if (now - lastReconciliationAt < RECONCILIATION_INTERVAL_MS) return;
+
+  // Verificação durável via Supabase — protege contra múltiplos isolates rodando em paralelo
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db = supabaseAdmin as any;
+  const { data: state } = await db
+    .from("cron_state")
+    .select("last_run_at")
+    .eq("job_name", "reconciliar")
+    .maybeSingle();
+
+  const lastRun = state?.last_run_at ? new Date(state.last_run_at as string).getTime() : 0;
+  if (now - lastRun < RECONCILIATION_INTERVAL_MS) return;
+
+  // Registra ANTES de executar para bloquear execuções concorrentes de outros isolates
+  await db
+    .from("cron_state")
+    .upsert({ job_name: "reconciliar", last_run_at: new Date(now).toISOString() }, { onConflict: "job_name" });
+
   lastReconciliationAt = now;
   await reconciliarPedidos();
 }
