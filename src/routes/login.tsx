@@ -35,9 +35,11 @@ function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-slate-900 px-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold tracking-tight text-white">
-            EX<span className="text-[#60A5FA]">PEDE</span>
-          </h1>
+          <img
+            src="/expede-logo-light.svg"
+            alt="EXPEDE"
+            className="mx-auto h-16 w-auto"
+          />
           <p className="text-sm text-white/60 mt-2">Gestão de Expedição</p>
         </div>
         <form

@@ -1,0 +1,21 @@
+<svg width="720" height="180" viewBox="0 0 720 180" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">EXPEDE</title>
+  <desc id="desc">Logotipo EXPEDE com simbolo azul e wordmark escuro.</desc>
+  <defs>
+    <linearGradient id="blue" x1="22" y1="24" x2="198" y2="156" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#68B7FF"/>
+      <stop offset="1" stop-color="#3E8CF6"/>
+    </linearGradient>
+  </defs>
+  <g>
+    <rect x="18" y="24" width="190" height="132" rx="18" stroke="url(#blue)" stroke-width="14"/>
+    <path d="M58 59H136V83H84V99H132V122H84V139H58V59Z" fill="#58A8FF"/>
+    <path d="M146 59H180L220 99L180 139H146V59ZM172 85V113H190L204 99L190 85H172Z" fill="#58A8FF"/>
+    <path d="M171 99H231" stroke="#58A8FF" stroke-width="24" stroke-linecap="square"/>
+  </g>
+  <g fill="#0B1220">
+    <path d="M270 51H374V84H309V96H366V127H309V139H376V172H270V51Z"/>
+    <path d="M397 51H443L470 90L497 51H543L494 111L546 172H499L470 131L440 172H394L446 111L397 51Z"/>
+    <path d="M566 51H631C659 51 680 70 680 97C680 124 659 143 631 143H605V172H566V51ZM605 84V111H625C635 111 641 106 641 97C641 89 635 84 625 84H605Z"/>
+  </g>
+</svg>

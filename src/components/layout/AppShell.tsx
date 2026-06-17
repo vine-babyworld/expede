@@ -18,9 +18,11 @@ export function Sidebar() {
     <aside className="w-60 shrink-0 bg-sidebar text-sidebar-foreground flex flex-col min-h-screen">
       <div className="px-6 py-6 border-b border-white/10">
         <Link to="/expedicao" className="block">
-          <span className="text-2xl font-bold tracking-tight text-white">
-            EX<span className="text-[#60A5FA]">PEDE</span>
-          </span>
+          <img
+            src="/expede-logo-light.svg"
+            alt="EXPEDE"
+            className="h-12 w-auto"
+          />
         </Link>
         <p className="text-xs text-white/50 mt-1">Gestão de Expedição</p>
       </div>
