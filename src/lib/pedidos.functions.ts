@@ -183,6 +183,11 @@ async function processarPedidoBling(
   );
   if (itemForaDoDeposito) return { ok: true, skipped: "wrong_warehouse", detalhe: "depósito incorreto" };
 
+  let nfNumero: string | null = d.notaFiscal?.numero ?? null;
+  if (d.notaFiscal?.id && !nfNumero) {
+    nfNumero = await fetchNfNumeroBling(d.notaFiscal.id, token);
+  }
+
   const pedidoPayload = {
     bling_connection_id:      connId,
     bling_pedido_id:          d.id,
@@ -194,7 +199,7 @@ async function processarPedidoBling(
     total:                    d.total ?? null,
     cliente:                  d.contato ?? null,
     bling_nota_fiscal_id:     d.notaFiscal?.id ?? null,
-    bling_nota_fiscal_numero: d.notaFiscal?.numero ?? null,
+    bling_nota_fiscal_numero: nfNumero,
     raw_json:                 d,
   };
 
@@ -467,13 +472,13 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
     const allIds = [...candidatos.keys()];
     const { data: existentes } = await supabaseAdmin
       .from("pedidos")
-      .select("bling_pedido_id, bling_nota_fiscal_id")
+      .select("bling_pedido_id, bling_nota_fiscal_id, bling_nota_fiscal_numero")
       .in("bling_pedido_id", allIds);
 
-    // Pedidos que já existem E já têm NF não precisam ser reprocessados
+    // Pedidos que já existem E já têm NF (id + numero) não precisam ser reprocessados
     const existentesComNfSet = new Set(
       (existentes ?? [])
-        .filter((e: any) => e.bling_nota_fiscal_id != null)
+        .filter((e: any) => e.bling_nota_fiscal_id != null && e.bling_nota_fiscal_numero != null)
         .map((e: any) => e.bling_pedido_id)
     );
 
@@ -578,6 +583,20 @@ async function atualizarSituacoesExistentes(
   }
 }
 
+async function fetchNfNumeroBling(nfId: number, token: string): Promise<string | null> {
+  try {
+    const res = await fetch(`${BLING_NFE_URL}/${nfId}`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+    });
+    if (!res.ok) return null;
+    const json: any = await res.json().catch(() => null);
+    const numero = json?.data?.numero;
+    return numero != null ? String(numero) : null;
+  } catch {
+    return null;
+  }
+}
+
 export const buscarNumeroNF = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: { pedidoId: string; notaFiscalId: number }) => d)
@@ -599,14 +618,7 @@ export const buscarNumeroNF = createServerFn({ method: "POST" })
       return { numero: null };
     }
 
-    const res = await fetch(BLING_NFE_URL, {
-      headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
-    });
-    if (!res.ok) return { numero: null };
-
-    const json: any = await res.json().catch(() => null);
-    const nf = (json?.data ?? []).find((n: any) => n.id === data.notaFiscalId);
-    const numero = nf?.numero != null ? String(nf.numero) : null;
+    const numero = await fetchNfNumeroBling(data.notaFiscalId, token);
 
     if (numero) {
       await supabaseAdmin
