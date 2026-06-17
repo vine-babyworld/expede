@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import { isPedidoFlex, type ReconciliarReport } from "@/lib/pedidos.functions";
+import { isPedidoFlex, reconciliarPedidos } from "@/lib/pedidos.functions";
 
 function brTodayRange(): { gte: string; lt: string } {
   const now = new Date();
@@ -185,17 +185,6 @@ export const getFunilExpedicao = createServerFn({ method: "GET" })
 export const triggerReconciliar = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async () => {
-    const adminKey = process.env.ADMIN_KEY;
-    if (!adminKey) throw new Error("ADMIN_KEY não configurado");
-
-    const res = await fetch(
-      "https://expede.lovable.app/api/admin/reconciliar",
-      {
-        method: "POST",
-        headers: { "X-Admin-Key": adminKey },
-      }
-    );
-    const json = await res.json() as { ok: boolean; error?: string; resultado?: ReconciliarReport };
-    if (!json.ok) throw new Error(json.error ?? "Erro ao reconciliar");
-    return { ok: true as const, resultado: json.resultado as ReconciliarReport };
+    const resultado = await reconciliarPedidos();
+    return { ok: true as const, resultado };
   });
