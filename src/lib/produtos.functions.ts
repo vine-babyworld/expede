@@ -5,7 +5,7 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { getDecryptedAccessToken, refreshConnectionById } from "@/lib/bling.functions";
 import { getServerOrigin } from "@/lib/produtos.server";
 
-const BLING_PRODUTOS_URL = "https://www.bling.com.br/Api/v3/produtos";
+const BLING_PRODUTOS_URL = "https://api.bling.com.br/Api/v3/produtos";
 const PAGES_PER_RUN = 5;
 const PAGE_LIMIT = 100;
 const REQUEST_DELAY_MS = 350;
