@@ -13,6 +13,68 @@ const DETAIL_BATCH_SIZE = 15; // produtos enriquecidos por execução (reduzido 
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+function compactText(value: string, maxLength = 180) {
+  const clean = value
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return clean.length > maxLength ? `${clean.slice(0, maxLength)}...` : clean;
+}
+
+function getJsonErrorMessage(payload: any) {
+  return (
+    payload?.error?.description ??
+    payload?.error?.message ??
+    payload?.error_description ??
+    payload?.message ??
+    payload?.error ??
+    payload?.data?.error?.description ??
+    payload?.data?.message
+  );
+}
+
+async function formatBlingApiError(res: Response) {
+  if (res.status === 403) {
+    return "Bling recusou a sincronização de produtos (HTTP 403). Reautorize a conta Bling e confirme o escopo Produtos no app Bling.";
+  }
+
+  if (res.status === 429) {
+    return "Bling limitou temporariamente as requisições (HTTP 429). A sincronização será retomada automaticamente.";
+  }
+
+  let text = "";
+  try {
+    text = await res.text();
+  } catch {
+    text = "";
+  }
+
+  if (text) {
+    try {
+      const payload = JSON.parse(text);
+      const apiMessage = getJsonErrorMessage(payload);
+      if (apiMessage) return `Bling API HTTP ${res.status}: ${compactText(String(apiMessage))}`;
+    } catch {
+      // Non-JSON responses are handled below.
+    }
+
+    if (/<!doctype|<html|just a moment/i.test(text)) {
+      return `Bling retornou uma resposta HTML inesperada (HTTP ${res.status}). Tente novamente e, se persistir, reautorize a conta Bling.`;
+    }
+
+    const clean = compactText(text);
+    if (clean) return `Bling API HTTP ${res.status}: ${clean}`;
+  }
+
+  if (res.status >= 500) {
+    return `Bling está temporariamente indisponível (HTTP ${res.status}). A sincronização será retomada automaticamente.`;
+  }
+
+  return `Bling API HTTP ${res.status}.`;
+}
+
 async function assertAdmin(supabase: any, userId: string) {
   const { data, error } = await supabase
     .from("user_roles")
@@ -235,16 +297,17 @@ async function runListagemJob(job: any): Promise<{ done: boolean; status: string
     }
 
     if (res.status === 429) {
+      const mensagem = await formatBlingApiError(res);
       await supabaseAdmin.from("sync_jobs").update({
         status: "pausado", pagina_atual: pagina - 1,
         proxima_execucao_em: new Date(Date.now() + 60_000).toISOString(),
-        erros: [...erros, { pagina, mensagem: "429 rate limit" }],
+        erros: [...erros, { pagina, mensagem }],
       }).eq("id", job.id);
       return { done: false, status: "pausado" };
     }
 
     if (res.status >= 500) {
-      erros.push({ pagina, mensagem: `HTTP ${res.status}` });
+      erros.push({ pagina, mensagem: await formatBlingApiError(res) });
       await supabaseAdmin.from("sync_jobs").update({
         status: "pausado", pagina_atual: pagina - 1, total_erros: totalErros + 1, erros,
         proxima_execucao_em: new Date(Date.now() + 30_000).toISOString(),
@@ -253,10 +316,10 @@ async function runListagemJob(job: any): Promise<{ done: boolean; status: string
     }
 
     if (!res.ok) {
-      const txt = await res.text().catch(() => "");
+      const mensagem = await formatBlingApiError(res);
       await supabaseAdmin.from("sync_jobs").update({
         status: "erro", pagina_atual: pagina - 1, finalizado_em: new Date().toISOString(),
-        erros: [...erros, { pagina, mensagem: `HTTP ${res.status}: ${txt.slice(0, 200)}` }],
+        erros: [...erros, { pagina, mensagem }],
       }).eq("id", job.id);
       return { done: true, status: "erro" };
     }
@@ -396,10 +459,11 @@ async function runDetalhesJob(job: any): Promise<{ done: boolean; status: string
     }
 
     if (res.status === 429) {
+      const mensagem = await formatBlingApiError(res);
       await supabaseAdmin.from("sync_jobs").update({
         status: "pausado",
         total_processados: totalProcessados, total_erros: totalErros,
-        erros: [...erros, { mensagem: "429 rate limit" }].slice(-50),
+        erros: [...erros, { mensagem }].slice(-50),
         total_paginas: pendingCount ?? null,
         pagina_atual: totalProcessados,
         proxima_execucao_em: new Date(Date.now() + 60_000).toISOString(),
@@ -409,8 +473,8 @@ async function runDetalhesJob(job: any): Promise<{ done: boolean; status: string
 
     if (!res.ok) {
       totalErros += 1;
-      const txt = await res.text().catch(() => "");
-      erros.push({ produto_id: pend.bling_product_id, mensagem: `HTTP ${res.status}: ${txt.slice(0, 150)}` });
+      const mensagem = await formatBlingApiError(res);
+      erros.push({ produto_id: pend.bling_product_id, mensagem });
       // marca como sincronizado mesmo assim pra não travar (raw_data preservado)
       await supabaseAdmin.from("produtos")
         .update({ detail_synced_at: new Date().toISOString() })
@@ -605,8 +669,7 @@ export const sincronizarProduto = createServerFn({ method: "POST" })
       headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
     });
     if (!res.ok) {
-      const txt = await res.text().catch(() => "");
-      return { ok: false as const, error: `Bling API ${res.status}: ${txt.slice(0, 200)}` };
+      return { ok: false as const, error: await formatBlingApiError(res) };
     }
 
     const payload: any = await res.json().catch(() => ({}));
