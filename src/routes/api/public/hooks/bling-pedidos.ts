@@ -119,65 +119,69 @@ export const Route = createFileRoute("/api/public/hooks/bling-pedidos")({
 
           const pedidoDbId: string = upserted.id;
 
-          // Itens: replace-all — delete existentes e reinsere os atuais
-          await supabaseAdmin.from("pedido_itens").delete().eq("pedido_id", pedidoDbId);
+          if (itens.length === 0) {
+            console.log(`[bling-pedidos] pedido ${blingPedidoId} chegou com itens vazios — pedido_itens preservado sem alteração`);
+          } else {
+            // Itens: replace-all — delete existentes e reinsere os atuais
+            await supabaseAdmin.from("pedido_itens").delete().eq("pedido_id", pedidoDbId);
 
-          const itensPrepared = await Promise.all(
-            itens.map(async (it: any) => {
-              let produtoId: string | null = null;
+            const itensPrepared = await Promise.all(
+              itens.map(async (it: any) => {
+                let produtoId: string | null = null;
 
-              const gtin = it.gtin ?? null;
-              const sku  = it.codigo ?? null;
+                const gtin = it.gtin ?? null;
+                const sku  = it.codigo ?? null;
 
-              // Tentativa de match: EAN (gtin) primeiro, SKU depois
-              if (gtin) {
-                const { data: p } = await supabaseAdmin
-                  .from("produtos")
-                  .select("id")
-                  .eq("gtin", gtin)
-                  .eq("bling_connection_id", conn.id)
-                  .maybeSingle();
-                produtoId = p?.id ?? null;
+                // Tentativa de match: EAN (gtin) primeiro, SKU depois
+                if (gtin) {
+                  const { data: p } = await supabaseAdmin
+                    .from("produtos")
+                    .select("id")
+                    .eq("gtin", gtin)
+                    .eq("bling_connection_id", conn.id)
+                    .maybeSingle();
+                  produtoId = p?.id ?? null;
+                }
+
+                if (!produtoId && sku) {
+                  const { data: p } = await supabaseAdmin
+                    .from("produtos")
+                    .select("id")
+                    .eq("sku", sku)
+                    .eq("bling_connection_id", conn.id)
+                    .maybeSingle();
+                  produtoId = p?.id ?? null;
+                }
+
+                return {
+                  pedido_id:          pedidoDbId,
+                  produto_id:         produtoId,
+                  bling_item_id:      it.id ?? null,
+                  sku,
+                  ean:                gtin,
+                  descricao:          it.descricao ?? "",
+                  quantidade:         it.quantidade ?? 1,
+                  valor_unitario:     it.valor ?? null,
+                  deposito_id:        it.deposito?.id ?? null,
+                  deposito_descricao: it.deposito?.descricao ?? null,
+                };
+              }),
+            );
+
+            if (itensPrepared.length > 0) {
+              const { error: itemsErr } = await supabaseAdmin
+                .from("pedido_itens")
+                .insert(itensPrepared);
+              if (itemsErr) {
+                console.error("[bling-pedidos] insert itens falhou:", itemsErr.message);
               }
-
-              if (!produtoId && sku) {
-                const { data: p } = await supabaseAdmin
-                  .from("produtos")
-                  .select("id")
-                  .eq("sku", sku)
-                  .eq("bling_connection_id", conn.id)
-                  .maybeSingle();
-                produtoId = p?.id ?? null;
-              }
-
-              return {
-                pedido_id:          pedidoDbId,
-                produto_id:         produtoId,
-                bling_item_id:      it.id ?? null,
-                sku,
-                ean:                gtin,
-                descricao:          it.descricao ?? "",
-                quantidade:         it.quantidade ?? 1,
-                valor_unitario:     it.valor ?? null,
-                deposito_id:        it.deposito?.id ?? null,
-                deposito_descricao: it.deposito?.descricao ?? null,
-              };
-            }),
-          );
-
-          if (itensPrepared.length > 0) {
-            const { error: itemsErr } = await supabaseAdmin
-              .from("pedido_itens")
-              .insert(itensPrepared);
-            if (itemsErr) {
-              console.error("[bling-pedidos] insert itens falhou:", itemsErr.message);
             }
           }
 
           console.log(
-            `[bling-pedidos] OK pedido=${blingPedidoId} db_id=${pedidoDbId} itens=${itensPrepared.length}`,
+            `[bling-pedidos] OK pedido=${blingPedidoId} db_id=${pedidoDbId} itens=${itens.length}`,
           );
-          return Response.json({ ok: true, pedido_id: pedidoDbId, items_count: itensPrepared.length });
+          return Response.json({ ok: true, pedido_id: pedidoDbId, items_count: itens.length });
 
         } catch (err) {
           console.error("[bling-pedidos] erro inesperado:", err);

@@ -5,6 +5,7 @@ import { getDecryptedAccessToken } from "@/lib/bling.functions";
 
 const BLING_PEDIDOS_URL = "https://api.bling.com.br/Api/v3/pedidos/vendas";
 const DEPOSITO_ALVO = "Geral";
+const MAX_NOVOS_POR_EXECUCAO = 15;
 const ML_LOJA_ID = "203482894";
 const BLING_PRODUTOS_URL = "https://api.bling.com.br/Api/v3/produtos";
 const BLING_NFE_URL = "https://api.bling.com.br/Api/v3/nfe";
@@ -235,7 +236,9 @@ async function processarPedidoBling(
   }
 
   // Delete: preserva rows de componentes já explodidos (carregam progresso de bipagem)
-  if (jaExplodidosSkus.size > 0) {
+  if (itens.length === 0) {
+    console.log(`[processarPedido] pedido ${blingPedidoId} chegou com itens vazios — pedido_itens preservado sem alteração`);
+  } else if (jaExplodidosSkus.size > 0) {
     const { data: toDelete } = await supabaseAdmin
       .from("pedido_itens")
       .select("id, sku")
@@ -484,6 +487,7 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
 
     console.log(`[reconciliar] ${candidatos.size} candidato(s), ${existentesComNfSet.size} já existem com NF no banco`);
 
+    let processadosNestaExecucao = 0;
     for (const cand of candidatos.values()) {
       const label = cand.origem === "q1" ? "Q1" : cand.origem === "q3" ? "Q3" : cand.origem === "q4" ? "Q4" : "Q2";
       const bucket = cand.origem === "q1" ? report.query1 : cand.origem === "q3" ? report.query3 : cand.origem === "q4" ? report.query4 : report.query2;
@@ -494,7 +498,13 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
         continue;
       }
 
+      if (processadosNestaExecucao >= MAX_NOVOS_POR_EXECUCAO) {
+        report.detalhes.push(`limite de ${MAX_NOVOS_POR_EXECUCAO} candidatos novos atingido nesta execução — restante será processado na próxima sincronização (5 min)`);
+        break;
+      }
+
       const result = await processarPedidoBling(cand.id, conn.id, token, { permitirSemNf: cand.permitirSemNf });
+      processadosNestaExecucao++;
       console.log(`[reconciliar] pedido ${cand.id} (permitirSemNf=${cand.permitirSemNf}):`, JSON.stringify(result));
 
       if (!result.ok) {
