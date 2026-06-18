@@ -5,7 +5,7 @@ import { getDecryptedAccessToken } from "@/lib/bling.functions";
 
 const BLING_PEDIDOS_URL = "https://api.bling.com.br/Api/v3/pedidos/vendas";
 const DEPOSITO_ALVO = "Geral";
-const MAX_NOVOS_POR_EXECUCAO = 6;
+const MAX_CANDIDATOS_POR_EXECUCAO = 10;
 const ML_LOJA_ID = "203482894";
 const BLING_PRODUTOS_URL = "https://api.bling.com.br/Api/v3/produtos";
 const BLING_NFE_URL = "https://api.bling.com.br/Api/v3/nfe";
@@ -267,12 +267,16 @@ async function processarPedidoBling(
     : { data: [] as { id: string; gtin: string }[] };
 
   const { data: produtosPorSkuRows } = todosSkus.length > 0
-    ? await supabaseAdmin.from("produtos").select("id, sku")
+    ? await supabaseAdmin.from("produtos").select("id, sku, gtin")
         .in("sku", todosSkus).eq("bling_connection_id", connId)
-    : { data: [] as { id: string; sku: string }[] };
+    : { data: [] as { id: string; sku: string; gtin: string | null }[] };
 
-  const gtinMap = new Map<string, string>((produtosPorGtinRows ?? []).map((r: any) => [r.gtin as string, r.id as string]));
-  const skuMap  = new Map<string, string>((produtosPorSkuRows  ?? []).map((r: any) => [r.sku  as string, r.id as string]));
+  const gtinMap = new Map<string, { id: string; gtin: string | null }>(
+    (produtosPorGtinRows ?? []).map((r: any) => [r.gtin as string, { id: r.id as string, gtin: (r.gtin ?? null) as string | null }]),
+  );
+  const skuMap = new Map<string, { id: string; gtin: string | null }>(
+    (produtosPorSkuRows ?? []).map((r: any) => [r.sku as string, { id: r.id as string, gtin: (r.gtin ?? null) as string | null }]),
+  );
 
   for (const it of itens) {
     const sku = it.codigo ?? null;
@@ -281,17 +285,20 @@ async function processarPedidoBling(
     if (componentes.length < 2) {
       // Item simples — lookup no Map pré-carregado, sem subrequests por item
       const gtin = it.gtin ?? null;
-      const produtoId: string | null =
+      const lookupResult =
         (gtin ? gtinMap.get(gtin) : undefined) ??
         (sku  ? skuMap.get(sku)   : undefined) ??
         null;
+      const produtoId = lookupResult?.id ?? null;
+      // usa gtin do item; se vazio, copia do produto encontrado no cadastro
+      const eanFinal = gtin ?? lookupResult?.gtin ?? null;
 
       itensPrepared.push({
         pedido_id:          pedidoDbId,
         produto_id:         produtoId,
         bling_item_id:      it.id ?? null,
         sku,
-        ean:                gtin,
+        ean:                eanFinal,
         descricao:          it.descricao ?? "",
         quantidade:         it.quantidade ?? 1,
         valor_unitario:     it.valor ?? null,
@@ -506,13 +513,13 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
         continue;
       }
 
-      if (processadosNestaExecucao >= MAX_NOVOS_POR_EXECUCAO) {
-        report.detalhes.push(`limite de ${MAX_NOVOS_POR_EXECUCAO} candidatos novos atingido nesta execução — restante será processado na próxima sincronização (5 min)`);
+      if (processadosNestaExecucao >= MAX_CANDIDATOS_POR_EXECUCAO) {
+        report.detalhes.push(`limite de ${MAX_CANDIDATOS_POR_EXECUCAO} candidatos processados atingido nesta execução — restante será processado na próxima sincronização (5 min)`);
         break;
       }
 
-      const result = await processarPedidoBling(cand.id, conn.id, token, { permitirSemNf: cand.permitirSemNf });
       processadosNestaExecucao++;
+      const result = await processarPedidoBling(cand.id, conn.id, token, { permitirSemNf: cand.permitirSemNf });
       console.log(`[reconciliar] pedido ${cand.id} (permitirSemNf=${cand.permitirSemNf}):`, JSON.stringify(result));
 
       if (!result.ok) {
