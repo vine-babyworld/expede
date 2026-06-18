@@ -327,18 +327,17 @@ async function runListagemJob(job: any): Promise<{ done: boolean; status: string
     const payload: any = await res.json().catch(() => ({}));
     const produtos: any[] = Array.isArray(payload?.data) ? payload.data : [];
 
+    const rows: any[] = [];
     for (const p of produtos) {
-      try {
-        const row = mapProduct(p, job.bling_connection_id);
-        const { error: upErr } = await supabaseAdmin
-          .from("produtos")
-          .upsert(row as any, { onConflict: "bling_connection_id,bling_product_id" });
-        if (upErr) { totalErros += 1; erros.push({ pagina, produto_id: p.id, mensagem: upErr.message }); }
-        else { totalProcessados += 1; }
-      } catch (e: any) {
-        totalErros += 1;
-        erros.push({ pagina, produto_id: p?.id, mensagem: String(e?.message ?? e) });
-      }
+      try { rows.push(mapProduct(p, job.bling_connection_id)); }
+      catch (e: any) { totalErros += 1; erros.push({ pagina, produto_id: p?.id, mensagem: String(e?.message ?? e) }); }
+    }
+    if (rows.length > 0) {
+      const { error: upErr } = await supabaseAdmin
+        .from("produtos")
+        .upsert(rows as any, { onConflict: "bling_connection_id,bling_product_id" });
+      if (upErr) { totalErros += rows.length; erros.push({ pagina, mensagem: "upsert em lote falhou: " + upErr.message }); }
+      else { totalProcessados += rows.length; }
     }
 
     if (produtos.length < PAGE_LIMIT) {
