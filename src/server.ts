@@ -99,7 +99,14 @@ async function cronReconciliar() {
   await reconciliarPedidos();
 }
 
+// Desativado em 18/06/2026: Bling bloqueia IP de datacenter no endpoint /Api/v3/produtos.
+// Sync de produtos passou a ser manual via scripts/sync-produtos-local.mjs.
+// Reativar removendo o early return abaixo se o bloqueio for resolvido.
 async function cronSyncPoll() {
+  console.log("[cron-sync] desativado — sync de produtos agora é manual via scripts/sync-produtos-local.mjs");
+  return;
+
+  // eslint-disable-next-line no-unreachable
   const now = new Date().toISOString();
   const { data: jobs } = await supabaseAdmin
     .from("sync_jobs")

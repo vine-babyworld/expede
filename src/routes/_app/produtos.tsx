@@ -19,6 +19,10 @@ import {
   getProdutosOverview, syncProductsStart, atualizarProduto, sincronizarProduto,
 } from "@/lib/produtos.functions";
 
+// Desativado em 18/06/2026: Bling bloqueia IP de datacenter no /Api/v3/produtos.
+// Para reativar, mude para false e o botão voltará a chamar syncProductsStart normalmente.
+const SYNC_AUTOMATICA_DESABILITADA = true;
+
 export const Route = createFileRoute("/_app/produtos")({
   component: ProdutosPage,
 });
@@ -249,6 +253,13 @@ function ProdutosPage() {
   };
 
   const handleSync = () => {
+    if (SYNC_AUTOMATICA_DESABILITADA) {
+      toast.error(
+        "A sincronização automática de produtos está temporariamente desativada (Bling bloqueia conexões via Cloudflare). Use o script scripts/sync-produtos-local.mjs no seu computador para atualizar o catálogo.",
+        { duration: 8000 },
+      );
+      return;
+    }
     const allConns = (connsQ.data ?? []).filter((c: any) => c.status === "connected");
     if (connectionId !== "__all") {
       syncMut.mutate(connectionId);
