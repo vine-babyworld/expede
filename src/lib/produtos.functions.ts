@@ -75,6 +75,43 @@ async function formatBlingApiError(res: Response) {
   return `Bling API HTTP ${res.status}.`;
 }
 
+type BlingProxyResponse = { ok: boolean; status: number; body: string };
+
+async function invokeBlingProxy(url: string, accessToken: string): Promise<BlingProxyResponse> {
+  const { data, error } = await supabaseAdmin.functions.invoke<BlingProxyResponse>(
+    "bling-produtos-proxy",
+    { body: { url, access_token: accessToken } },
+  );
+  if (error) throw new Error(`edge_invoke_failed:bling-produtos-proxy:${error.message}`);
+  if (!data) throw new Error("edge_empty_response:bling-produtos-proxy");
+  return data;
+}
+
+function formatBlingApiErrorText(status: number, text: string): string {
+  if (status === 403) {
+    return "Bling recusou a sincronização de produtos (HTTP 403). Reautorize a conta Bling e confirme o escopo Produtos no app Bling.";
+  }
+  if (status === 429) {
+    return "Bling limitou temporariamente as requisições (HTTP 429). A sincronização será retomada automaticamente.";
+  }
+  if (text) {
+    try {
+      const payload = JSON.parse(text);
+      const apiMessage = getJsonErrorMessage(payload);
+      if (apiMessage) return `Bling API HTTP ${status}: ${compactText(String(apiMessage))}`;
+    } catch { /* não é JSON */ }
+    if (/<!doctype|<html|just a moment/i.test(text)) {
+      return `Bling retornou uma resposta HTML inesperada (HTTP ${status}). Tente novamente e, se persistir, reautorize a conta Bling.`;
+    }
+    const clean = compactText(text);
+    if (clean) return `Bling API HTTP ${status}: ${clean}`;
+  }
+  if (status >= 500) {
+    return `Bling está temporariamente indisponível (HTTP ${status}). A sincronização será retomada automaticamente.`;
+  }
+  return `Bling API HTTP ${status}.`;
+}
+
 async function assertAdmin(supabase: any, userId: string) {
   const { data, error } = await supabase
     .from("user_roles")
@@ -262,9 +299,9 @@ async function runListagemJob(job: any): Promise<{ done: boolean; status: string
   for (let i = 0; i < PAGES_PER_RUN; i++) {
     pagina += 1;
     const url = `${BLING_PRODUTOS_URL}?pagina=${pagina}&limite=${PAGE_LIMIT}&criterio=2`;
-    let res: Response;
+    let proxy: BlingProxyResponse;
     try {
-      res = await fetch(url, { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } });
+      proxy = await invokeBlingProxy(url, token);
     } catch (e: any) {
       erros.push({ pagina, mensagem: String(e?.message ?? e) });
       await supabaseAdmin.from("sync_jobs").update({
@@ -274,7 +311,7 @@ async function runListagemJob(job: any): Promise<{ done: boolean; status: string
       return { done: false, status: "pausado" };
     }
 
-    if (res.status === 401) {
+    if (proxy.status === 401) {
       const r = await refreshConnectionById(job.bling_connection_id);
       if (!r.ok) {
         await supabaseAdmin.from("sync_jobs").update({
@@ -296,8 +333,8 @@ async function runListagemJob(job: any): Promise<{ done: boolean; status: string
       continue;
     }
 
-    if (res.status === 429) {
-      const mensagem = await formatBlingApiError(res);
+    if (proxy.status === 429) {
+      const mensagem = formatBlingApiErrorText(proxy.status, proxy.body);
       await supabaseAdmin.from("sync_jobs").update({
         status: "pausado", pagina_atual: pagina - 1,
         proxima_execucao_em: new Date(Date.now() + 60_000).toISOString(),
@@ -306,8 +343,8 @@ async function runListagemJob(job: any): Promise<{ done: boolean; status: string
       return { done: false, status: "pausado" };
     }
 
-    if (res.status >= 500) {
-      erros.push({ pagina, mensagem: await formatBlingApiError(res) });
+    if (proxy.status >= 500) {
+      erros.push({ pagina, mensagem: formatBlingApiErrorText(proxy.status, proxy.body) });
       await supabaseAdmin.from("sync_jobs").update({
         status: "pausado", pagina_atual: pagina - 1, total_erros: totalErros + 1, erros,
         proxima_execucao_em: new Date(Date.now() + 30_000).toISOString(),
@@ -315,8 +352,8 @@ async function runListagemJob(job: any): Promise<{ done: boolean; status: string
       return { done: false, status: "pausado" };
     }
 
-    if (!res.ok) {
-      const mensagem = await formatBlingApiError(res);
+    if (!proxy.ok) {
+      const mensagem = formatBlingApiErrorText(proxy.status, proxy.body);
       await supabaseAdmin.from("sync_jobs").update({
         status: "erro", pagina_atual: pagina - 1, finalizado_em: new Date().toISOString(),
         erros: [...erros, { pagina, mensagem }],
@@ -324,7 +361,8 @@ async function runListagemJob(job: any): Promise<{ done: boolean; status: string
       return { done: true, status: "erro" };
     }
 
-    const payload: any = await res.json().catch(() => ({}));
+    let payload: any = {};
+    try { payload = JSON.parse(proxy.body); } catch { payload = {}; }
     const produtos: any[] = Array.isArray(payload?.data) ? payload.data : [];
 
     const rows: any[] = [];
@@ -426,16 +464,16 @@ async function runDetalhesJob(job: any): Promise<{ done: boolean; status: string
 
   for (const pend of pendentes) {
     const url = `${BLING_PRODUTOS_URL}/${pend.bling_product_id}`;
-    let res: Response;
+    let proxy: BlingProxyResponse;
     try {
-      res = await fetch(url, { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } });
+      proxy = await invokeBlingProxy(url, token);
     } catch (e: any) {
       totalErros += 1;
       erros.push({ produto_id: pend.bling_product_id, mensagem: String(e?.message ?? e) });
       continue;
     }
 
-    if (res.status === 401) {
+    if (proxy.status === 401) {
       const r = await refreshConnectionById(job.bling_connection_id);
       if (!r.ok) {
         await supabaseAdmin.from("sync_jobs").update({
@@ -457,8 +495,8 @@ async function runDetalhesJob(job: any): Promise<{ done: boolean; status: string
       continue;
     }
 
-    if (res.status === 429) {
-      const mensagem = await formatBlingApiError(res);
+    if (proxy.status === 429) {
+      const mensagem = formatBlingApiErrorText(proxy.status, proxy.body);
       await supabaseAdmin.from("sync_jobs").update({
         status: "pausado",
         total_processados: totalProcessados, total_erros: totalErros,
@@ -470,9 +508,9 @@ async function runDetalhesJob(job: any): Promise<{ done: boolean; status: string
       return { done: false, status: "pausado" };
     }
 
-    if (!res.ok) {
+    if (!proxy.ok) {
       totalErros += 1;
-      const mensagem = await formatBlingApiError(res);
+      const mensagem = formatBlingApiErrorText(proxy.status, proxy.body);
       erros.push({ produto_id: pend.bling_product_id, mensagem });
       // marca como sincronizado mesmo assim pra não travar (raw_data preservado)
       await supabaseAdmin.from("produtos")
@@ -482,7 +520,8 @@ async function runDetalhesJob(job: any): Promise<{ done: boolean; status: string
       continue;
     }
 
-    const payload: any = await res.json().catch(() => ({}));
+    let payload: any = {};
+    try { payload = JSON.parse(proxy.body); } catch { payload = {}; }
     const produto: any = payload?.data ?? payload;
 
     try {
@@ -664,14 +703,18 @@ export const sincronizarProduto = createServerFn({ method: "POST" })
       return { ok: false as const, error: String(e?.message ?? e) };
     }
 
-    const res = await fetch(`${BLING_PRODUTOS_URL}/${data.blingProductId}`, {
-      headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
-    });
-    if (!res.ok) {
-      return { ok: false as const, error: await formatBlingApiError(res) };
+    let proxy: BlingProxyResponse;
+    try {
+      proxy = await invokeBlingProxy(`${BLING_PRODUTOS_URL}/${data.blingProductId}`, token);
+    } catch (e: any) {
+      return { ok: false as const, error: String(e?.message ?? e) };
+    }
+    if (!proxy.ok) {
+      return { ok: false as const, error: formatBlingApiErrorText(proxy.status, proxy.body) };
     }
 
-    const payload: any = await res.json().catch(() => ({}));
+    let payload: any = {};
+    try { payload = JSON.parse(proxy.body); } catch { payload = {}; }
     const p = payload?.data ?? payload;
     const now = new Date().toISOString();
 
