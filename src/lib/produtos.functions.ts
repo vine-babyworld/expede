@@ -133,7 +133,7 @@ function classifyProduct(p: any): { tipo: "simples" | "pai" | "filho"; bipavel: 
   return { tipo: "simples", bipavel: true, parentId: null };
 }
 
-function mapProduct(p: any, connectionId: string, opts?: { detail?: boolean }) {
+export function mapProduct(p: any, connectionId: string, opts?: { detail?: boolean }) {
   const cls = classifyProduct(p);
   const dim = p?.dimensoes ?? {};
   const row: any = {
