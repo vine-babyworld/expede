@@ -5,7 +5,7 @@ import { getDecryptedAccessToken } from "@/lib/bling.functions";
 
 const BLING_PEDIDOS_URL = "https://api.bling.com.br/Api/v3/pedidos/vendas";
 const DEPOSITO_ALVO = "Geral";
-const MAX_NOVOS_POR_EXECUCAO = 15;
+const MAX_NOVOS_POR_EXECUCAO = 6;
 const ML_LOJA_ID = "203482894";
 const BLING_PRODUTOS_URL = "https://api.bling.com.br/Api/v3/produtos";
 const BLING_NFE_URL = "https://api.bling.com.br/Api/v3/nfe";
@@ -256,27 +256,35 @@ async function processarPedidoBling(
   // Monta rows de itens — kits são explodidos em componentes individuais
   const itensPrepared: any[] = [];
 
+  // Pré-carrega produto_id para itens simples em duas queries em lote (evita N subrequests por item)
+  const itensSimples = itens.filter((it: any) => parseComponentesKit(it.codigo ?? "").length < 2);
+  const todosGtins = itensSimples.map((it: any) => it.gtin).filter(Boolean) as string[];
+  const todosSkus  = itensSimples.map((it: any) => it.codigo).filter(Boolean) as string[];
+
+  const { data: produtosPorGtinRows } = todosGtins.length > 0
+    ? await supabaseAdmin.from("produtos").select("id, gtin")
+        .in("gtin", todosGtins).eq("bling_connection_id", connId)
+    : { data: [] as { id: string; gtin: string }[] };
+
+  const { data: produtosPorSkuRows } = todosSkus.length > 0
+    ? await supabaseAdmin.from("produtos").select("id, sku")
+        .in("sku", todosSkus).eq("bling_connection_id", connId)
+    : { data: [] as { id: string; sku: string }[] };
+
+  const gtinMap = new Map<string, string>((produtosPorGtinRows ?? []).map((r: any) => [r.gtin as string, r.id as string]));
+  const skuMap  = new Map<string, string>((produtosPorSkuRows  ?? []).map((r: any) => [r.sku  as string, r.id as string]));
+
   for (const it of itens) {
     const sku = it.codigo ?? null;
     const componentes = parseComponentesKit(sku ?? "");
 
     if (componentes.length < 2) {
-      // Item simples — comportamento existente
-      let produtoId: string | null = null;
+      // Item simples — lookup no Map pré-carregado, sem subrequests por item
       const gtin = it.gtin ?? null;
-
-      if (gtin) {
-        const { data: p } = await supabaseAdmin
-          .from("produtos").select("id")
-          .eq("gtin", gtin).eq("bling_connection_id", connId).maybeSingle();
-        produtoId = p?.id ?? null;
-      }
-      if (!produtoId && sku) {
-        const { data: p } = await supabaseAdmin
-          .from("produtos").select("id")
-          .eq("sku", sku).eq("bling_connection_id", connId).maybeSingle();
-        produtoId = p?.id ?? null;
-      }
+      const produtoId: string | null =
+        (gtin ? gtinMap.get(gtin) : undefined) ??
+        (sku  ? skuMap.get(sku)   : undefined) ??
+        null;
 
       itensPrepared.push({
         pedido_id:          pedidoDbId,
@@ -549,7 +557,7 @@ async function atualizarSituacoesExistentes(
     .gte("data_pedido", desde)
     .neq("situacao_id", 12)
     .order("data_pedido", { ascending: true })
-    .limit(15);
+    .limit(8);
 
   if (error) {
     console.error("[reconciliar] erro ao listar pedidos p/ atualizar situação:", error.message);
