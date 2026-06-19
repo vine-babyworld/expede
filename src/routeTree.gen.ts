@@ -14,6 +14,7 @@ import { Route as AppRouteImport } from './routes/_app'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppProdutosRouteImport } from './routes/_app/produtos'
 import { Route as AppPedidosRouteImport } from './routes/_app/pedidos'
+import { Route as AppHistoricoRouteImport } from './routes/_app/historico'
 import { Route as AppExpedidosHojeRouteImport } from './routes/_app/expedidos-hoje'
 import { Route as AppExpedicaoRouteImport } from './routes/_app/expedicao'
 import { Route as AppDashboardRouteImport } from './routes/_app/dashboard'
@@ -24,7 +25,10 @@ import { Route as OauthBlingCallbackRouteImport } from './routes/oauth/bling/cal
 import { Route as ApiMlCallbackRouteImport } from './routes/api/ml/callback'
 import { Route as ApiMlAuthRouteImport } from './routes/api/ml/auth'
 import { Route as ApiDebugEtiquetaTesteRouteImport } from './routes/api/debug/etiqueta-teste'
+import { Route as ApiDebugBlingTokenRouteImport } from './routes/api/debug/bling-token'
+import { Route as ApiDebugBlingCheckRouteImport } from './routes/api/debug/bling-check'
 import { Route as ApiAdminReconciliarRouteImport } from './routes/api/admin/reconciliar'
+import { Route as ApiAdminImportarProdutosLoteRouteImport } from './routes/api/admin/importar-produtos-lote'
 import { Route as ApiAdminImportarPedidoRouteImport } from './routes/api/admin/importar-pedido'
 import { Route as AppConfiguracoesMarketplacesRouteImport } from './routes/_app/configuracoes.marketplaces'
 import { Route as AppConfiguracoesBlingRouteImport } from './routes/_app/configuracoes.bling'
@@ -55,6 +59,11 @@ const AppProdutosRoute = AppProdutosRouteImport.update({
 const AppPedidosRoute = AppPedidosRouteImport.update({
   id: '/pedidos',
   path: '/pedidos',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppHistoricoRoute = AppHistoricoRouteImport.update({
+  id: '/historico',
+  path: '/historico',
   getParentRoute: () => AppRoute,
 } as any)
 const AppExpedidosHojeRoute = AppExpedidosHojeRouteImport.update({
@@ -107,11 +116,27 @@ const ApiDebugEtiquetaTesteRoute = ApiDebugEtiquetaTesteRouteImport.update({
   path: '/api/debug/etiqueta-teste',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiDebugBlingTokenRoute = ApiDebugBlingTokenRouteImport.update({
+  id: '/api/debug/bling-token',
+  path: '/api/debug/bling-token',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiDebugBlingCheckRoute = ApiDebugBlingCheckRouteImport.update({
+  id: '/api/debug/bling-check',
+  path: '/api/debug/bling-check',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAdminReconciliarRoute = ApiAdminReconciliarRouteImport.update({
   id: '/api/admin/reconciliar',
   path: '/api/admin/reconciliar',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiAdminImportarProdutosLoteRoute =
+  ApiAdminImportarProdutosLoteRouteImport.update({
+    id: '/api/admin/importar-produtos-lote',
+    path: '/api/admin/importar-produtos-lote',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiAdminImportarPedidoRoute = ApiAdminImportarPedidoRouteImport.update({
   id: '/api/admin/importar-pedido',
   path: '/api/admin/importar-pedido',
@@ -161,12 +186,16 @@ export interface FileRoutesByFullPath {
   '/dashboard': typeof AppDashboardRoute
   '/expedicao': typeof AppExpedicaoRoute
   '/expedidos-hoje': typeof AppExpedidosHojeRoute
+  '/historico': typeof AppHistoricoRoute
   '/pedidos': typeof AppPedidosRoute
   '/produtos': typeof AppProdutosRoute
   '/configuracoes/bling': typeof AppConfiguracoesBlingRoute
   '/configuracoes/marketplaces': typeof AppConfiguracoesMarketplacesRoute
   '/api/admin/importar-pedido': typeof ApiAdminImportarPedidoRoute
+  '/api/admin/importar-produtos-lote': typeof ApiAdminImportarProdutosLoteRoute
   '/api/admin/reconciliar': typeof ApiAdminReconciliarRoute
+  '/api/debug/bling-check': typeof ApiDebugBlingCheckRoute
+  '/api/debug/bling-token': typeof ApiDebugBlingTokenRoute
   '/api/debug/etiqueta-teste': typeof ApiDebugEtiquetaTesteRoute
   '/api/ml/auth': typeof ApiMlAuthRoute
   '/api/ml/callback': typeof ApiMlCallbackRoute
@@ -184,12 +213,16 @@ export interface FileRoutesByTo {
   '/dashboard': typeof AppDashboardRoute
   '/expedicao': typeof AppExpedicaoRoute
   '/expedidos-hoje': typeof AppExpedidosHojeRoute
+  '/historico': typeof AppHistoricoRoute
   '/pedidos': typeof AppPedidosRoute
   '/produtos': typeof AppProdutosRoute
   '/configuracoes/bling': typeof AppConfiguracoesBlingRoute
   '/configuracoes/marketplaces': typeof AppConfiguracoesMarketplacesRoute
   '/api/admin/importar-pedido': typeof ApiAdminImportarPedidoRoute
+  '/api/admin/importar-produtos-lote': typeof ApiAdminImportarProdutosLoteRoute
   '/api/admin/reconciliar': typeof ApiAdminReconciliarRoute
+  '/api/debug/bling-check': typeof ApiDebugBlingCheckRoute
+  '/api/debug/bling-token': typeof ApiDebugBlingTokenRoute
   '/api/debug/etiqueta-teste': typeof ApiDebugEtiquetaTesteRoute
   '/api/ml/auth': typeof ApiMlAuthRoute
   '/api/ml/callback': typeof ApiMlCallbackRoute
@@ -210,12 +243,16 @@ export interface FileRoutesById {
   '/_app/dashboard': typeof AppDashboardRoute
   '/_app/expedicao': typeof AppExpedicaoRoute
   '/_app/expedidos-hoje': typeof AppExpedidosHojeRoute
+  '/_app/historico': typeof AppHistoricoRoute
   '/_app/pedidos': typeof AppPedidosRoute
   '/_app/produtos': typeof AppProdutosRoute
   '/_app/configuracoes/bling': typeof AppConfiguracoesBlingRoute
   '/_app/configuracoes/marketplaces': typeof AppConfiguracoesMarketplacesRoute
   '/api/admin/importar-pedido': typeof ApiAdminImportarPedidoRoute
+  '/api/admin/importar-produtos-lote': typeof ApiAdminImportarProdutosLoteRoute
   '/api/admin/reconciliar': typeof ApiAdminReconciliarRoute
+  '/api/debug/bling-check': typeof ApiDebugBlingCheckRoute
+  '/api/debug/bling-token': typeof ApiDebugBlingTokenRoute
   '/api/debug/etiqueta-teste': typeof ApiDebugEtiquetaTesteRoute
   '/api/ml/auth': typeof ApiMlAuthRoute
   '/api/ml/callback': typeof ApiMlCallbackRoute
@@ -236,12 +273,16 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/expedicao'
     | '/expedidos-hoje'
+    | '/historico'
     | '/pedidos'
     | '/produtos'
     | '/configuracoes/bling'
     | '/configuracoes/marketplaces'
     | '/api/admin/importar-pedido'
+    | '/api/admin/importar-produtos-lote'
     | '/api/admin/reconciliar'
+    | '/api/debug/bling-check'
+    | '/api/debug/bling-token'
     | '/api/debug/etiqueta-teste'
     | '/api/ml/auth'
     | '/api/ml/callback'
@@ -259,12 +300,16 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/expedicao'
     | '/expedidos-hoje'
+    | '/historico'
     | '/pedidos'
     | '/produtos'
     | '/configuracoes/bling'
     | '/configuracoes/marketplaces'
     | '/api/admin/importar-pedido'
+    | '/api/admin/importar-produtos-lote'
     | '/api/admin/reconciliar'
+    | '/api/debug/bling-check'
+    | '/api/debug/bling-token'
     | '/api/debug/etiqueta-teste'
     | '/api/ml/auth'
     | '/api/ml/callback'
@@ -284,12 +329,16 @@ export interface FileRouteTypes {
     | '/_app/dashboard'
     | '/_app/expedicao'
     | '/_app/expedidos-hoje'
+    | '/_app/historico'
     | '/_app/pedidos'
     | '/_app/produtos'
     | '/_app/configuracoes/bling'
     | '/_app/configuracoes/marketplaces'
     | '/api/admin/importar-pedido'
+    | '/api/admin/importar-produtos-lote'
     | '/api/admin/reconciliar'
+    | '/api/debug/bling-check'
+    | '/api/debug/bling-token'
     | '/api/debug/etiqueta-teste'
     | '/api/ml/auth'
     | '/api/ml/callback'
@@ -306,7 +355,10 @@ export interface RootRouteChildren {
   AppRoute: typeof AppRouteWithChildren
   LoginRoute: typeof LoginRoute
   ApiAdminImportarPedidoRoute: typeof ApiAdminImportarPedidoRoute
+  ApiAdminImportarProdutosLoteRoute: typeof ApiAdminImportarProdutosLoteRoute
   ApiAdminReconciliarRoute: typeof ApiAdminReconciliarRoute
+  ApiDebugBlingCheckRoute: typeof ApiDebugBlingCheckRoute
+  ApiDebugBlingTokenRoute: typeof ApiDebugBlingTokenRoute
   ApiDebugEtiquetaTesteRoute: typeof ApiDebugEtiquetaTesteRoute
   ApiMlAuthRoute: typeof ApiMlAuthRoute
   ApiMlCallbackRoute: typeof ApiMlCallbackRoute
@@ -352,6 +404,13 @@ declare module '@tanstack/react-router' {
       path: '/pedidos'
       fullPath: '/pedidos'
       preLoaderRoute: typeof AppPedidosRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/historico': {
+      id: '/_app/historico'
+      path: '/historico'
+      fullPath: '/historico'
+      preLoaderRoute: typeof AppHistoricoRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/expedidos-hoje': {
@@ -424,11 +483,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiDebugEtiquetaTesteRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/debug/bling-token': {
+      id: '/api/debug/bling-token'
+      path: '/api/debug/bling-token'
+      fullPath: '/api/debug/bling-token'
+      preLoaderRoute: typeof ApiDebugBlingTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/debug/bling-check': {
+      id: '/api/debug/bling-check'
+      path: '/api/debug/bling-check'
+      fullPath: '/api/debug/bling-check'
+      preLoaderRoute: typeof ApiDebugBlingCheckRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/admin/reconciliar': {
       id: '/api/admin/reconciliar'
       path: '/api/admin/reconciliar'
       fullPath: '/api/admin/reconciliar'
       preLoaderRoute: typeof ApiAdminReconciliarRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/admin/importar-produtos-lote': {
+      id: '/api/admin/importar-produtos-lote'
+      path: '/api/admin/importar-produtos-lote'
+      fullPath: '/api/admin/importar-produtos-lote'
+      preLoaderRoute: typeof ApiAdminImportarProdutosLoteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/admin/importar-pedido': {
@@ -504,6 +584,7 @@ interface AppRouteChildren {
   AppDashboardRoute: typeof AppDashboardRoute
   AppExpedicaoRoute: typeof AppExpedicaoRoute
   AppExpedidosHojeRoute: typeof AppExpedidosHojeRoute
+  AppHistoricoRoute: typeof AppHistoricoRoute
   AppPedidosRoute: typeof AppPedidosRoute
   AppProdutosRoute: typeof AppProdutosRoute
 }
@@ -514,6 +595,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppDashboardRoute: AppDashboardRoute,
   AppExpedicaoRoute: AppExpedicaoRoute,
   AppExpedidosHojeRoute: AppExpedidosHojeRoute,
+  AppHistoricoRoute: AppHistoricoRoute,
   AppPedidosRoute: AppPedidosRoute,
   AppProdutosRoute: AppProdutosRoute,
 }
@@ -525,7 +607,10 @@ const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRouteWithChildren,
   LoginRoute: LoginRoute,
   ApiAdminImportarPedidoRoute: ApiAdminImportarPedidoRoute,
+  ApiAdminImportarProdutosLoteRoute: ApiAdminImportarProdutosLoteRoute,
   ApiAdminReconciliarRoute: ApiAdminReconciliarRoute,
+  ApiDebugBlingCheckRoute: ApiDebugBlingCheckRoute,
+  ApiDebugBlingTokenRoute: ApiDebugBlingTokenRoute,
   ApiDebugEtiquetaTesteRoute: ApiDebugEtiquetaTesteRoute,
   ApiMlAuthRoute: ApiMlAuthRoute,
   ApiMlCallbackRoute: ApiMlCallbackRoute,
