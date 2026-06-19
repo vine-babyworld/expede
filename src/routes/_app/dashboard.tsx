@@ -101,35 +101,49 @@ function ChartTooltip({ active, payload, label }: any) {
 }
 
 function QueryReportSection({
-  title, report,
+  title, report, disabled,
 }: {
   title: string;
   report: { encontrados: number; importados: number; pulados: number; erros: string[] };
+  disabled?: boolean;
 }) {
   return (
     <div className="rounded-lg border p-3">
-      <p className="font-semibold text-sm mb-2">{title}</p>
-      <div className="grid grid-cols-3 gap-2 text-sm mb-2">
-        <div>
-          <p className="text-muted-foreground text-xs">Encontrados</p>
-          <p className="font-semibold">{report.encontrados}</p>
-        </div>
-        <div>
-          <p className="text-muted-foreground text-xs">Importados</p>
-          <p className="font-semibold text-emerald-600">{report.importados}</p>
-        </div>
-        <div>
-          <p className="text-muted-foreground text-xs">Pulados</p>
-          <p className="font-semibold text-amber-600">{report.pulados}</p>
-        </div>
+      <div className="flex items-center gap-2 mb-2">
+        <p className="font-semibold text-sm">{title}</p>
+        {disabled && (
+          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-muted text-muted-foreground border">
+            Desativada
+          </span>
+        )}
       </div>
-      {report.erros.length > 0 && (
-        <div>
-          <p className="text-muted-foreground text-xs mb-1">Erros ({report.erros.length})</p>
-          <ul className="font-mono text-xs text-destructive space-y-0.5">
-            {report.erros.map((e, i) => <li key={i}>{e}</li>)}
-          </ul>
-        </div>
+      {disabled ? (
+        <p className="text-xs text-muted-foreground">Esta query está desativada nesta versão.</p>
+      ) : (
+        <>
+          <div className="grid grid-cols-3 gap-2 text-sm mb-2">
+            <div>
+              <p className="text-muted-foreground text-xs">Encontrados</p>
+              <p className="font-semibold">{report.encontrados}</p>
+            </div>
+            <div>
+              <p className="text-muted-foreground text-xs">Importados</p>
+              <p className="font-semibold text-emerald-600">{report.importados}</p>
+            </div>
+            <div>
+              <p className="text-muted-foreground text-xs">Pulados</p>
+              <p className="font-semibold text-amber-600">{report.pulados}</p>
+            </div>
+          </div>
+          {report.erros.length > 0 && (
+            <div>
+              <p className="text-muted-foreground text-xs mb-1">Erros ({report.erros.length})</p>
+              <ul className="font-mono text-xs text-destructive space-y-0.5">
+                {report.erros.map((e, i) => <li key={i}>{e}</li>)}
+              </ul>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
@@ -386,10 +400,10 @@ function DashboardPage() {
                 <QueryReportSection title="Query 1 — Faturados (situação=9)" report={syncReport.query1} />
                 <QueryReportSection title="Query 2 — Loja ML / FLEX" report={syncReport.query2} />
                 {syncReport.query3 && (
-                  <QueryReportSection title="Query 3 — Atendidos (situação=15)" report={syncReport.query3} />
+                  <QueryReportSection title="Query 3 — Atendidos (situação=15)" report={syncReport.query3} disabled />
                 )}
                 {syncReport.query4 && (
-                  <QueryReportSection title="Query 4 — Atendidos ML (situação=15+loja)" report={syncReport.query4} />
+                  <QueryReportSection title="Query 4 — Atendidos ML (situação=15+loja)" report={syncReport.query4} disabled />
                 )}
               </div>
               {syncReport.situacoes && (

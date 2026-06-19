@@ -18,9 +18,7 @@ function brTodayRange(): { gte: string; lt: string } {
 }
 
 // Pedidos que compõem o card "A expedir": ainda não impressos, não cancelados,
-// faturados (situacao_id=9) ou FLEX, e com algum item ainda não bipado.
-// Compartilhada entre o card do dashboard e a tela de listagem /a-expedir
-// para que a contagem e a listagem nunca divirjam.
+// e com algum item ainda não bipado — mesmo critério da tela de Expedição.
 const PEDIDOS_A_EXPEDIR_SELECT =
   "id, numero, numero_loja, situacao_id, marketplace, raw_json, cliente, data_pedido, total, pedido_itens(quantidade, quantidade_bipada)";
 
@@ -46,7 +44,6 @@ async function fetchPedidosAExpedir(): Promise<PedidoAExpedir[]> {
 
   return (data ?? [])
     .filter((p: any) =>
-      (p.situacao_id === 9 || isPedidoFlex(p)) &&
       (p.pedido_itens as any[]).some((it: any) => (it.quantidade_bipada ?? 0) < it.quantidade)
     )
     .map(({ pedido_itens, ...p }: any) => p as PedidoAExpedir);
