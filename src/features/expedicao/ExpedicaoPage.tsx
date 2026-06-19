@@ -92,41 +92,36 @@ async function fetchPedidos(): Promise<PedidoExpedicao[]> {
     .select(
       "id, bling_pedido_id, numero, numero_loja, data_pedido, cliente, bling_nota_fiscal_id, bling_nota_fiscal_numero, situacao_id, situacao_valor, marketplace, raw_json, printed_at, pedido_itens(id, sku, ean, descricao, quantidade, quantidade_bipada, produto:produtos(imagem_url, gtin))",
     )
+    .is("printed_at", null)
     .neq("situacao_id", 12)
-    .gte("data_pedido", new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString())
-    .order("data_pedido", { ascending: false });
+    .order("data_pedido", { ascending: true, nullsFirst: false });
 
   if (error) throw error;
 
-  // Regra de negócio: pedidos normais só entram na expedição quando faturados
-  // (situacao_id=9); pedidos FLEX entram independente de faturamento.
-  return (data as any[])
-    .filter((p) => p.situacao_id === 9 || isPedidoFlex(p))
-    .map((p) => ({
-      id: p.id,
-      bling_pedido_id: p.bling_pedido_id,
-      numero: p.numero,
-      numero_loja: p.numero_loja ?? null,
-      marketplace: p.marketplace ?? null,
-      data_pedido: p.data_pedido ?? null,
-      cliente: p.cliente ?? null,
-      bling_nota_fiscal_id: p.bling_nota_fiscal_id ?? null,
-      bling_nota_fiscal_numero: p.bling_nota_fiscal_numero ?? null,
-      situacao_valor: p.situacao_valor ?? null,
-      raw_json: p.raw_json ?? null,
-      printed_at: p.printed_at ?? null,
-      itens: (p.pedido_itens ?? []).map((i: any) => ({
-        id: i.id,
-        sku: i.sku ?? null,
-        ean: i.ean ?? null,
-        descricao: i.descricao ?? "",
-        quantidade: Number(i.quantidade ?? 1),
-        quantidade_bipada: Number(i.quantidade_bipada ?? 0),
-        produto_gtin: i.produto?.gtin ?? null,
-        produto: i.produto ?? null,
-      })),
-    }))
-    .filter((p) => !p.printed_at);
+  return (data as any[]).map((p) => ({
+    id: p.id,
+    bling_pedido_id: p.bling_pedido_id,
+    numero: p.numero,
+    numero_loja: p.numero_loja ?? null,
+    marketplace: p.marketplace ?? null,
+    data_pedido: p.data_pedido ?? null,
+    cliente: p.cliente ?? null,
+    bling_nota_fiscal_id: p.bling_nota_fiscal_id ?? null,
+    bling_nota_fiscal_numero: p.bling_nota_fiscal_numero ?? null,
+    situacao_valor: p.situacao_valor ?? null,
+    raw_json: p.raw_json ?? null,
+    printed_at: p.printed_at ?? null,
+    itens: (p.pedido_itens ?? []).map((i: any) => ({
+      id: i.id,
+      sku: i.sku ?? null,
+      ean: i.ean ?? null,
+      descricao: i.descricao ?? "",
+      quantidade: Number(i.quantidade ?? 1),
+      quantidade_bipada: Number(i.quantidade_bipada ?? 0),
+      produto_gtin: i.produto?.gtin ?? null,
+      produto: i.produto ?? null,
+    })),
+  }));
 }
 
 // ─── Filtros de marketplace ────────────────────────────────────────────────────
@@ -191,7 +186,11 @@ export function ExpedicaoPage() {
 
   const handleBiparPedido = useCallback(
     (pedido: PedidoExpedicao) => {
-      // Refresca o pedido da lista antes de abrir (garante dados atualizados)
+      const semNf = !pedido.bling_nota_fiscal_id;
+      if (!isPedidoFlex(pedido) && semNf) {
+        toast.info("Este pedido ainda não tem NF emitida no Bling — aguarde o próximo sync");
+        return;
+      }
       const fresh = pedidos.find((p) => p.id === pedido.id) ?? pedido;
       setPedidoAtivo(fresh);
     },
@@ -210,6 +209,11 @@ export function ExpedicaoPage() {
       const isFlex = !!(pedido.raw_json as any)
         ?.transporte?.volumes?.[0]?.servico?.toLowerCase().includes("flex");
       const semNf = !pedido.bling_nota_fiscal_id;
+
+      if (!isFlex && semNf) {
+        toast.warning("Pedido aguardando NF no Bling — impressão bloqueada até a NF ser emitida");
+        return;
+      }
 
       let imprimiuAlgo = false;
 
@@ -487,9 +491,14 @@ function PedidoCard({
               FLEX
             </span>
           )}
-          {isFlex && semNf && (
+          {semNf && (
             <span className="shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded border bg-orange-100 text-orange-700 border-orange-300">
               ⚠ Sem NF
+            </span>
+          )}
+          {!isFlex && semNf && (
+            <span className="shrink-0 text-[10px] font-medium px-2 py-0.5 rounded border bg-gray-100 text-gray-500 border-gray-300">
+              Aguardando NF do Bling
             </span>
           )}
           {done && (
@@ -547,14 +556,19 @@ function PedidoCard({
             Reimprimir
           </Button>
         )}
-        {!done && (
+        {!done && !isFlex && semNf ? (
+          <div className="text-center text-xs text-muted-foreground leading-tight px-3">
+            <span className="block font-medium">Aguardando</span>
+            <span className="block">NF do Bling</span>
+          </div>
+        ) : !done ? (
           <Button
             onClick={onBipar}
             className="bg-success hover:bg-success/90 text-success-foreground font-bold px-8 h-auto py-3"
           >
             BIPAR
           </Button>
-        )}
+        ) : null}
       </div>
     </div>
   );

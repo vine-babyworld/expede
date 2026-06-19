@@ -5,7 +5,7 @@ import { getDecryptedAccessToken } from "@/lib/bling.functions";
 
 const BLING_PEDIDOS_URL = "https://api.bling.com.br/Api/v3/pedidos/vendas";
 const DEPOSITO_ALVO = "Geral";
-const MAX_CANDIDATOS_POR_EXECUCAO = 10;
+const MAX_CANDIDATOS_POR_EXECUCAO = 4;
 const ML_LOJA_ID = "203482894";
 const BLING_PRODUTOS_URL = "https://api.bling.com.br/Api/v3/produtos";
 const BLING_NFE_URL = "https://api.bling.com.br/Api/v3/nfe";
@@ -172,10 +172,7 @@ async function processarPedidoBling(
   if (!d.notaFiscal?.id) {
     if (!opts.permitirSemNf) return { ok: true, skipped: "no_invoice", detalhe: "sem nota fiscal" };
     const servico: string = d.transporte?.volumes?.[0]?.servico ?? "";
-    if (!servico.toLowerCase().includes("flex")) {
-      return { ok: true, skipped: "no_invoice_not_flex", detalhe: `não é FLEX (servico: ${servico || "—"})` };
-    }
-    console.log(`[processarPedido] FLEX sem NF: pedido ${blingPedidoId} servico="${servico}"`);
+    console.log(`[processarPedido] sem NF: pedido ${blingPedidoId} servico="${servico || "—"}"`);
   }
 
   const itens: any[] = d.itens ?? [];
@@ -564,7 +561,7 @@ async function atualizarSituacoesExistentes(
     .gte("data_pedido", desde)
     .neq("situacao_id", 12)
     .order("data_pedido", { ascending: true })
-    .limit(8);
+    .limit(4); // reduzido de 8 para 4 (controle de subrequests CF)
 
   if (error) {
     console.error("[reconciliar] erro ao listar pedidos p/ atualizar situação:", error.message);
@@ -574,6 +571,9 @@ async function atualizarSituacoesExistentes(
 
   const rows = existentes ?? [];
   report.situacoes.verificados = rows.length;
+
+  // Coleta mudanças em memória; um único upsert em lote ao final (1 subrequest total)
+  const pendentes: { id: string; situacao_id: number }[] = [];
 
   for (const row of rows) {
     const res = await fetch(`${BLING_PEDIDOS_URL}/${row.bling_pedido_id}`, {
@@ -591,22 +591,24 @@ async function atualizarSituacoesExistentes(
     const novaSituacaoId: number | null = json?.data?.situacao?.id ?? null;
 
     if (novaSituacaoId != null && novaSituacaoId !== row.situacao_id) {
-      const { error: updErr } = await supabaseAdmin
-        .from("pedidos")
-        .update({ situacao_id: novaSituacaoId })
-        .eq("id", row.id);
-
-      if (updErr) {
-        console.error(`[reconciliar] update situação ${row.bling_pedido_id} falhou:`, updErr.message);
-        report.situacoes.erros.push(`${row.bling_pedido_id}: erro ao atualizar — ${updErr.message}`);
-      } else {
-        report.situacoes.atualizados++;
-        report.detalhes.push(`situação atualizada: pedido ${row.bling_pedido_id} (${row.situacao_id} → ${novaSituacaoId})`);
-      }
+      pendentes.push({ id: row.id, situacao_id: novaSituacaoId });
+      report.situacoes.atualizados++;
+      report.detalhes.push(`situação atualizada: pedido ${row.bling_pedido_id} (${row.situacao_id} → ${novaSituacaoId})`);
     }
 
-    // Respeita rate limit da API Bling (3 req/seg)
     await new Promise((r) => setTimeout(r, 350));
+  }
+
+  if (pendentes.length > 0) {
+    const { error: updErr } = await supabaseAdmin
+      .from("pedidos")
+      .upsert(pendentes as any[]);
+
+    if (updErr) {
+      console.error("[reconciliar] upsert situações em lote falhou:", updErr.message);
+      report.situacoes.erros.push(`erro ao atualizar situações em lote: ${updErr.message}`);
+      report.situacoes.atualizados = 0;
+    }
   }
 }
 

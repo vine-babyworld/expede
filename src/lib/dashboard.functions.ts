@@ -185,3 +185,88 @@ export const triggerReconciliar = createServerFn({ method: "POST" })
     const resultado = await reconciliarPedidos();
     return { ok: true as const, resultado };
   });
+
+// ─── Histórico ─────────────────────────────────────────────────────────────────
+
+const HISTORICO_SELECT =
+  "id, numero, numero_loja, marketplace, cliente, total, printed_at, situacao_id, bling_pedido_id, bling_nota_fiscal_id, raw_json, pedido_itens(id, sku, ean, descricao, quantidade, quantidade_bipada, produto:produtos(imagem_url, gtin))";
+
+export const HISTORICO_LIMIT = 50;
+
+export type HistoricoRow = {
+  id: string;
+  numero: string;
+  numero_loja: string | null;
+  marketplace: string | null;
+  cliente_nome: string;
+  valor_total: number | null;
+  printed_at: string;
+  situacao_id: number | null;
+  bling_pedido_id: number | null;
+  bling_nota_fiscal_id: number | null;
+  raw_json: any;
+  itens: Array<{
+    id: string;
+    sku: string | null;
+    ean: string | null;
+    descricao: string;
+    quantidade: number;
+    quantidade_bipada: number;
+    produto_gtin: string | null;
+    produto: { imagem_url: string | null; gtin: string | null } | null;
+  }>;
+};
+
+export const getHistorico = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { page?: number; busca?: string }) => d)
+  .handler(async ({ data }) => {
+    const page = Math.max(1, data.page ?? 1);
+    const busca = data.busca?.trim() ?? "";
+    const since = new Date(Date.now() - 30 * 86_400_000).toISOString();
+
+    let query = supabaseAdmin
+      .from("pedidos")
+      .select(HISTORICO_SELECT, { count: "exact" })
+      .not("printed_at", "is", null)
+      .gte("printed_at", since)
+      .neq("situacao_id", 12)
+      .order("printed_at", { ascending: false })
+      .range((page - 1) * HISTORICO_LIMIT, page * HISTORICO_LIMIT - 1);
+
+    if (busca) {
+      query = query.or(
+        `numero.ilike.%${busca}%,numero_loja.ilike.%${busca}%,cliente->>nome.ilike.%${busca}%,cliente->>razaoSocial.ilike.%${busca}%`,
+      );
+    }
+
+    const { data: rows, count } = await query;
+
+    return {
+      rows: (rows ?? []).map((p: any): HistoricoRow => ({
+        id: p.id,
+        numero: p.numero,
+        numero_loja: p.numero_loja ?? null,
+        marketplace: p.marketplace ?? null,
+        cliente_nome: p.cliente?.nome ?? p.cliente?.razaoSocial ?? "—",
+        valor_total: p.total ?? null,
+        printed_at: p.printed_at,
+        situacao_id: p.situacao_id ?? null,
+        bling_pedido_id: p.bling_pedido_id ?? null,
+        bling_nota_fiscal_id: p.bling_nota_fiscal_id ?? null,
+        raw_json: p.raw_json ?? null,
+        itens: (p.pedido_itens ?? []).map((i: any) => ({
+          id: i.id,
+          sku: i.sku ?? null,
+          ean: i.ean ?? null,
+          descricao: i.descricao ?? "",
+          quantidade: Number(i.quantidade ?? 1),
+          quantidade_bipada: Number(i.quantidade_bipada ?? 0),
+          produto_gtin: i.produto?.gtin ?? null,
+          produto: i.produto ?? null,
+        })),
+      })),
+      total: count ?? 0,
+      page,
+    };
+  });
