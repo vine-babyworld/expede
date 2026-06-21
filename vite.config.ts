@@ -12,5 +12,10 @@ export default defineConfig({
   tanstackStart: {
     server: { entry: "server" },
   },
-  nitro: true,
+  // plugins: hook Cron Triggers do Cloudflare (cloudflare:scheduled) ao código
+  // existente em src/server.ts — o preset cloudflare-module não usa `scheduled`
+  // do server entry acima, só dispara esse hook Nitro.
+  nitro: {
+    plugins: ["plugins/cloudflare-scheduled.ts"],
+  },
 });

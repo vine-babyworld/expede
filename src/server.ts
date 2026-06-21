@@ -70,39 +70,64 @@ async function normalizeCatastrophicSsrResponse(response: Response): Promise<Res
 }
 
 let lastReconciliationAt = 0;
-const RECONCILIATION_INTERVAL_MS = 5 * 60 * 1000;
+const RECONCILIATION_INTERVAL_MS = 60 * 1000;
 
-async function cronReconciliar() {
+export async function cronReconciliar() {
   const now = Date.now();
+  console.log("[cron] iniciando verificação de gate", { now: new Date(now).toISOString() });
 
-  // Verificação rápida em memória — evita subrequest ao banco quando o mesmo isolate já rodou recentemente
-  if (now - lastReconciliationAt < RECONCILIATION_INTERVAL_MS) return;
+  try {
+    // Verificação rápida em memória — evita subrequest ao banco quando o mesmo isolate já rodou recentemente
+    const diffMemMs = now - lastReconciliationAt;
+    if (diffMemMs < RECONCILIATION_INTERVAL_MS) {
+      console.log("[cron] bloqueado pelo gate em memória", { lastReconciliationAt: new Date(lastReconciliationAt).toISOString(), diffMemMs });
+      return;
+    }
 
-  // Verificação durável via Supabase — protege contra múltiplos isolates rodando em paralelo
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const db = supabaseAdmin as any;
-  const { data: state } = await db
-    .from("cron_state")
-    .select("last_run_at")
-    .eq("job_name", "reconciliar")
-    .maybeSingle();
+    // Verificação durável via Supabase — protege contra múltiplos isolates rodando em paralelo
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const db = supabaseAdmin as any;
+    const { data: state, error: stateError } = await db
+      .from("cron_state")
+      .select("last_run_at")
+      .eq("job_name", "reconciliar")
+      .maybeSingle();
 
-  const lastRun = state?.last_run_at ? new Date(state.last_run_at as string).getTime() : 0;
-  if (now - lastRun < RECONCILIATION_INTERVAL_MS) return;
+    console.log("[cron] select cron_state", { data: state, error: stateError });
 
-  // Registra ANTES de executar para bloquear execuções concorrentes de outros isolates
-  await db
-    .from("cron_state")
-    .upsert({ job_name: "reconciliar", last_run_at: new Date(now).toISOString() }, { onConflict: "job_name" });
+    const lastRun = state?.last_run_at ? new Date(state.last_run_at as string).getTime() : 0;
+    const diffMs = now - lastRun;
+    const willRun = diffMs >= RECONCILIATION_INTERVAL_MS;
+    console.log("[cron] gate check", { lastRunAt: state?.last_run_at ?? null, diffMs, willRun });
 
-  lastReconciliationAt = now;
-  await reconciliarPedidos();
+    if (!willRun) return;
+
+    // Registra ANTES de executar para bloquear execuções concorrentes de outros isolates
+    const { error: upsertError } = await db
+      .from("cron_state")
+      .upsert({ job_name: "reconciliar", last_run_at: new Date(now).toISOString() }, { onConflict: "job_name" });
+
+    if (upsertError) {
+      console.error("[cron] upsert cron_state falhou", { message: upsertError.message, details: upsertError.details, hint: upsertError.hint, code: upsertError.code });
+      return;
+    }
+
+    lastReconciliationAt = now;
+    console.log("[cron] gate liberado — chamando reconciliarPedidos()");
+    await reconciliarPedidos();
+    console.log("[cron] reconciliarPedidos() concluído");
+  } catch (e) {
+    console.error("[cron] exceção não tratada em cronReconciliar", {
+      message: e instanceof Error ? e.message : String(e),
+      stack: e instanceof Error ? e.stack : undefined,
+    });
+  }
 }
 
 // Desativado em 18/06/2026: Bling bloqueia IP de datacenter no endpoint /Api/v3/produtos.
 // Sync de produtos passou a ser manual via scripts/sync-produtos-local.mjs.
 // Reativar removendo o early return abaixo se o bloqueio for resolvido.
-async function cronSyncPoll() {
+export async function cronSyncPoll() {
   console.log("[cron-sync] desativado — sync de produtos agora é manual via scripts/sync-produtos-local.mjs");
   return;
 
@@ -140,6 +165,10 @@ export default {
     }
   },
 
+  // NUNCA é chamado em produção: o preset Nitro cloudflare-module gera seu próprio
+  // entry point e expõe scheduled triggers via hook "cloudflare:scheduled"
+  // (registrado em plugins/cloudflare-scheduled.ts), não via este export default.
+  // Mantido para paridade de tipo com o ServerEntry e como referência da lógica.
   async scheduled(
     _event: unknown,
     _env: unknown,

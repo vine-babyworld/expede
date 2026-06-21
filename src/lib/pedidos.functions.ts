@@ -411,7 +411,10 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
 
   const headers = { Authorization: `Bearer ${token}`, Accept: "application/json" };
 
-  // Janela de 10 dias — traz os pedidos mais recentes primeiro, evita reprocessar antigos
+  // Janela de 10 dias. A API Bling retorna os mais recentes primeiro, mas o
+  // processamento abaixo reordena por data mais antiga — com MAX_CANDIDATOS_POR_EXECUCAO
+  // limitando quantos rodam por execução, isso garante que a fila sempre avance
+  // (pedidos antigos pendentes não ficam perpetuamente atrás de chegadas novas).
   const dataInicio = new Date(Date.now() - 10 * 86_400_000).toISOString().substring(0, 10);
 
   // Query 1: faturados (idSituacao=9) — últimos 10 dias, loja ML FLEX
@@ -425,14 +428,14 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
   const resAtendidosML: PromiseSettledResult<Response> = { status: "rejected", reason: "desativado" } as PromiseSettledResult<Response>;
 
   // Agrega candidatos das quatro listas; loja (Q2) sempre promove para permitirSemNf=true
-  const candidatos = new Map<number, { id: number; permitirSemNf: boolean; origem: "q1" | "q2" | "q3" | "q4" }>();
+  const candidatos = new Map<number, { id: number; permitirSemNf: boolean; origem: "q1" | "q2" | "q3" | "q4"; dataPedido: string | null }>();
 
   if (resFaturados.status === "fulfilled" && resFaturados.value.ok) {
     const json: any = await resFaturados.value.json().catch(() => null);
     const lista = json?.data ?? [];
     report.query1.encontrados = lista.length;
     for (const p of lista) {
-      if (!candidatos.has(p.id)) candidatos.set(p.id, { id: p.id, permitirSemNf: false, origem: "q1" });
+      if (!candidatos.has(p.id)) candidatos.set(p.id, { id: p.id, permitirSemNf: false, origem: "q1", dataPedido: p.data ?? null });
     }
   } else {
     const motivo = resFaturados.status === "rejected" ? resFaturados.reason : (resFaturados.value as any)?.status;
@@ -445,7 +448,7 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
     const lista = json?.data ?? [];
     report.query3.encontrados = lista.length;
     for (const p of lista) {
-      if (!candidatos.has(p.id)) candidatos.set(p.id, { id: p.id, permitirSemNf: false, origem: "q3" });
+      if (!candidatos.has(p.id)) candidatos.set(p.id, { id: p.id, permitirSemNf: false, origem: "q3", dataPedido: p.data ?? null });
     }
   } else {
     const motivo = resAtendidos.status === "rejected" ? resAtendidos.reason : (resAtendidos.value as any)?.status;
@@ -458,7 +461,7 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
     const lista = json?.data ?? [];
     report.query4.encontrados = lista.length;
     for (const p of lista) {
-      if (!candidatos.has(p.id)) candidatos.set(p.id, { id: p.id, permitirSemNf: false, origem: "q4" });
+      if (!candidatos.has(p.id)) candidatos.set(p.id, { id: p.id, permitirSemNf: false, origem: "q4", dataPedido: p.data ?? null });
     }
   } else {
     const motivo = resAtendidosML.status === "rejected" ? resAtendidosML.reason : (resAtendidosML.value as any)?.status;
@@ -472,7 +475,7 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
     report.query2.encontrados = lista.length;
     for (const p of lista) {
       // Se já estava como permitirSemNf=false (Q1), promove para true e re-atribui à Q2 (loja pode ser FLEX)
-      candidatos.set(p.id, { id: p.id, permitirSemNf: true, origem: "q2" });
+      candidatos.set(p.id, { id: p.id, permitirSemNf: true, origem: "q2", dataPedido: p.data ?? null });
     }
   } else {
     const motivo = resLoja.status === "rejected" ? resLoja.reason : (resLoja.value as any)?.status;
@@ -496,11 +499,32 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
         .filter((e: any) => e.bling_nota_fiscal_id != null && e.bling_nota_fiscal_numero != null)
         .map((e: any) => e.bling_pedido_id)
     );
+    // Já existem no banco mas sem NF ainda — tentativa anterior não fechou (ex: aguardando
+    // faturamento no Bling, fora do nosso controle). Não tratar como "nunca tentado".
+    const existentesSemNfSet = new Set(
+      (existentes ?? [])
+        .filter((e: any) => !existentesComNfSet.has(e.bling_pedido_id))
+        .map((e: any) => e.bling_pedido_id)
+    );
 
     console.log(`[reconciliar] ${candidatos.size} candidato(s), ${existentesComNfSet.size} já existem com NF no banco`);
 
+    // Prioriza candidatos NUNCA tentados (mais antigos primeiro) sobre os que já foram
+    // tentados e ficaram sem NF — caso contrário, pedidos travados aguardando faturamento
+    // no Bling monopolizam os slots de MAX_CANDIDATOS_POR_EXECUCAO a cada execução e
+    // impedem que candidatos novos avancem. Sem dataPedido vai ao final do seu grupo.
+    const porData = (a: { dataPedido: string | null }, b: { dataPedido: string | null }) => {
+      if (!a.dataPedido && !b.dataPedido) return 0;
+      if (!a.dataPedido) return 1;
+      if (!b.dataPedido) return -1;
+      return a.dataPedido.localeCompare(b.dataPedido);
+    };
+    const nuncaTentados = [...candidatos.values()].filter((c) => !existentesSemNfSet.has(c.id)).sort(porData);
+    const tentadosSemNf = [...candidatos.values()].filter((c) => existentesSemNfSet.has(c.id)).sort(porData);
+    const candidatosOrdenados = [...nuncaTentados, ...tentadosSemNf];
+
     let processadosNestaExecucao = 0;
-    for (const cand of candidatos.values()) {
+    for (const cand of candidatosOrdenados) {
       const label = cand.origem === "q1" ? "Q1" : cand.origem === "q3" ? "Q3" : cand.origem === "q4" ? "Q4" : "Q2";
       const bucket = cand.origem === "q1" ? report.query1 : cand.origem === "q3" ? report.query3 : cand.origem === "q4" ? report.query4 : report.query2;
 
@@ -511,7 +535,7 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
       }
 
       if (processadosNestaExecucao >= MAX_CANDIDATOS_POR_EXECUCAO) {
-        report.detalhes.push(`limite de ${MAX_CANDIDATOS_POR_EXECUCAO} candidatos processados atingido nesta execução — restante será processado na próxima sincronização (5 min)`);
+        report.detalhes.push(`limite de ${MAX_CANDIDATOS_POR_EXECUCAO} candidatos processados atingido nesta execução — restante será processado na próxima sincronização (1 min), priorizando os mais antigos`);
         break;
       }
 
