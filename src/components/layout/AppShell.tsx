@@ -20,7 +20,7 @@ export function Sidebar() {
       <div className="px-6 py-6 border-b border-white/10">
         <Link to="/expedicao" className="block">
           <img
-            src="/expede-logo-light.svg"
+            src="/expede-logo-light.png"
             alt="EXPEDE"
             className="h-12 w-auto"
           />

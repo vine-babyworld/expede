@@ -36,7 +36,7 @@ function LoginPage() {
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <img
-            src="/expede-logo-light.svg"
+            src="/expede-logo-light.png"
             alt="EXPEDE"
             className="mx-auto h-16 w-auto"
           />
