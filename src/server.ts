@@ -4,6 +4,7 @@ import { consumeLastCapturedError } from "./lib/error-capture";
 import { renderErrorPage } from "./lib/error-page";
 import { runSyncJob } from "./lib/produtos.functions";
 import { reconciliarPedidos } from "./lib/pedidos.functions";
+import { checarStatusEnvioML } from "./lib/ml.functions";
 import { supabaseAdmin } from "./integrations/supabase/client.server";
 
 type ServerEntry = {
@@ -71,6 +72,113 @@ async function normalizeCatastrophicSsrResponse(response: Response): Promise<Res
 
 let lastReconciliationAt = 0;
 const RECONCILIATION_INTERVAL_MS = 60 * 1000;
+
+let lastMLStatusAt = 0;
+const ML_STATUS_INTERVAL_MS = 5 * 60 * 1000; // 5 min — independente do reconciliador
+
+// Situacao_ids Bling que indicam pedido já baixado/faturado pelo Bling
+const BLING_SITUACAO_FINALIZADA = new Set([9, 15]); // 9=Atendido, 15=Faturado
+
+export async function cronMLStatus() {
+  const now = Date.now();
+  console.log("[cron-ml-status] iniciando verificação de gate", { now: new Date(now).toISOString() });
+
+  try {
+    const diffMemMs = now - lastMLStatusAt;
+    if (diffMemMs < ML_STATUS_INTERVAL_MS) {
+      console.log("[cron-ml-status] bloqueado pelo gate em memória", {
+        lastMLStatusAt: new Date(lastMLStatusAt).toISOString(),
+        diffMemMs,
+      });
+      return;
+    }
+
+    const db = supabaseAdmin as any;
+    const { data: state, error: stateError } = await db
+      .from("cron_state")
+      .select("last_run_at")
+      .eq("job_name", "ml_status")
+      .maybeSingle();
+
+    console.log("[cron-ml-status] select cron_state", { data: state, error: stateError });
+
+    const lastRun = state?.last_run_at ? new Date(state.last_run_at as string).getTime() : 0;
+    const diffMs = now - lastRun;
+    const willRun = diffMs >= ML_STATUS_INTERVAL_MS;
+    console.log("[cron-ml-status] gate check", { lastRunAt: state?.last_run_at ?? null, diffMs, willRun });
+
+    if (!willRun) return;
+
+    const { error: upsertError } = await db
+      .from("cron_state")
+      .upsert({ job_name: "ml_status", last_run_at: new Date(now).toISOString() }, { onConflict: "job_name" });
+
+    if (upsertError) {
+      console.error("[cron-ml-status] upsert cron_state falhou", { message: upsertError.message });
+      return;
+    }
+
+    lastMLStatusAt = now;
+
+    // Candidatos: faturados (NF emitida) mas ainda não impressos no EXPEDE
+    const { data: candidatos, error: selectError } = await supabaseAdmin
+      .from("pedidos")
+      .select("id, numero_loja, situacao_id, bling_pedido_id")
+      .is("printed_at", null)
+      .not("bling_nota_fiscal_id", "is", null)
+      .eq("marketplace", "mercadolivre")
+      .order("data_pedido", { ascending: true })
+      .limit(4) as any;
+
+    if (selectError) {
+      console.error("[cron-ml-status] select candidatos falhou:", selectError.message);
+      return;
+    }
+
+    console.log(`[cron-ml-status] ${candidatos?.length ?? 0} candidato(s) encontrado(s)`);
+
+    for (const pedido of candidatos ?? []) {
+      const mlOrderId: string | null = pedido.numero_loja;
+      if (!mlOrderId) {
+        console.log(`[cron-ml-status] pedido ${pedido.bling_pedido_id} sem numero_loja, pulando`);
+        continue;
+      }
+
+      const result = await checarStatusEnvioML(mlOrderId);
+
+      if (!result.ok) {
+        console.warn(`[cron-ml-status] pedido ${pedido.bling_pedido_id} ml_order=${mlOrderId} erro:`, result.error);
+        continue;
+      }
+
+      const divergente =
+        result.despachado && !BLING_SITUACAO_FINALIZADA.has(pedido.situacao_id ?? -1);
+
+      console.log(
+        `[cron-ml-status] pedido ${pedido.bling_pedido_id} ml_order=${mlOrderId}`,
+        `status=${result.status} substatus=${result.substatus ?? "null"}`,
+        `situacao_id=${pedido.situacao_id} despachado=${result.despachado} divergente=${divergente}`,
+      );
+
+      await supabaseAdmin
+        .from("pedidos")
+        .update({
+          ml_shipment_status: result.status,
+          ml_shipment_substatus: result.substatus ?? null,
+          ml_status_checked_at: new Date(now).toISOString(),
+          bling_divergente: divergente,
+        } as any)
+        .eq("id", pedido.id);
+    }
+
+    console.log("[cron-ml-status] ciclo concluído");
+  } catch (e) {
+    console.error("[cron-ml-status] exceção não tratada", {
+      message: e instanceof Error ? e.message : String(e),
+      stack: e instanceof Error ? e.stack : undefined,
+    });
+  }
+}
 
 export async function cronReconciliar() {
   const now = Date.now();
