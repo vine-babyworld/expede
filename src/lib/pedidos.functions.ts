@@ -7,6 +7,7 @@ const BLING_PEDIDOS_URL = "https://api.bling.com.br/Api/v3/pedidos/vendas";
 const DEPOSITO_ALVO = "Geral";
 const MAX_CANDIDATOS_POR_EXECUCAO = 4;
 const ML_LOJA_ID = "203482894";
+const SHOPEE_LOJA_ID = "204014269";
 const BLING_PRODUTOS_URL = "https://api.bling.com.br/Api/v3/produtos";
 const BLING_NFE_URL = "https://api.bling.com.br/Api/v3/nfe";
 
@@ -153,8 +154,16 @@ async function processarPedidoBling(
   blingPedidoId: number | string,
   connId: string,
   token: string,
-  opts: { permitirSemNf?: boolean } = {},
-): Promise<{ ok: boolean; skipped?: string; error?: string; detalhe: string }> {
+  opts: { permitirSemNf?: boolean; marketplace?: "mercadolivre" | "shopee" } = {},
+): Promise<{
+  ok: boolean;
+  skipped?: string;
+  error?: string;
+  detalhe: string;
+  numeroLoja?: string | null;
+  numero?: string;
+  temNf?: boolean;
+}> {
   const res = await fetch(`${BLING_PEDIDOS_URL}/${blingPedidoId}`, {
     headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
   });
@@ -198,6 +207,7 @@ async function processarPedidoBling(
     cliente:                  d.contato ?? null,
     bling_nota_fiscal_id:     d.notaFiscal?.id ?? null,
     bling_nota_fiscal_numero: nfNumero,
+    marketplace:              opts.marketplace ?? "mercadolivre",
     raw_json:                 d,
   };
 
@@ -341,7 +351,13 @@ async function processarPedidoBling(
   const nfDetalhe = pedidoPayload.bling_nota_fiscal_numero
     ? `NF ${pedidoPayload.bling_nota_fiscal_numero}`
     : "FLEX sem NF";
-  return { ok: true, detalhe: nfDetalhe };
+  return {
+    ok: true,
+    detalhe: nfDetalhe,
+    numeroLoja: pedidoPayload.numero_loja,
+    numero: pedidoPayload.numero,
+    temNf: !!pedidoPayload.bling_nota_fiscal_id,
+  };
 }
 
 export type ReconciliarQueryReport = {
@@ -357,13 +373,25 @@ export type AtualizarSituacoesReport = {
   erros: string[];
 };
 
+export type PedidoImportadoNovo = {
+  numeroLoja: string | null;
+  numero: string;
+  temNf: boolean;
+};
+
 export type ReconciliarReport = {
   query1: ReconciliarQueryReport;
   query2: ReconciliarQueryReport;
   query3: ReconciliarQueryReport;
   query4: ReconciliarQueryReport;
+  query5: ReconciliarQueryReport;
   situacoes: AtualizarSituacoesReport;
   detalhes: string[];
+  // Total de candidatos distintos vistos nesta rodada (deduplicado entre Q1-Q5) —
+  // diferente da soma de query1.encontrados + query2.encontrados, que conta sobreposições.
+  totalCandidatos: number;
+  // Pedidos efetivamente inseridos nesta execução (exclui os pulados por já existir).
+  importadosNovos: PedidoImportadoNovo[];
 };
 
 function novoQueryReport(): ReconciliarQueryReport {
@@ -380,8 +408,11 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
     query2: novoQueryReport(),
     query3: novoQueryReport(),
     query4: novoQueryReport(),
+    query5: novoQueryReport(),
     situacoes: novaSituacoesReport(),
     detalhes: [],
+    totalCandidatos: 0,
+    importadosNovos: [],
   };
 
   const { data: conn, error: errConn } = await supabaseAdmin
@@ -416,19 +447,24 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
   // limitando quantos rodam por execução, isso garante que a fila sempre avance
   // (pedidos antigos pendentes não ficam perpetuamente atrás de chegadas novas).
   const dataInicio = new Date(Date.now() - 10 * 86_400_000).toISOString().substring(0, 10);
+  // Shopee usa janela menor (7 dias) para nunca reimportar pedidos antigos que já foram
+  // processados fora do EXPEDE e chegaram duplicados via sync sem filtro de data.
+  const dataInicioShopee = new Date(Date.now() - 7 * 86_400_000).toISOString().substring(0, 10);
 
   // Query 1: faturados (idSituacao=9) — últimos 10 dias, loja ML FLEX
   // Query 2: loja ML FLEX (idLoja=203482894) — últimos 10 dias, inclui pedidos sem NF
   // Query 3: atendidos (idSituacao=15) — últimos 10 dias, qualquer marketplace
-  const [resFaturados, resLoja] = await Promise.allSettled([
+  // Query 5: faturados (idSituacao=9) — últimos 7 dias, loja Shopee (sempre exige NF, sem variante "sem NF")
+  const [resFaturados, resLoja, resFaturadosShopee] = await Promise.allSettled([
     fetch(`${BLING_PEDIDOS_URL}?idSituacao=9&idLoja=${ML_LOJA_ID}&limite=50&pagina=1&dataInicio=${dataInicio}`, { headers }),
     fetch(`${BLING_PEDIDOS_URL}?idLoja=${ML_LOJA_ID}&limite=50&pagina=1&dataInicio=${dataInicio}`, { headers }),
+    fetch(`${BLING_PEDIDOS_URL}?idSituacao=9&idLoja=${SHOPEE_LOJA_ID}&limite=50&pagina=1&dataInicio=${dataInicioShopee}`, { headers }),
   ]);
   const resAtendidos: PromiseSettledResult<Response> = { status: "rejected", reason: "desativado" } as PromiseSettledResult<Response>;
   const resAtendidosML: PromiseSettledResult<Response> = { status: "rejected", reason: "desativado" } as PromiseSettledResult<Response>;
 
-  // Agrega candidatos das quatro listas; loja (Q2) sempre promove para permitirSemNf=true
-  const candidatos = new Map<number, { id: number; permitirSemNf: boolean; origem: "q1" | "q2" | "q3" | "q4"; dataPedido: string | null }>();
+  // Agrega candidatos das cinco listas; loja ML (Q2) sempre promove para permitirSemNf=true
+  const candidatos = new Map<number, { id: number; permitirSemNf: boolean; origem: "q1" | "q2" | "q3" | "q4" | "q5"; dataPedido: string | null }>();
 
   if (resFaturados.status === "fulfilled" && resFaturados.value.ok) {
     const json: any = await resFaturados.value.json().catch(() => null);
@@ -483,6 +519,21 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
     report.detalhes.push(`Q2 erro ao buscar lista: ${String(motivo)}`);
   }
 
+  if (resFaturadosShopee.status === "fulfilled" && resFaturadosShopee.value.ok) {
+    const json: any = await resFaturadosShopee.value.json().catch(() => null);
+    const lista = json?.data ?? [];
+    report.query5.encontrados = lista.length;
+    for (const p of lista) {
+      if (!candidatos.has(p.id)) candidatos.set(p.id, { id: p.id, permitirSemNf: false, origem: "q5", dataPedido: p.data ?? null });
+    }
+  } else {
+    const motivo = resFaturadosShopee.status === "rejected" ? resFaturadosShopee.reason : (resFaturadosShopee.value as any)?.status;
+    console.error("[reconciliar] GET faturados Shopee falhou:", motivo);
+    report.detalhes.push(`Q5 erro ao buscar lista: ${String(motivo)}`);
+  }
+
+  report.totalCandidatos = candidatos.size;
+
   if (candidatos.size === 0) {
     console.log("[reconciliar] nenhum candidato");
     report.detalhes.push("nenhum candidato encontrado");
@@ -525,8 +576,9 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
 
     let processadosNestaExecucao = 0;
     for (const cand of candidatosOrdenados) {
-      const label = cand.origem === "q1" ? "Q1" : cand.origem === "q3" ? "Q3" : cand.origem === "q4" ? "Q4" : "Q2";
-      const bucket = cand.origem === "q1" ? report.query1 : cand.origem === "q3" ? report.query3 : cand.origem === "q4" ? report.query4 : report.query2;
+      const label = cand.origem === "q1" ? "Q1" : cand.origem === "q3" ? "Q3" : cand.origem === "q4" ? "Q4" : cand.origem === "q5" ? "Q5" : "Q2";
+      const bucket = cand.origem === "q1" ? report.query1 : cand.origem === "q3" ? report.query3 : cand.origem === "q4" ? report.query4 : cand.origem === "q5" ? report.query5 : report.query2;
+      const marketplace: "mercadolivre" | "shopee" = cand.origem === "q5" ? "shopee" : "mercadolivre";
 
       if (existentesComNfSet.has(cand.id)) {
         bucket.pulados++;
@@ -540,7 +592,7 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
       }
 
       processadosNestaExecucao++;
-      const result = await processarPedidoBling(cand.id, conn.id, token, { permitirSemNf: cand.permitirSemNf });
+      const result = await processarPedidoBling(cand.id, conn.id, token, { permitirSemNf: cand.permitirSemNf, marketplace });
       console.log(`[reconciliar] pedido ${cand.id} (permitirSemNf=${cand.permitirSemNf}):`, JSON.stringify(result));
 
       if (!result.ok) {
@@ -553,6 +605,11 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
       } else {
         bucket.importados++;
         report.detalhes.push(`${label} importado: ${cand.id} — ${result.detalhe}`);
+        report.importadosNovos.push({
+          numeroLoja: result.numeroLoja ?? null,
+          numero: result.numero ?? String(cand.id),
+          temNf: result.temNf ?? false,
+        });
       }
 
       // Respeita rate limit da API Bling (3 req/seg)
