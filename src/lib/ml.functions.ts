@@ -170,6 +170,47 @@ export async function buscarEtiquetaML(mlOrderId: string): Promise<MLEtiquetaRes
   return { ok: true, conteudo: text };
 }
 
+// ── Checagem de status de envio (cron leve) ───────────────────────────────────
+
+// Statuses que indicam que o ML já despachou/entregou o pedido.
+// Mapeados a partir de pedidos reais (incluindo pedido #8248).
+const ML_DESPACHADO_STATUSES = new Set(["shipped", "delivered"]);
+
+export type MLShipmentCheckResult =
+  | { ok: true; status: string; substatus: string | null; despachado: boolean }
+  | { ok: false; error: string };
+
+export async function checarStatusEnvioML(mlOrderId: string): Promise<MLShipmentCheckResult> {
+  let token: string;
+  try {
+    token = await getMLAccessToken();
+  } catch {
+    return { ok: false, error: "ml_no_connection" };
+  }
+
+  let data: any;
+  try {
+    const { data: proxyData, error } = await supabaseAdmin.functions.invoke<any>(
+      "ml-shipment-status",
+      { body: { ml_order_id: mlOrderId, access_token: token } },
+    );
+    if (error) return { ok: false, error: `edge_invoke:${error.message}` };
+    data = proxyData;
+  } catch (e) {
+    return { ok: false, error: `edge_invoke_exception:${String(e)}` };
+  }
+
+  if (!data?.ok) {
+    return { ok: false, error: data?.error ?? "unknown_error" };
+  }
+
+  const status: string = data.status ?? "";
+  const substatus: string | null = data.substatus ?? null;
+  const despachado = ML_DESPACHADO_STATUSES.has(status);
+
+  return { ok: true, status, substatus, despachado };
+}
+
 // ── Server functions (UI) ─────────────────────────────────────────────────────
 
 export type MLConnectionStatus =
