@@ -541,13 +541,13 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
     const allIds = [...candidatos.keys()];
     const { data: existentes } = await supabaseAdmin
       .from("pedidos")
-      .select("bling_pedido_id, bling_nota_fiscal_id, bling_nota_fiscal_numero")
+      .select("bling_pedido_id, bling_nota_fiscal_id, bling_nota_fiscal_numero, arquivado")
       .in("bling_pedido_id", allIds);
 
-    // Pedidos que já existem E já têm NF (id + numero) não precisam ser reprocessados
+    // Pedidos que já existem E já têm NF (id + numero), ou foram arquivados, não precisam ser reprocessados
     const existentesComNfSet = new Set(
       (existentes ?? [])
-        .filter((e: any) => e.bling_nota_fiscal_id != null && e.bling_nota_fiscal_numero != null)
+        .filter((e: any) => (e.bling_nota_fiscal_id != null && e.bling_nota_fiscal_numero != null) || e.arquivado)
         .map((e: any) => e.bling_pedido_id)
     );
     // Já existem no banco mas sem NF ainda — tentativa anterior não fechou (ex: aguardando

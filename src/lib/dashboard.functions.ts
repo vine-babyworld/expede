@@ -40,6 +40,7 @@ async function fetchPedidosAExpedir(): Promise<PedidoAExpedir[]> {
     .select(PEDIDOS_A_EXPEDIR_SELECT)
     .is("printed_at", null)
     .neq("situacao_id", 12)
+    .eq("arquivado", false)
     .order("data_pedido", { ascending: false, nullsFirst: false });
 
   return (data ?? [])
@@ -81,7 +82,8 @@ export const getDashboardExpedicao = createServerFn({ method: "GET" })
       .from("pedidos")
       .select("id", { count: "exact", head: true })
       .eq("bling_divergente", true)
-      .is("printed_at", null) as any;
+      .is("printed_at", null)
+      .eq("arquivado", false) as any;
 
     return { pendentes, expedidosHoje, totalValor, totalHoje: expedidosHoje, divergentes: divergentes ?? 0 };
   });

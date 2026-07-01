@@ -120,6 +120,7 @@ async function fetchPedidos(): Promise<PedidoExpedicao[]> {
     )
     .is("printed_at", null)
     .neq("situacao_id", 12)
+    .eq("arquivado", false)
     .order("data_pedido", { ascending: true, nullsFirst: false });
 
   if (error) throw error;
