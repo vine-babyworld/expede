@@ -84,6 +84,31 @@ function formatDateTime(iso: string | null): string {
   return `${day}/${month}/${year} ${hour}:${min}`;
 }
 
+// Retorna "YYYY-MM-DD" do dia atual em Brasília (UTC-3), sem Intl/timeZone nomeado
+function hoje(): string {
+  const d = new Date(Date.now() - 3 * 60 * 60 * 1000);
+  const year  = d.getUTCFullYear();
+  const month = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const day   = String(d.getUTCDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+type BadgeExpedicao = { label: string; cor: string } | null;
+
+function badgeDataPrevista(rawJson: any): BadgeExpedicao {
+  const dataPrevista: string | null = rawJson?.dataPrevista ?? null;
+  if (!dataPrevista) return null;
+  const hj = hoje();
+  if (dataPrevista === hj) {
+    return { label: "Hoje", cor: "bg-green-100 text-green-800 border-green-300" };
+  }
+  if (dataPrevista > hj) {
+    return { label: "Próximos dias", cor: "bg-gray-100 text-gray-600 border-gray-300" };
+  }
+  // dataPrevista no passado: mostra "Atrasado" em vermelho para alertar
+  return { label: "Atrasado", cor: "bg-red-100 text-red-700 border-red-300" };
+}
+
 // ─── Fetch ────────────────────────────────────────────────────────────────────
 
 async function fetchPedidos(): Promise<PedidoExpedicao[]> {
@@ -271,6 +296,13 @@ export function ExpedicaoPage() {
           } catch (err) {
             console.warn("[impressao] falha ao imprimir etiqueta:", err);
           }
+        } else if (et.ok && et.tipo === "pdf_base64") {
+          try {
+            await qzTray.imprimirPdf(et.conteudo, impressora);
+            imprimiuAlgo = true;
+          } catch (err) {
+            console.warn("[impressao] falha ao imprimir etiqueta PDF:", err);
+          }
         } else if (!et.ok) {
           console.warn("[impressao] etiqueta não disponível:", (et as any).error);
         }
@@ -426,10 +458,13 @@ export function ExpedicaoPage() {
 
 // ─── Card de pedido ───────────────────────────────────────────────────────────
 
-function detectarMarketplace(numeroLoja: string | null): { nome: string; cor: string } | null {
-  if (!numeroLoja) return null;
-  if (numeroLoja.startsWith("2000")) return { nome: "Mercado Livre", cor: "bg-yellow-100 text-yellow-800 border-yellow-300" };
-  // TODO: adicionar Shopee, Amazon, Magalu conforme aparecerem pedidos
+function detectarMarketplace(marketplace: string | null): { nome: string; cor: string } | null {
+  if (!marketplace) return null;
+  if (marketplace === "mercadolivre" || marketplace === "mercadolivreflex") {
+    return { nome: "Mercado Livre", cor: "bg-yellow-100 text-yellow-800 border-yellow-300" };
+  }
+  if (marketplace === "shopee") return { nome: "Shopee", cor: "bg-orange-100 text-orange-800 border-orange-300" };
+  if (marketplace === "amazon") return { nome: "Amazon", cor: "bg-amber-100 text-amber-800 border-amber-300" };
   return { nome: "Outros", cor: "bg-gray-100 text-gray-700 border-gray-300" };
 }
 
@@ -447,11 +482,12 @@ function PedidoCard({
   const imageUrl = item?.produto?.imagem_url || null;
   const logistica = (pedido.raw_json as any)?.transporte?.volumes?.[0]?.servico ?? null;
   const ean = item?.ean ?? item?.produto_gtin ?? "—";
-  const marketplace = detectarMarketplace(pedido.numero_loja);
+  const marketplace = detectarMarketplace(pedido.marketplace);
   const numeroPrincipal = pedido.numero_loja || pedido.numero;
   const numeroSecundario = pedido.numero_loja ? pedido.numero : null;
   const isFlex = logistica?.toLowerCase().includes("flex") ?? false;
   const semNf = !pedido.bling_nota_fiscal_id;
+  const badgeData = badgeDataPrevista(pedido.raw_json);
 
   return (
     <div
@@ -499,6 +535,11 @@ function PedidoCard({
           {!isFlex && semNf && (
             <span className="shrink-0 text-[10px] font-medium px-2 py-0.5 rounded border bg-gray-100 text-gray-500 border-gray-300">
               Aguardando NF do Bling
+            </span>
+          )}
+          {badgeData && (
+            <span className={`shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded border ${badgeData.cor}`}>
+              {badgeData.label}
             </span>
           )}
           {done && (
