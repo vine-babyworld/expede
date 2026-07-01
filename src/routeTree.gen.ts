@@ -22,6 +22,8 @@ import { Route as AppConfiguracoesRouteImport } from './routes/_app/configuracoe
 import { Route as AppAExpedirRouteImport } from './routes/_app/a-expedir'
 import { Route as AppConfiguracoesIndexRouteImport } from './routes/_app/configuracoes.index'
 import { Route as OauthBlingCallbackRouteImport } from './routes/oauth/bling/callback'
+import { Route as ApiShopeeCallbackRouteImport } from './routes/api/shopee/callback'
+import { Route as ApiShopeeAuthRouteImport } from './routes/api/shopee/auth'
 import { Route as ApiMlCallbackRouteImport } from './routes/api/ml/callback'
 import { Route as ApiMlAuthRouteImport } from './routes/api/ml/auth'
 import { Route as ApiDebugEtiquetaTesteRouteImport } from './routes/api/debug/etiqueta-teste'
@@ -99,6 +101,16 @@ const AppConfiguracoesIndexRoute = AppConfiguracoesIndexRouteImport.update({
 const OauthBlingCallbackRoute = OauthBlingCallbackRouteImport.update({
   id: '/oauth/bling/callback',
   path: '/oauth/bling/callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiShopeeCallbackRoute = ApiShopeeCallbackRouteImport.update({
+  id: '/api/shopee/callback',
+  path: '/api/shopee/callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiShopeeAuthRoute = ApiShopeeAuthRouteImport.update({
+  id: '/api/shopee/auth',
+  path: '/api/shopee/auth',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiMlCallbackRoute = ApiMlCallbackRouteImport.update({
@@ -199,6 +211,8 @@ export interface FileRoutesByFullPath {
   '/api/debug/etiqueta-teste': typeof ApiDebugEtiquetaTesteRoute
   '/api/ml/auth': typeof ApiMlAuthRoute
   '/api/ml/callback': typeof ApiMlCallbackRoute
+  '/api/shopee/auth': typeof ApiShopeeAuthRoute
+  '/api/shopee/callback': typeof ApiShopeeCallbackRoute
   '/oauth/bling/callback': typeof OauthBlingCallbackRoute
   '/configuracoes/': typeof AppConfiguracoesIndexRoute
   '/api/public/hooks/bling-pedidos': typeof ApiPublicHooksBlingPedidosRoute
@@ -226,6 +240,8 @@ export interface FileRoutesByTo {
   '/api/debug/etiqueta-teste': typeof ApiDebugEtiquetaTesteRoute
   '/api/ml/auth': typeof ApiMlAuthRoute
   '/api/ml/callback': typeof ApiMlCallbackRoute
+  '/api/shopee/auth': typeof ApiShopeeAuthRoute
+  '/api/shopee/callback': typeof ApiShopeeCallbackRoute
   '/oauth/bling/callback': typeof OauthBlingCallbackRoute
   '/configuracoes': typeof AppConfiguracoesIndexRoute
   '/api/public/hooks/bling-pedidos': typeof ApiPublicHooksBlingPedidosRoute
@@ -256,6 +272,8 @@ export interface FileRoutesById {
   '/api/debug/etiqueta-teste': typeof ApiDebugEtiquetaTesteRoute
   '/api/ml/auth': typeof ApiMlAuthRoute
   '/api/ml/callback': typeof ApiMlCallbackRoute
+  '/api/shopee/auth': typeof ApiShopeeAuthRoute
+  '/api/shopee/callback': typeof ApiShopeeCallbackRoute
   '/oauth/bling/callback': typeof OauthBlingCallbackRoute
   '/_app/configuracoes/': typeof AppConfiguracoesIndexRoute
   '/api/public/hooks/bling-pedidos': typeof ApiPublicHooksBlingPedidosRoute
@@ -286,6 +304,8 @@ export interface FileRouteTypes {
     | '/api/debug/etiqueta-teste'
     | '/api/ml/auth'
     | '/api/ml/callback'
+    | '/api/shopee/auth'
+    | '/api/shopee/callback'
     | '/oauth/bling/callback'
     | '/configuracoes/'
     | '/api/public/hooks/bling-pedidos'
@@ -313,6 +333,8 @@ export interface FileRouteTypes {
     | '/api/debug/etiqueta-teste'
     | '/api/ml/auth'
     | '/api/ml/callback'
+    | '/api/shopee/auth'
+    | '/api/shopee/callback'
     | '/oauth/bling/callback'
     | '/configuracoes'
     | '/api/public/hooks/bling-pedidos'
@@ -342,6 +364,8 @@ export interface FileRouteTypes {
     | '/api/debug/etiqueta-teste'
     | '/api/ml/auth'
     | '/api/ml/callback'
+    | '/api/shopee/auth'
+    | '/api/shopee/callback'
     | '/oauth/bling/callback'
     | '/_app/configuracoes/'
     | '/api/public/hooks/bling-pedidos'
@@ -362,6 +386,8 @@ export interface RootRouteChildren {
   ApiDebugEtiquetaTesteRoute: typeof ApiDebugEtiquetaTesteRoute
   ApiMlAuthRoute: typeof ApiMlAuthRoute
   ApiMlCallbackRoute: typeof ApiMlCallbackRoute
+  ApiShopeeAuthRoute: typeof ApiShopeeAuthRoute
+  ApiShopeeCallbackRoute: typeof ApiShopeeCallbackRoute
   OauthBlingCallbackRoute: typeof OauthBlingCallbackRoute
   ApiPublicHooksBlingPedidosRoute: typeof ApiPublicHooksBlingPedidosRoute
   ApiPublicHooksBlingRefreshRoute: typeof ApiPublicHooksBlingRefreshRoute
@@ -460,6 +486,20 @@ declare module '@tanstack/react-router' {
       path: '/oauth/bling/callback'
       fullPath: '/oauth/bling/callback'
       preLoaderRoute: typeof OauthBlingCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/shopee/callback': {
+      id: '/api/shopee/callback'
+      path: '/api/shopee/callback'
+      fullPath: '/api/shopee/callback'
+      preLoaderRoute: typeof ApiShopeeCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/shopee/auth': {
+      id: '/api/shopee/auth'
+      path: '/api/shopee/auth'
+      fullPath: '/api/shopee/auth'
+      preLoaderRoute: typeof ApiShopeeAuthRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/ml/callback': {
@@ -614,6 +654,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiDebugEtiquetaTesteRoute: ApiDebugEtiquetaTesteRoute,
   ApiMlAuthRoute: ApiMlAuthRoute,
   ApiMlCallbackRoute: ApiMlCallbackRoute,
+  ApiShopeeAuthRoute: ApiShopeeAuthRoute,
+  ApiShopeeCallbackRoute: ApiShopeeCallbackRoute,
   OauthBlingCallbackRoute: OauthBlingCallbackRoute,
   ApiPublicHooksBlingPedidosRoute: ApiPublicHooksBlingPedidosRoute,
   ApiPublicHooksBlingRefreshRoute: ApiPublicHooksBlingRefreshRoute,

@@ -1,56 +1,77 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getDecryptedAccessToken } from "@/lib/bling.functions";
 import { buscarEtiquetaML } from "@/lib/ml.functions";
+import { buscarEtiquetaShopee } from "@/lib/shopee";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 
 const BLING_ETIQUETAS_URL = "https://api.bling.com.br/Api/v3/logisticas/etiquetas";
 
+export type EtiquetaTipo = "zpl" | "pdf_url" | "pdf_base64" | "desconhecido";
+
 export type EtiquetaResult =
-  | { ok: true; tipo: "zpl" | "pdf_url" | "desconhecido"; conteudo: string }
+  | { ok: true; tipo: EtiquetaTipo; conteudo: string }
   | { ok: false; error: string };
 
-async function salvarZpl(pedidoId: string, zpl: string) {
+async function salvarEtiqueta(pedidoId: string, conteudo: string, tipo: EtiquetaTipo) {
   await supabaseAdmin
     .from("pedidos")
-    .update({ etiqueta_zpl: zpl } as any)
+    .update({ etiqueta_zpl: conteudo, etiqueta_tipo: tipo } as any)
     .eq("id", pedidoId);
 }
 
 export const buscarEtiquetaBling = createServerFn({ method: "POST" })
   .inputValidator((d: { pedidoId: number }) => d)
   .handler(async ({ data }): Promise<EtiquetaResult> => {
-    // 1. Cache: retorna ZPL salvo no banco sem chamar APIs externas
+    // 1. Cache: retorna etiqueta salva no banco sem chamar APIs externas
     const { data: pedido } = await supabaseAdmin
       .from("pedidos")
-      .select("id, etiqueta_zpl, numero_loja")
+      .select("id, etiqueta_zpl, etiqueta_tipo, numero_loja, marketplace")
       .eq("bling_pedido_id", data.pedidoId)
       .maybeSingle();
 
     if (pedido?.etiqueta_zpl) {
-      return { ok: true, tipo: "zpl", conteudo: pedido.etiqueta_zpl };
+      const tipoCache = ((pedido as any).etiqueta_tipo as EtiquetaTipo) ?? "zpl";
+      return { ok: true, tipo: tipoCache, conteudo: pedido.etiqueta_zpl };
     }
 
-    // numero_loja = ML order ID (ex: 2000016750569270)
-    const mlOrderId: string | null = (pedido as any)?.numero_loja ?? null;
+    // numero_loja = id do pedido no marketplace (ML order ID ou Shopee order_sn)
+    const numeroLoja: string | null = (pedido as any)?.numero_loja ?? null;
+    const marketplace: string | null = (pedido as any)?.marketplace ?? null;
 
     // 2. Tenta API do Bling
     const blingResult = await tentarBling(data.pedidoId, pedido?.id ?? null);
 
     if (blingResult.ok) {
       if (pedido?.id && blingResult.tipo === "zpl") {
-        await salvarZpl(pedido.id, blingResult.conteudo);
+        await salvarEtiqueta(pedido.id, blingResult.conteudo, "zpl");
       }
       return blingResult;
     }
 
-    console.warn("[etiqueta] Bling falhou:", blingResult.error, "— tentando ML order:", mlOrderId);
+    console.warn("[etiqueta] Bling falhou:", blingResult.error, "— tentando marketplace:", marketplace, numeroLoja);
 
-    // 3. Fallback: etiqueta do Mercado Livre via numero_loja (ML order ID real)
-    if (mlOrderId) {
+    // 3. Fallback por marketplace
+    if (marketplace === "shopee" && numeroLoja) {
       try {
-        const mlResult = await buscarEtiquetaML(mlOrderId);
+        const shopeeResult = await buscarEtiquetaShopee(numeroLoja);
+        if (shopeeResult.ok) {
+          if (pedido?.id) await salvarEtiqueta(pedido.id, shopeeResult.conteudo, "pdf_base64");
+          return { ok: true, tipo: "pdf_base64", conteudo: shopeeResult.conteudo };
+        }
+        console.warn("[etiqueta] Shopee também falhou:", shopeeResult.error);
+        return { ok: false, error: shopeeResult.error };
+      } catch (err) {
+        console.warn("[etiqueta] Shopee exception:", err);
+      }
+      return blingResult;
+    }
+
+    // Fallback ML (default — inclui pedidos legados sem marketplace definido)
+    if (numeroLoja) {
+      try {
+        const mlResult = await buscarEtiquetaML(numeroLoja);
         if (mlResult.ok) {
-          if (pedido?.id) await salvarZpl(pedido.id, mlResult.conteudo);
+          if (pedido?.id) await salvarEtiqueta(pedido.id, mlResult.conteudo, "zpl");
           return { ok: true, tipo: "zpl", conteudo: mlResult.conteudo };
         }
         console.warn("[etiqueta] ML também falhou:", mlResult.error);

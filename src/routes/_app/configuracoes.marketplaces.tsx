@@ -4,6 +4,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { CheckCircle2, ShoppingCart, Plug } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getMLConnection } from "@/lib/ml.functions";
+import { getShopeeConnection } from "@/lib/shopee";
 import { getDashboardExpedicao } from "@/lib/dashboard.functions";
 
 export const Route = createFileRoute("/_app/configuracoes/marketplaces")({
@@ -21,9 +22,11 @@ function fmtExpira(iso?: string | null): string {
 
 function MarketplacesPage() {
   const mlFn = useServerFn(getMLConnection);
+  const shopeeFn = useServerFn(getShopeeConnection);
   const expFn = useServerFn(getDashboardExpedicao);
 
   const mlQ = useQuery({ queryKey: ["ml-connection"], queryFn: () => mlFn(), refetchInterval: 60_000 });
+  const shopeeQ = useQuery({ queryKey: ["shopee-connection"], queryFn: () => shopeeFn(), refetchInterval: 60_000 });
   const expQ = useQuery({ queryKey: ["dash-expedicao"], queryFn: () => expFn(), refetchInterval: 60_000 });
 
   return (
@@ -74,8 +77,8 @@ function MarketplacesPage() {
         </div>
       </div>
 
-      {/* Shopee placeholder */}
-      <div className="bg-card border rounded-xl shadow-sm p-6 opacity-60">
+      {/* Shopee */}
+      <div className="bg-card border rounded-xl shadow-sm p-6">
         <div className="flex items-start justify-between gap-4">
           <div className="flex items-center gap-3">
             <div className="h-6 w-6 rounded bg-orange-200 flex items-center justify-center text-orange-700 text-xs font-bold shrink-0">
@@ -84,18 +87,36 @@ function MarketplacesPage() {
             <div>
               <h2 className="text-base font-semibold">Shopee</h2>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Integração Shopee disponível em breve.
+                Autenticação para resolução de etiquetas de transporte. Pedidos chegam via Bling.
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-3 shrink-0">
-            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-500 border border-gray-200">
-              Em breve
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => { window.location.href = "/api/shopee/auth"; }}
+          >
+            <Plug className="h-4 w-4 mr-2" />
+            {shopeeQ.data?.connected ? "Reconectar" : "Conectar"}
+          </Button>
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          {shopeeQ.isLoading ? (
+            <div className="h-6 w-48 bg-muted rounded animate-pulse" />
+          ) : shopeeQ.data?.connected ? (
+            <>
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border bg-emerald-100 text-emerald-700 border-emerald-200">
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                Conectado · shop {shopeeQ.data.shop_id}
+              </span>
+              <span className="text-xs text-muted-foreground">{fmtExpira(shopeeQ.data.expires_at)}</span>
+            </>
+          ) : (
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border bg-red-100 text-red-700 border-red-200">
+              Desconectado
             </span>
-            <Button size="sm" disabled>
-              <Plug className="h-4 w-4 mr-2" /> Conectar
-            </Button>
-          </div>
+          )}
         </div>
       </div>
 
