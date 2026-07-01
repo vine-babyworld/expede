@@ -149,6 +149,36 @@ function QueryReportSection({
   );
 }
 
+function PedidoImportadoRow({
+  p,
+}: {
+  p: { numeroLoja: string | null; numero: string; temNf: boolean };
+}) {
+  const numeroPrincipal = p.numeroLoja || p.numero;
+  const numeroSecundario = p.numeroLoja ? p.numero : null;
+  return (
+    <div className="flex items-center justify-between gap-3 py-2 px-3 rounded-lg border bg-card">
+      <span className="font-mono text-sm">
+        {numeroPrincipal}
+        {numeroSecundario && (
+          <span className="block text-muted-foreground font-normal text-xs">
+            Bling #{numeroSecundario}
+          </span>
+        )}
+      </span>
+      {p.temNf ? (
+        <span className="shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded border bg-emerald-100 text-emerald-700 border-emerald-300">
+          NF disponível
+        </span>
+      ) : (
+        <span className="shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded border bg-orange-100 text-orange-700 border-orange-300">
+          ⚠ Aguardando NF
+        </span>
+      )}
+    </div>
+  );
+}
+
 type FunilData = { importado: number; bipado: number; impresso: number; faturado: number };
 
 function FunilExpedicao({ loading, data }: { loading: boolean; data: FunilData }) {
@@ -201,6 +231,11 @@ function DashboardPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [syncReport, setSyncReport] = useState<any>(null);
+  const [showTecnico, setShowTecnico] = useState(false);
+  const closeSyncModal = () => {
+    setSyncReport(null);
+    setShowTecnico(false);
+  };
   const expFn = useServerFn(getDashboardExpedicao);
   const vendasFn = useServerFn(getDashboardVendas);
   const mlFn = useServerFn(getMLConnection);
@@ -275,6 +310,17 @@ function DashboardPage() {
           bg="bg-slate-700"
         />
       </div>
+
+      {/* Alerta: pedidos despachados no ML mas sem baixa no Bling */}
+      {(exp?.divergentes ?? 0) > 0 && (
+        <div className="flex items-center gap-3 px-4 py-3 rounded-lg border border-amber-300 bg-amber-50 text-amber-800 text-sm">
+          <span className="text-base">⚠</span>
+          <span>
+            <strong>{exp!.divergentes}</strong> pedido{exp!.divergentes === 1 ? "" : "s"} despachado{exp!.divergentes === 1 ? "" : "s"} no Mercado Livre mas ainda sem baixa no Bling.
+            {" "}Verifique a fila de expedição.
+          </span>
+        </div>
+      )}
 
       {/* SEÇÃO 1.5 — Funil de expedição (últimos 30 dias) */}
       <div className="bg-card border rounded-xl shadow-sm p-6">
@@ -389,41 +435,77 @@ function DashboardPage() {
         </div>
       </div>
 
-      <Dialog open={syncReport !== null} onOpenChange={(o) => !o && setSyncReport(null)}>
-        <DialogContent className="max-w-2xl">
+      <Dialog
+        open={syncReport !== null}
+        onOpenChange={(o) => !o && closeSyncModal()}
+      >
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Relatório de Sincronização</DialogTitle>
           </DialogHeader>
           {syncReport && (
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <QueryReportSection title="Query 1 — Faturados (situação=9)" report={syncReport.query1} />
-                <QueryReportSection title="Query 2 — Loja ML / FLEX" report={syncReport.query2} />
-                {syncReport.query3 && (
-                  <QueryReportSection title="Query 3 — Atendidos (situação=15)" report={syncReport.query3} disabled />
-                )}
-                {syncReport.query4 && (
-                  <QueryReportSection title="Query 4 — Atendidos ML (situação=15+loja)" report={syncReport.query4} disabled />
-                )}
-              </div>
-              {syncReport.situacoes && (
-                <p className="text-sm text-muted-foreground">
-                  Situações verificadas: {syncReport.situacoes.verificados} · atualizadas: {syncReport.situacoes.atualizados}
-                  {syncReport.situacoes.erros.length > 0 && ` · erros: ${syncReport.situacoes.erros.length}`}
+              <p className="text-sm text-muted-foreground">
+                {syncReport.totalCandidatos} pedido{syncReport.totalCandidatos === 1 ? "" : "s"} encontrado{syncReport.totalCandidatos === 1 ? "" : "s"} nesta sincronização
+              </p>
+
+              {syncReport.importadosNovos.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-4 text-center border rounded-lg bg-muted/30">
+                  Nenhum pedido novo nesta sincronização
                 </p>
-              )}
-              <div>
-                <p className="font-semibold text-sm mb-1">Detalhes</p>
-                <div className="max-h-64 overflow-y-auto rounded-lg border bg-muted/30 p-3">
-                  <ul className="font-mono text-xs space-y-1">
-                    {(syncReport.detalhes ?? []).map((d: string, i: number) => <li key={i}>{d}</li>)}
-                  </ul>
+              ) : (
+                <div className="space-y-2">
+                  <p className="font-semibold text-sm">
+                    {syncReport.importadosNovos.length} pedido{syncReport.importadosNovos.length === 1 ? "" : "s"} novo{syncReport.importadosNovos.length === 1 ? "" : "s"} importado{syncReport.importadosNovos.length === 1 ? "" : "s"}
+                  </p>
+                  <div className="space-y-1.5 max-h-72 overflow-y-auto">
+                    {syncReport.importadosNovos.map((p: any, i: number) => (
+                      <PedidoImportadoRow key={i} p={p} />
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setShowTecnico((v) => !v)}
+                className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
+              >
+                {showTecnico ? "Ocultar detalhes técnicos" : "Ver detalhes técnicos"}
+              </button>
+
+              {showTecnico && (
+                <div className="space-y-4 pt-2 border-t">
+                  <div className="grid grid-cols-2 gap-3">
+                    <QueryReportSection title="Query 1 — Faturados (situação=9)" report={syncReport.query1} />
+                    <QueryReportSection title="Query 2 — Loja ML / FLEX" report={syncReport.query2} />
+                    {syncReport.query3 && (
+                      <QueryReportSection title="Query 3 — Atendidos (situação=15)" report={syncReport.query3} disabled />
+                    )}
+                    {syncReport.query4 && (
+                      <QueryReportSection title="Query 4 — Atendidos ML (situação=15+loja)" report={syncReport.query4} disabled />
+                    )}
+                  </div>
+                  {syncReport.situacoes && (
+                    <p className="text-sm text-muted-foreground">
+                      Situações verificadas: {syncReport.situacoes.verificados} · atualizadas: {syncReport.situacoes.atualizados}
+                      {syncReport.situacoes.erros.length > 0 && ` · erros: ${syncReport.situacoes.erros.length}`}
+                    </p>
+                  )}
+                  <div>
+                    <p className="font-semibold text-sm mb-1">Detalhes</p>
+                    <div className="max-h-64 overflow-y-auto rounded-lg border bg-muted/30 p-3">
+                      <ul className="font-mono text-xs space-y-1">
+                        {(syncReport.detalhes ?? []).map((d: string, i: number) => <li key={i}>{d}</li>)}
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setSyncReport(null)}>Fechar</Button>
+            <Button variant="outline" onClick={closeSyncModal}>Fechar</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

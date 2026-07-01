@@ -77,7 +77,13 @@ export const getDashboardExpedicao = createServerFn({ method: "GET" })
     const expedidosHoje = expedidos.length;
     const totalValor = expedidos.reduce((s: number, p: any) => s + (p.total ?? 0), 0);
 
-    return { pendentes, expedidosHoje, totalValor, totalHoje: expedidosHoje };
+    const { count: divergentes } = await supabaseAdmin
+      .from("pedidos")
+      .select("id", { count: "exact", head: true })
+      .eq("bling_divergente", true)
+      .is("printed_at", null) as any;
+
+    return { pendentes, expedidosHoje, totalValor, totalHoje: expedidosHoje, divergentes: divergentes ?? 0 };
   });
 
 // Pedidos que aparecem no card "Expedidos hoje": já impressos, com printed_at

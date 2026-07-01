@@ -60,6 +60,7 @@ type PedidoExpedicao = {
   raw_json: any;
   itens: ItemExpedicao[];
   printed_at: string | null;
+  bling_divergente: boolean;
 };
 
 function pedidoProgress(p: PedidoExpedicao) {
@@ -115,7 +116,7 @@ async function fetchPedidos(): Promise<PedidoExpedicao[]> {
   const { data, error } = await supabase
     .from("pedidos")
     .select(
-      "id, bling_pedido_id, numero, numero_loja, data_pedido, cliente, bling_nota_fiscal_id, bling_nota_fiscal_numero, situacao_id, situacao_valor, marketplace, raw_json, printed_at, pedido_itens(id, sku, ean, descricao, quantidade, quantidade_bipada, produto:produtos(imagem_url, gtin))",
+      "id, bling_pedido_id, numero, numero_loja, data_pedido, cliente, bling_nota_fiscal_id, bling_nota_fiscal_numero, situacao_id, situacao_valor, marketplace, raw_json, printed_at, bling_divergente, pedido_itens(id, sku, ean, descricao, quantidade, quantidade_bipada, produto:produtos(imagem_url, gtin))",
     )
     .is("printed_at", null)
     .neq("situacao_id", 12)
@@ -136,6 +137,7 @@ async function fetchPedidos(): Promise<PedidoExpedicao[]> {
     situacao_valor: p.situacao_valor ?? null,
     raw_json: p.raw_json ?? null,
     printed_at: p.printed_at ?? null,
+    bling_divergente: p.bling_divergente ?? false,
     itens: (p.pedido_itens ?? []).map((i: any) => ({
       id: i.id,
       sku: i.sku ?? null,
@@ -487,6 +489,7 @@ function PedidoCard({
   const numeroSecundario = pedido.numero_loja ? pedido.numero : null;
   const isFlex = logistica?.toLowerCase().includes("flex") ?? false;
   const semNf = !pedido.bling_nota_fiscal_id;
+  const blingDivergente = pedido.bling_divergente;
   const badgeData = badgeDataPrevista(pedido.raw_json);
 
   return (
@@ -535,6 +538,11 @@ function PedidoCard({
           {!isFlex && semNf && (
             <span className="shrink-0 text-[10px] font-medium px-2 py-0.5 rounded border bg-gray-100 text-gray-500 border-gray-300">
               Aguardando NF do Bling
+            </span>
+          )}
+          {blingDivergente && (
+            <span className="shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded border bg-amber-100 text-amber-800 border-amber-300">
+              ⚠ Despachado no ML — Bling não baixou
             </span>
           )}
           {badgeData && (
