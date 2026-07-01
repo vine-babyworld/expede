@@ -455,10 +455,13 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
   // Query 2: loja ML FLEX (idLoja=203482894) — últimos 10 dias, inclui pedidos sem NF
   // Query 3: atendidos (idSituacao=15) — últimos 10 dias, qualquer marketplace
   // Query 5: faturados (idSituacao=9) — últimos 7 dias, loja Shopee (sempre exige NF, sem variante "sem NF")
+  const urlQ5 = `${BLING_PEDIDOS_URL}?idSituacao=9&idLoja=${SHOPEE_LOJA_ID}&limite=50&pagina=1&dataInicio=${dataInicioShopee}`;
+  console.log(`[reconciliar] Q5 url=${urlQ5}`);
+
   const [resFaturados, resLoja, resFaturadosShopee] = await Promise.allSettled([
     fetch(`${BLING_PEDIDOS_URL}?idSituacao=9&idLoja=${ML_LOJA_ID}&limite=50&pagina=1&dataInicio=${dataInicio}`, { headers }),
     fetch(`${BLING_PEDIDOS_URL}?idLoja=${ML_LOJA_ID}&limite=50&pagina=1&dataInicio=${dataInicio}`, { headers }),
-    fetch(`${BLING_PEDIDOS_URL}?idSituacao=9&idLoja=${SHOPEE_LOJA_ID}&limite=50&pagina=1&dataInicio=${dataInicioShopee}`, { headers }),
+    fetch(urlQ5, { headers }),
   ]);
   const resAtendidos: PromiseSettledResult<Response> = { status: "rejected", reason: "desativado" } as PromiseSettledResult<Response>;
   const resAtendidosML: PromiseSettledResult<Response> = { status: "rejected", reason: "desativado" } as PromiseSettledResult<Response>;
@@ -523,9 +526,19 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
     const json: any = await resFaturadosShopee.value.json().catch(() => null);
     const lista = json?.data ?? [];
     report.query5.encontrados = lista.length;
+    console.log(`[reconciliar] Q5 retornou ${lista.length} item(ns)`);
+    let q5Pulados = 0;
     for (const p of lista) {
+      // Filtro defensivo: mesmo que o Bling ignore dataInicio para esta loja,
+      // rejeitamos qualquer pedido cuja data seja anterior à janela de 7 dias.
+      if (p.data && p.data < dataInicioShopee) {
+        q5Pulados++;
+        console.warn(`[reconciliar] Q5 pedido ${p.id} data=${p.data} anterior à janela ${dataInicioShopee} — ignorado`);
+        continue;
+      }
       if (!candidatos.has(p.id)) candidatos.set(p.id, { id: p.id, permitirSemNf: false, origem: "q5", dataPedido: p.data ?? null });
     }
+    if (q5Pulados > 0) report.detalhes.push(`Q5 pulados por data anterior à janela: ${q5Pulados}`);
   } else {
     const motivo = resFaturadosShopee.status === "rejected" ? resFaturadosShopee.reason : (resFaturadosShopee.value as any)?.status;
     console.error("[reconciliar] GET faturados Shopee falhou:", motivo);
