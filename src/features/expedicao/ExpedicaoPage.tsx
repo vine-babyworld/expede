@@ -94,20 +94,31 @@ function hoje(): string {
   return `${year}-${month}-${day}`;
 }
 
-type BadgeExpedicao = { label: string; cor: string } | null;
+type CategoriaData = "hoje" | "proximos" | "atrasado" | null;
 
-function badgeDataPrevista(rawJson: any): BadgeExpedicao {
+function categoriaDataPrevista(rawJson: any): CategoriaData {
   const dataPrevista: string | null = rawJson?.dataPrevista ?? null;
   if (!dataPrevista) return null;
   const hj = hoje();
-  if (dataPrevista === hj) {
+  if (dataPrevista === hj) return "hoje";
+  if (dataPrevista > hj) return "proximos";
+  return "atrasado";
+}
+
+type BadgeExpedicao = { label: string; cor: string } | null;
+
+function badgeDataPrevista(rawJson: any): BadgeExpedicao {
+  const categoria = categoriaDataPrevista(rawJson);
+  if (categoria === "hoje") {
     return { label: "Hoje", cor: "bg-green-100 text-green-800 border-green-300" };
   }
-  if (dataPrevista > hj) {
+  if (categoria === "proximos") {
     return { label: "Próximos dias", cor: "bg-gray-100 text-gray-600 border-gray-300" };
   }
-  // dataPrevista no passado: mostra "Atrasado" em vermelho para alertar
-  return { label: "Atrasado", cor: "bg-red-100 text-red-700 border-red-300" };
+  if (categoria === "atrasado") {
+    return { label: "Atrasado", cor: "bg-red-100 text-red-700 border-red-300" };
+  }
+  return null;
 }
 
 // ─── Fetch ────────────────────────────────────────────────────────────────────
@@ -167,6 +178,16 @@ const MARKETPLACE_FILTROS: MarketplaceFiltro[] = [
   { id: "amazon", label: "Amazon", predicate: (p) => p.marketplace === "amazon" },
 ];
 
+// ─── Filtros de data de despacho ────────────────────────────────────────────────
+
+type DataFiltroId = "todas" | "hoje" | "atrasados" | "proximos";
+
+const DATA_FILTROS: { id: DataFiltroId; label: string; categoria: CategoriaData }[] = [
+  { id: "hoje", label: "Hoje", categoria: "hoje" },
+  { id: "atrasados", label: "Atrasados", categoria: "atrasado" },
+  { id: "proximos", label: "Próximos dias", categoria: "proximos" },
+];
+
 // ─── Página principal ─────────────────────────────────────────────────────────
 
 export function ExpedicaoPage() {
@@ -182,11 +203,19 @@ export function ExpedicaoPage() {
 
   const [busca, setBusca] = useState("");
   const [marketplaceFiltro, setMarketplaceFiltro] = useState<string>("todos");
+  const [dataFiltro, setDataFiltro] = useState<DataFiltroId>("todas");
   const [pedidoAtivo, setPedidoAtivo] = useState<PedidoExpedicao | null>(null);
   const [showPrinterConfig, setShowPrinterConfig] = useState(false);
 
   const pendentes = useMemo(
-    () => pedidos.filter((p) => !pedidoProgress(p).done),
+    () =>
+      pedidos.filter((p) => {
+        if (pedidoProgress(p).done) return false;
+        // Aguardando NF do Bling: some do Checkout até a NF ser emitida (Flex é exceção, pois normalmente não emite NF)
+        const semNf = !p.bling_nota_fiscal_id;
+        if (semNf && !isPedidoFlex(p)) return false;
+        return true;
+      }),
     [pedidos],
   );
 
@@ -198,9 +227,22 @@ export function ExpedicaoPage() {
     return counts;
   }, [pendentes]);
 
+  const dataCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const f of DATA_FILTROS) {
+      counts[f.id] = pendentes.filter((p) => categoriaDataPrevista(p.raw_json) === f.categoria).length;
+    }
+    return counts;
+  }, [pendentes]);
+
   const filtrados = useMemo(() => {
     const filtro = MARKETPLACE_FILTROS.find((f) => f.id === marketplaceFiltro);
-    const base = filtro ? pendentes.filter(filtro.predicate) : pendentes;
+    let base = filtro ? pendentes.filter(filtro.predicate) : pendentes;
+
+    const dataFiltroDef = DATA_FILTROS.find((f) => f.id === dataFiltro);
+    if (dataFiltroDef) {
+      base = base.filter((p) => categoriaDataPrevista(p.raw_json) === dataFiltroDef.categoria);
+    }
 
     const q = busca.trim().toLowerCase();
     if (!q) return base;
@@ -210,7 +252,7 @@ export function ExpedicaoPage() {
         (p.numero_loja ?? "").toLowerCase().includes(q) ||
         nomeCliente(p).toLowerCase().includes(q),
     );
-  }, [pendentes, busca, marketplaceFiltro]);
+  }, [pendentes, busca, marketplaceFiltro, dataFiltro]);
 
   const handleBiparPedido = useCallback(
     (pedido: PedidoExpedicao) => {
@@ -359,7 +401,7 @@ export function ExpedicaoPage() {
         </div>
         <div className="flex items-center gap-3">
           <div className="rounded-xl bg-primary text-primary-foreground px-6 py-4 text-center shadow-md min-w-[160px]">
-            <div className="text-4xl font-bold leading-none">{pendentes.length}</div>
+            <div className="text-4xl font-bold leading-none">{filtrados.length}</div>
             <div className="text-xs uppercase tracking-wider opacity-80 mt-1">
               pedidos pendentes
             </div>
@@ -406,6 +448,28 @@ export function ExpedicaoPage() {
               onClick={() => setMarketplaceFiltro(f.id)}
             >
               {f.label} ({marketplaceCounts[f.id]})
+            </Button>
+          ))}
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant={dataFiltro === "todas" ? "default" : "outline"}
+            size="sm"
+            className="rounded-full"
+            onClick={() => setDataFiltro("todas")}
+          >
+            Todas as datas
+          </Button>
+          {DATA_FILTROS.map((f) => (
+            <Button
+              key={f.id}
+              variant={dataFiltro === f.id ? "default" : "outline"}
+              size="sm"
+              className="rounded-full"
+              onClick={() => setDataFiltro(f.id)}
+            >
+              {f.label} ({dataCounts[f.id]})
             </Button>
           ))}
         </div>
