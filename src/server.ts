@@ -127,6 +127,7 @@ export async function cronMLStatus() {
       .is("printed_at", null)
       .not("bling_nota_fiscal_id", "is", null)
       .eq("marketplace", "mercadolivre")
+      .neq("situacao_id", 12)
       .order("data_pedido", { ascending: true })
       .limit(4) as any;
 
