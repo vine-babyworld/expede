@@ -128,7 +128,7 @@ export async function cronMLStatus() {
       .not("bling_nota_fiscal_id", "is", null)
       .eq("marketplace", "mercadolivre")
       .neq("situacao_id", 12)
-      .neq("ml_shipment_status", "delivered")
+      .or("ml_shipment_status.is.null,ml_shipment_status.neq.delivered")
       .eq("arquivado", false)
       .order("data_pedido", { ascending: true })
       .limit(4) as any;
