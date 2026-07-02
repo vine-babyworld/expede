@@ -208,7 +208,7 @@ async function processarPedidoBling(
     data_pedido:              d.data ? new Date(d.data).toISOString() : null,
     total:                    d.total ?? null,
     cliente:                  d.contato ?? null,
-    bling_nota_fiscal_id:     d.notaFiscal?.id ?? null,
+    bling_nota_fiscal_id:     (d.notaFiscal?.id && d.notaFiscal.id !== 0) ? d.notaFiscal.id : null,
     bling_nota_fiscal_numero: nfNumero,
     marketplace:              opts.marketplace ?? "mercadolivre",
     raw_json:                 d,
@@ -563,7 +563,7 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
     // Pedidos que já existem E já têm NF (id + numero), ou foram arquivados, não precisam ser reprocessados
     const existentesComNfSet = new Set(
       (existentes ?? [])
-        .filter((e: any) => (e.bling_nota_fiscal_id != null && e.bling_nota_fiscal_numero != null) || e.arquivado)
+        .filter((e: any) => (e.bling_nota_fiscal_id != null && e.bling_nota_fiscal_id !== 0 && e.bling_nota_fiscal_numero != null) || e.arquivado)
         .map((e: any) => e.bling_pedido_id)
     );
     // Já existem no banco mas sem NF ainda — tentativa anterior não fechou (ex: aguardando
