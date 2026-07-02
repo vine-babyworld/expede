@@ -16,7 +16,11 @@ import { PrinterConfig } from "@/components/PrinterConfig";
 const IMPRESSORA_KEY = "qztray_impressora_padrao";
 const PAGE_SIZE = 50;
 
-function SituacaoBadge({ situacaoId }: { situacaoId: number | null }) {
+function SituacaoBadge({ situacaoId, mlShipmentStatus }: { situacaoId: number | null; mlShipmentStatus: string | null }) {
+  if (mlShipmentStatus === "delivered")
+    return <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-600 text-white">Entregue</span>;
+  if (mlShipmentStatus === "shipped")
+    return <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">A caminho</span>;
   if (situacaoId === 9)
     return <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">Faturado</span>;
   if (situacaoId === 12)
@@ -283,7 +287,7 @@ function PedidosPage() {
                     <td className="px-4 py-3 font-mono text-xs">
                       {row.bling_nota_fiscal_numero ?? "—"}
                     </td>
-                    <td className="px-4 py-3"><SituacaoBadge situacaoId={row.situacao_id} /></td>
+                    <td className="px-4 py-3"><SituacaoBadge situacaoId={row.situacao_id} mlShipmentStatus={row.ml_shipment_status} /></td>
                     <td className="px-4 py-3 text-right text-muted-foreground">
                       {row.items_count}
                     </td>

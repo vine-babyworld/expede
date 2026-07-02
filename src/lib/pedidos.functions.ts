@@ -27,6 +27,9 @@ export type PedidoRow = {
   created_at: string;
   updated_at: string;
   items_count: number;
+  ml_shipment_status: string | null;
+  ml_shipment_substatus: string | null;
+  bling_divergente: boolean;
 };
 
 export type ListarPedidosInput = {
@@ -54,7 +57,7 @@ export const listarPedidos = createServerFn({ method: "POST" })
     let query = supabaseAdmin
       .from("pedidos")
       .select(
-        "id, bling_pedido_id, numero, numero_loja, situacao_id, situacao_valor, data_pedido, total, cliente, bling_nota_fiscal_id, bling_nota_fiscal_numero, etiqueta_zpl, created_at, updated_at, pedido_itens(count)",
+        "id, bling_pedido_id, numero, numero_loja, situacao_id, situacao_valor, data_pedido, total, cliente, bling_nota_fiscal_id, bling_nota_fiscal_numero, etiqueta_zpl, created_at, updated_at, ml_shipment_status, ml_shipment_substatus, bling_divergente, pedido_itens(count)",
         { count: "exact" },
       );
 
