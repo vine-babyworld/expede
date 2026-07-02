@@ -75,6 +75,7 @@ const RECONCILIATION_INTERVAL_MS = 60 * 1000;
 
 let lastMLStatusAt = 0;
 const ML_STATUS_INTERVAL_MS = 5 * 60 * 1000; // 5 min — independente do reconciliador
+const MAX_CANDIDATOS_ML_STATUS = 4;
 
 // Situacao_ids Bling que indicam pedido já baixado/faturado pelo Bling
 const BLING_SITUACAO_FINALIZADA = new Set([9, 15]); // 9=Atendido, 15=Faturado
@@ -120,27 +121,60 @@ export async function cronMLStatus() {
 
     lastMLStatusAt = now;
 
-    // Candidatos: faturados (NF emitida) mas ainda não impressos no EXPEDE
-    const { data: candidatos, error: selectError } = await supabaseAdmin
-      .from("pedidos")
-      .select("id, numero_loja, situacao_id, bling_pedido_id")
-      .is("printed_at", null)
-      .not("bling_nota_fiscal_id", "is", null)
-      .eq("marketplace", "mercadolivre")
-      .neq("situacao_id", 12)
-      .or("ml_shipment_status.is.null,ml_shipment_status.neq.delivered")
-      .eq("arquivado", false)
-      .order("data_pedido", { ascending: true })
-      .limit(4) as any;
+    // Candidatos: faturados (NF emitida) mas ainda não impressos no EXPEDE.
+    // Mesmo padrão de priorização já usado no reconciliador (commit 68b03f5):
+    // separa "nunca verificados" (prioridade, mais antigos primeiro) de "já
+    // verificados, ainda não delivered" (retry, só usa slots que sobrarem) —
+    // evita que pedidos presos em "shipped" monopolizem os slots e impeçam
+    // pedidos novos de serem verificados pela primeira vez.
+    // Constante própria (não compartilha MAX_CANDIDATOS_POR_EXECUCAO do
+    // reconciliador): são crons independentes, e este faz só 1 chamada de API
+    // + 1 update por candidato — orçamento de subrequests bem mais leve.
+    const baseQuery = () =>
+      supabaseAdmin
+        .from("pedidos")
+        .select("id, numero_loja, situacao_id, bling_pedido_id")
+        .is("printed_at", null)
+        .not("bling_nota_fiscal_id", "is", null)
+        .eq("marketplace", "mercadolivre")
+        .neq("situacao_id", 12)
+        .eq("arquivado", false);
 
-    if (selectError) {
-      console.error("[cron-ml-status] select candidatos falhou:", selectError.message);
+    const { data: nuncaVerificados, error: selectError1 } = await baseQuery()
+      .is("ml_shipment_status", null)
+      .order("data_pedido", { ascending: true })
+      .limit(MAX_CANDIDATOS_ML_STATUS) as any;
+
+    if (selectError1) {
+      console.error("[cron-ml-status] select nunca-verificados falhou:", selectError1.message);
       return;
     }
 
-    console.log(`[cron-ml-status] ${candidatos?.length ?? 0} candidato(s) encontrado(s)`);
+    const slotsRestantes = MAX_CANDIDATOS_ML_STATUS - (nuncaVerificados?.length ?? 0);
+    let retry: any[] = [];
 
-    for (const pedido of candidatos ?? []) {
+    if (slotsRestantes > 0) {
+      const { data: retryData, error: selectError2 } = await baseQuery()
+        .not("ml_shipment_status", "is", null)
+        .neq("ml_shipment_status", "delivered")
+        .order("data_pedido", { ascending: true })
+        .limit(slotsRestantes) as any;
+
+      if (selectError2) {
+        console.error("[cron-ml-status] select retry falhou:", selectError2.message);
+      } else {
+        retry = retryData ?? [];
+      }
+    }
+
+    const candidatos = [...(nuncaVerificados ?? []), ...retry];
+
+    console.log(
+      `[cron-ml-status] ${candidatos.length} candidato(s) encontrado(s)`,
+      `(${nuncaVerificados?.length ?? 0} nunca verificado(s), ${retry.length} retry)`,
+    );
+
+    for (const pedido of candidatos) {
       const mlOrderId: string | null = pedido.numero_loja;
       if (!mlOrderId) {
         console.log(`[cron-ml-status] pedido ${pedido.bling_pedido_id} sem numero_loja, pulando`);
