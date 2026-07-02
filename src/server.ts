@@ -154,10 +154,14 @@ export async function cronMLStatus() {
     let retry: any[] = [];
 
     if (slotsRestantes > 0) {
+      // Rotação por ml_status_checked_at (não data_pedido): quem está há mais
+      // tempo sem rechecagem vai primeiro. Evita que os mesmos pedidos (presos
+      // em empate de data_pedido) monopolizem os slots pra sempre — starvation
+      // intra-retry descoberta em 02/07/2026 (ver Lição no Obsidian).
       const { data: retryData, error: selectError2 } = await baseQuery()
         .not("ml_shipment_status", "is", null)
         .neq("ml_shipment_status", "delivered")
-        .order("data_pedido", { ascending: true })
+        .order("ml_status_checked_at", { ascending: true, nullsFirst: true })
         .limit(slotsRestantes) as any;
 
       if (selectError2) {
