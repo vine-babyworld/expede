@@ -61,6 +61,7 @@ type PedidoExpedicao = {
   itens: ItemExpedicao[];
   printed_at: string | null;
   bling_divergente: boolean;
+  ml_shipment_status: string | null;
 };
 
 function pedidoProgress(p: PedidoExpedicao) {
@@ -127,11 +128,12 @@ async function fetchPedidos(): Promise<PedidoExpedicao[]> {
   const { data, error } = await supabase
     .from("pedidos")
     .select(
-      "id, bling_pedido_id, numero, numero_loja, data_pedido, cliente, bling_nota_fiscal_id, bling_nota_fiscal_numero, situacao_id, situacao_valor, marketplace, raw_json, printed_at, bling_divergente, pedido_itens(id, sku, ean, descricao, quantidade, quantidade_bipada, produto:produtos(imagem_url, gtin))",
+      "id, bling_pedido_id, numero, numero_loja, data_pedido, cliente, bling_nota_fiscal_id, bling_nota_fiscal_numero, situacao_id, situacao_valor, marketplace, raw_json, printed_at, bling_divergente, ml_shipment_status, pedido_itens(id, sku, ean, descricao, quantidade, quantidade_bipada, produto:produtos(imagem_url, gtin))",
     )
     .is("printed_at", null)
     .neq("situacao_id", 12)
     .eq("arquivado", false)
+    .or("ml_shipment_status.is.null,ml_shipment_status.not.in.(shipped,delivered)")
     .order("data_pedido", { ascending: true, nullsFirst: false });
 
   if (error) throw error;
@@ -150,6 +152,7 @@ async function fetchPedidos(): Promise<PedidoExpedicao[]> {
     raw_json: p.raw_json ?? null,
     printed_at: p.printed_at ?? null,
     bling_divergente: p.bling_divergente ?? false,
+    ml_shipment_status: p.ml_shipment_status ?? null,
     itens: (p.pedido_itens ?? []).map((i: any) => ({
       id: i.id,
       sku: i.sku ?? null,
@@ -214,6 +217,8 @@ export function ExpedicaoPage() {
         // Aguardando NF do Bling: some do Checkout até a NF ser emitida (Flex é exceção, pois normalmente não emite NF)
         const semNf = !p.bling_nota_fiscal_id;
         if (semNf && !isPedidoFlex(p)) return false;
+        const jaDespachadoOuEntregue = p.ml_shipment_status === "shipped" || p.ml_shipment_status === "delivered";
+        if (jaDespachadoOuEntregue) return false;
         return true;
       }),
     [pedidos],
