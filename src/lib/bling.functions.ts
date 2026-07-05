@@ -152,23 +152,38 @@ export async function refreshConnectionById(
     grant_type: "refresh_token",
     refresh_token: refreshPlain,
   });
-  const res = await fetch(BLING_TOKEN_URL, {
-    method: "POST",
-    headers: {
-      Authorization: basicAuthHeader(),
-      "Content-Type": "application/x-www-form-urlencoded",
-      Accept: "application/json",
-    },
-    body,
-  });
+
+  let res: Response;
+  try {
+    res = await fetch(BLING_TOKEN_URL, {
+      method: "POST",
+      headers: {
+        Authorization: basicAuthHeader(),
+        "Content-Type": "application/x-www-form-urlencoded",
+        Accept: "application/json",
+      },
+      body,
+    });
+  } catch (e) {
+    // Falha de rede (timeout, DNS, etc): não marca "expired" — problema é transitório e a
+    // própria conexão pode estar íntegra. Deixa a próxima tentativa (1 min depois) resolver.
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error(`[bling-refresh] falha de rede ao renovar token (conn ${connectionId}):`, msg);
+    return { ok: false, error: `network_error: ${msg}` };
+  }
+
   const tokenJson: any = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const msg = tokenJson?.error_description ?? tokenJson?.error ?? `HTTP ${res.status}`;
+    const rawMsg = tokenJson?.error_description ?? tokenJson?.error ?? `HTTP ${res.status}`;
+    // rawMsg pode vir como objeto (nunca string) em alguns erros do Bling — String(obj) viraria
+    // "[object Object]", escondendo a causa real de qualquer diagnóstico futuro.
+    const msg = typeof rawMsg === "string" ? rawMsg : JSON.stringify(rawMsg);
+    console.error(`[bling-refresh] Bling recusou a renovação (conn ${connectionId}):`, msg);
     await supabaseAdmin
       .from("bling_connections")
-      .update({ status: "expired", last_error: String(msg) } as any)
+      .update({ status: "expired", last_error: msg } as any)
       .eq("id", conn.id);
-    return { ok: false, error: String(msg) };
+    return { ok: false, error: msg };
   }
 
   const now = Date.now();

@@ -447,10 +447,16 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
     importadosNovos: [],
   };
 
+  // Não filtra por status="connected" aqui de propósito: getDecryptedAccessToken já
+  // decide sozinho se precisa renovar (checa expiração + status). Se filtrássemos aqui,
+  // uma única falha de renovação (ex: erro transitório na API do Bling) marca a conexão
+  // como "expired" e ela nunca mais seria selecionada por esta query — travando a
+  // sincronização inteira até alguém reconectar manualmente, mesmo com refresh_token
+  // ainda válido. Sem o filtro, toda execução (a cada 1 min) tenta renovar de novo,
+  // autocurando o problema assim que o Bling voltar a responder.
   const { data: conn, error: errConn } = await supabaseAdmin
     .from("bling_connections")
     .select("id")
-    .eq("status", "connected")
     .order("created_at", { ascending: true })
     .limit(1)
     .maybeSingle();
@@ -458,8 +464,8 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
   console.log("[reconciliar] conn result:", JSON.stringify({ conn, error: errConn?.message }));
 
   if (!conn) {
-    console.log("[reconciliar] nenhuma conexão ativa");
-    report.detalhes.push("nenhuma conexão Bling ativa");
+    console.log("[reconciliar] nenhuma conexão cadastrada");
+    report.detalhes.push("nenhuma conexão Bling cadastrada");
     return report;
   }
 
