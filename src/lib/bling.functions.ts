@@ -266,20 +266,42 @@ export async function exchangeCodeAndStore(params: {
   const accessExp = new Date(now + (tj.expires_in ?? 21600) * 1000);
   const refreshExp = new Date(now + (tj.refresh_expires_in ?? 30 * 24 * 3600) * 1000);
 
-  const insertPayload: any = {
-    user_id: st.user_id,
-    bling_account_id: null,
-    bling_account_name: "Conta Bling",
+  const tokenPayload: any = {
     access_token: await encryptToken(tj.access_token),
     refresh_token: await encryptToken(tj.refresh_token),
-
     access_expires_at: accessExp.toISOString(),
     refresh_expires_at: refreshExp.toISOString(),
     scope: tj.scope ?? null,
     status: "connected",
     last_refresh_at: new Date().toISOString(),
+    last_error: null,
   };
-  const { error: insErr } = await supabaseAdmin.from("bling_connections").insert(insertPayload);
+
+  // Reautorização (ex: refresh_token invalidado pelo Bling — "invalid_grant") deve
+  // ATUALIZAR a conexão já existente do usuário, nunca inserir uma nova. produtos,
+  // pedidos e sync_jobs referenciam bling_connections.id com ON DELETE CASCADE — se
+  // cada reconexão criasse uma linha nova, o único jeito de "trocar" de conexão pela UI
+  // seria desconectar a antiga primeiro, o que apagaria produtos/pedidos permanentemente.
+  const { data: existente } = await supabaseAdmin
+    .from("bling_connections")
+    .select("id")
+    .eq("user_id", st.user_id)
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (existente) {
+    const { error: updErr } = await supabaseAdmin
+      .from("bling_connections")
+      .update(tokenPayload)
+      .eq("id", existente.id);
+    if (updErr) return { ok: false, error: updErr.message };
+    return { ok: true };
+  }
+
+  const { error: insErr } = await supabaseAdmin
+    .from("bling_connections")
+    .insert({ ...tokenPayload, user_id: st.user_id, bling_account_id: null, bling_account_name: "Conta Bling" });
   if (insErr) return { ok: false, error: insErr.message };
   return { ok: true };
 }
