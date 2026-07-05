@@ -107,7 +107,7 @@ export function parseComponentesKit(codigo: string): string[] {
     .filter(Boolean);
 }
 
-async function buscarProdutoPorSku(
+export async function buscarProdutoPorSku(
   sku: string,
   blingConnectionId: string,
 ): Promise<{ id: string; gtin: string | null; nome: string } | null> {
@@ -119,6 +119,35 @@ async function buscarProdutoPorSku(
     .limit(1)
     .maybeSingle();
   return data ?? null;
+}
+
+// Resolve produto_id + ean de um item de pedido Bling: tenta GTIN primeiro, cai para SKU,
+// e usa o gtin do produto cadastrado como fallback quando o item não traz gtin.
+// Mesma lógica usada por processarPedidoBling (reconciler) — ponto único de matching.
+export async function resolverProdutoDoItem(
+  it: { codigo?: string | null; gtin?: string | null },
+  blingConnectionId: string,
+): Promise<{ produtoId: string | null; ean: string | null }> {
+  const gtin = it.gtin ?? null;
+  const sku = it.codigo ?? null;
+
+  if (gtin) {
+    const { data } = await supabaseAdmin
+      .from("produtos")
+      .select("id, gtin")
+      .eq("gtin", gtin)
+      .eq("bling_connection_id", blingConnectionId)
+      .limit(1)
+      .maybeSingle();
+    if (data) return { produtoId: data.id, ean: gtin };
+  }
+
+  if (sku) {
+    const produto = await buscarProdutoPorSku(sku, blingConnectionId);
+    if (produto) return { produtoId: produto.id, ean: gtin ?? produto.gtin ?? null };
+  }
+
+  return { produtoId: null, ean: gtin };
 }
 
 async function buscarEanPorSku(
@@ -557,7 +586,7 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
     const allIds = [...candidatos.keys()];
     const { data: existentes } = await supabaseAdmin
       .from("pedidos")
-      .select("bling_pedido_id, bling_nota_fiscal_id, bling_nota_fiscal_numero, arquivado")
+      .select("bling_pedido_id, bling_nota_fiscal_id, bling_nota_fiscal_numero, arquivado, updated_at")
       .in("bling_pedido_id", allIds);
 
     // Pedidos que já existem E já têm NF (id + numero), ou foram arquivados, não precisam ser reprocessados
@@ -573,21 +602,37 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
         .filter((e: any) => !existentesComNfSet.has(e.bling_pedido_id))
         .map((e: any) => e.bling_pedido_id)
     );
+    // updated_at de cada "sem NF" existente, pra rotacionar o retry por "checado há mais tempo"
+    // em vez de uma chave estática (ver Lição #16 do cron-ml-status — mesmo bug, fila diferente).
+    const updatedAtPorId = new Map<number, string | null>(
+      (existentes ?? []).map((e: any) => [e.bling_pedido_id, e.updated_at ?? null])
+    );
 
     console.log(`[reconciliar] ${candidatos.size} candidato(s), ${existentesComNfSet.size} já existem com NF no banco`);
 
-    // Prioriza candidatos NUNCA tentados (mais antigos primeiro) sobre os que já foram
-    // tentados e ficaram sem NF — caso contrário, pedidos travados aguardando faturamento
-    // no Bling monopolizam os slots de MAX_CANDIDATOS_POR_EXECUCAO a cada execução e
-    // impedem que candidatos novos avancem. Sem dataPedido vai ao final do seu grupo.
+    // "Nunca tentados" (candidatos que ainda não existem no banco sem NF) priorizam os mais
+    // antigos primeiro (dataPedido ASC) — primeira checagem deve favorecer quem chegou antes.
     const porData = (a: { dataPedido: string | null }, b: { dataPedido: string | null }) => {
       if (!a.dataPedido && !b.dataPedido) return 0;
       if (!a.dataPedido) return 1;
       if (!b.dataPedido) return -1;
       return a.dataPedido.localeCompare(b.dataPedido);
     };
+    // "Tentados sem NF" (retry) rotacionam por updated_at ASC — quem está há mais tempo sem
+    // ser rechecado vai primeiro. Ordenar esse bucket por dataPedido (chave estática) faria os
+    // mesmos pedidos mais antigos monopolizarem os slots pra sempre, deixando pedidos mais
+    // recentes ainda sem NF (ex: importado há horas, nunca retentado) travados indefinidamente
+    // atrás deles — mesmo padrão da Lição #16, mas aqui na fila do próprio reconciliador.
+    const porUpdatedAt = (a: { id: number }, b: { id: number }) => {
+      const ua = updatedAtPorId.get(a.id) ?? null;
+      const ub = updatedAtPorId.get(b.id) ?? null;
+      if (!ua && !ub) return 0;
+      if (!ua) return -1;
+      if (!ub) return 1;
+      return ua.localeCompare(ub);
+    };
     const nuncaTentados = [...candidatos.values()].filter((c) => !existentesSemNfSet.has(c.id)).sort(porData);
-    const tentadosSemNf = [...candidatos.values()].filter((c) => existentesSemNfSet.has(c.id)).sort(porData);
+    const tentadosSemNf = [...candidatos.values()].filter((c) => existentesSemNfSet.has(c.id)).sort(porUpdatedAt);
     const candidatosOrdenados = [...nuncaTentados, ...tentadosSemNf];
 
     let processadosNestaExecucao = 0;
