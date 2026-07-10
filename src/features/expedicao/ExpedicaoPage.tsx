@@ -714,16 +714,20 @@ function BipagemModal({
   const [valor, setValor] = useState("");
   const [status, setStatus] = useState<ResultadoStatus>(null);
   const [mensagem, setMensagem] = useState("");
+  const [itens, setItens] = useState<ItemExpedicao[]>([]);
   const [itemAtivo, setItemAtivo] = useState<ItemExpedicao | null>(null);
   const [imprimindo, setImprimindo] = useState(false);
+  const [enviando, setEnviando] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Seleciona automaticamente o primeiro item incompleto
   useEffect(() => {
     if (!pedido) {
+      setItens([]);
       setItemAtivo(null);
       return;
     }
+    setItens(pedido.itens);
     const incompleto = pedido.itens.find(
       (i) => i.quantidade_bipada < i.quantidade,
     );
@@ -731,17 +735,21 @@ function BipagemModal({
     setValor("");
     setStatus(null);
     setMensagem("");
+    setEnviando(false);
     setTimeout(() => inputRef.current?.focus(), 120);
   }, [pedido]);
 
   if (!pedido) return null;
 
   const handleEnter = async () => {
-    if (!valor.trim()) return;
+    if (!valor.trim() || enviando) return;
     const code = valor.trim();
 
     // Tenta encontrar item que corresponde ao código bipado e ainda precisa de bipes
-    const match = pedido.itens.find(
+    // (usa o estado local `itens`, atualizado otimisticamente a cada bipe — evitando que um
+    // segundo scan muito rápido, antes do refetch do servidor, "encontre" um item que já
+    // acabou de ser completado e empurre quantidade_bipada além do pedido)
+    const match = itens.find(
       (i) =>
         ((i.ean && i.ean === code) ||
           (!i.ean && i.produto_gtin && i.produto_gtin === code)) &&
@@ -750,7 +758,7 @@ function BipagemModal({
 
     const alvoItem = match ?? itemAtivo;
 
-    if (!alvoItem) {
+    if (!alvoItem || alvoItem.quantidade_bipada >= alvoItem.quantidade) {
       playBeep(false);
       setStatus("erro");
       setMensagem("Nenhum item pendente com esse EAN");
@@ -766,55 +774,71 @@ function BipagemModal({
       ok = alvoItem.produto_gtin === code;
     }
 
-    if (ok) {
-      setStatus("ok");
-      setMensagem(`✓ ${alvoItem.descricao}`);
-      playBeep(true);
+    setEnviando(true);
+    try {
+      if (ok) {
+        setStatus("ok");
+        setMensagem(`✓ ${alvoItem.descricao}`);
+        playBeep(true);
 
-      const result = await registrarFn({
-        data: {
-          pedidoItemId: alvoItem.id,
-          pedidoId: pedido.id,
-          codigoBipado: code,
-          resultado: "sucesso",
-          usuario: profile?.nome ?? user?.email ?? null,
-        },
-      });
+        // Atualização otimista local — trava a próxima leitura contra o mesmo item
+        // antes mesmo da resposta do servidor voltar
+        const itensAtualizados = itens.map((i) =>
+          i.id === alvoItem.id
+            ? { ...i, quantidade_bipada: Math.min(i.quantidade, i.quantidade_bipada + 1) }
+            : i,
+        );
+        setItens(itensAtualizados);
+        const proximoIncompleto = itensAtualizados.find((i) => i.quantidade_bipada < i.quantidade);
+        setItemAtivo(proximoIncompleto ?? null);
 
-      onRegistered();
+        const result = await registrarFn({
+          data: {
+            pedidoItemId: alvoItem.id,
+            pedidoId: pedido.id,
+            codigoBipado: code,
+            resultado: "sucesso",
+            usuario: profile?.nome ?? user?.email ?? null,
+          },
+        });
 
-      if (result.ok && result.pedidoConcluido) {
-        setImprimindo(true);
-        setTimeout(() => {
-          setImprimindo(false);
-          onConcluido(pedido);
-        }, 800);
-        return;
+        onRegistered();
+
+        if (result.ok && result.pedidoConcluido) {
+          setImprimindo(true);
+          setTimeout(() => {
+            setImprimindo(false);
+            onConcluido(pedido);
+          }, 800);
+          return;
+        }
+      } else {
+        setStatus("erro");
+        setMensagem(
+          `EAN não confere — esperado: ${alvoItem.ean ?? "—"}, recebido: ${code}`,
+        );
+        playBeep(false);
+        await registrarFn({
+          data: {
+            pedidoItemId: alvoItem.id,
+            pedidoId: pedido.id,
+            codigoBipado: code,
+            resultado: "erro_ean_invalido",
+            usuario: profile?.nome ?? user?.email ?? null,
+          },
+        });
+        onRegistered();
       }
-    } else {
-      setStatus("erro");
-      setMensagem(
-        `EAN não confere — esperado: ${alvoItem.ean ?? "—"}, recebido: ${code}`,
-      );
-      playBeep(false);
-      await registrarFn({
-        data: {
-          pedidoItemId: alvoItem.id,
-          pedidoId: pedido.id,
-          codigoBipado: code,
-          resultado: "erro_ean_invalido",
-          usuario: profile?.nome ?? user?.email ?? null,
-        },
-      });
-      onRegistered();
-    }
 
-    setTimeout(() => {
-      setValor("");
-      setStatus(null);
-      setMensagem("");
-      inputRef.current?.focus();
-    }, ok ? 600 : 1200);
+      setTimeout(() => {
+        setValor("");
+        setStatus(null);
+        setMensagem("");
+        inputRef.current?.focus();
+      }, ok ? 600 : 1200);
+    } finally {
+      setEnviando(false);
+    }
   };
 
   const excecao = async (
@@ -836,7 +860,8 @@ function BipagemModal({
     onClose();
   };
 
-  const { total, bipado } = pedidoProgress(pedido);
+  const total = itens.reduce((s, i) => s + i.quantidade, 0);
+  const bipado = itens.reduce((s, i) => s + i.quantidade_bipada, 0);
 
   return (
     <Dialog open={!!pedido} onOpenChange={(o) => !o && onClose()}>
@@ -869,7 +894,7 @@ function BipagemModal({
         <div className="grid grid-cols-5">
           {/* Lista de itens */}
           <div className="col-span-2 border-r bg-muted/30 p-4 space-y-2 max-h-[500px] overflow-y-auto">
-            {pedido.itens.map((item) => {
+            {itens.map((item) => {
               const done = item.quantidade_bipada >= item.quantidade;
               const isAtivo = itemAtivo?.id === item.id;
               return (
@@ -948,7 +973,8 @@ function BipagemModal({
                     onKeyDown={(e) => {
                       if (e.key === "Enter") { e.preventDefault(); handleEnter(); }
                     }}
-                    className={`w-full h-14 px-4 text-xl font-mono rounded-lg border-4 outline-none transition-colors bg-background ${
+                    disabled={enviando}
+                    className={`w-full h-14 px-4 text-xl font-mono rounded-lg border-4 outline-none transition-colors bg-background disabled:opacity-60 ${
                       status === "ok"
                         ? "border-success"
                         : status === "erro"

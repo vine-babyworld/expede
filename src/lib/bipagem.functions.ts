@@ -40,7 +40,7 @@ export const registrarBipagem = createServerFn({ method: "POST" })
     // Increment quantidade_bipada atomicamente via read-update (sistema single-operador)
     const { data: item, error: fetchErr } = await supabaseAdmin
       .from("pedido_itens")
-      .select("quantidade_bipada")
+      .select("quantidade, quantidade_bipada")
       .eq("id", data.pedidoItemId)
       .single();
 
@@ -49,11 +49,19 @@ export const registrarBipagem = createServerFn({ method: "POST" })
       return { ok: false, error: "item_not_found" };
     }
 
-    const nova = Number((item as any).quantidade_bipada ?? 0) + 1;
-    await supabaseAdmin
-      .from("pedido_itens")
-      .update({ quantidade_bipada: nova } as any)
-      .eq("id", data.pedidoItemId);
+    const atual = Number((item as any).quantidade_bipada ?? 0);
+    const esperada = Number((item as any).quantidade ?? 1);
+
+    // Trava contra over-scan: item já completo não incrementa de novo (bipagem duplicada/scanner
+    // double-fire não pode empurrar quantidade_bipada além do pedido — isso "conclui" o pedido
+    // silenciosamente sem printed_at, fazendo-o sumir do Checkout sem nunca ter sido impresso)
+    const nova = atual >= esperada ? atual : atual + 1;
+    if (nova !== atual) {
+      await supabaseAdmin
+        .from("pedido_itens")
+        .update({ quantidade_bipada: nova } as any)
+        .eq("id", data.pedidoItemId);
+    }
 
     // Re-query para verificar se todos os itens foram concluídos
     const { data: allItems } = await supabaseAdmin
