@@ -122,9 +122,9 @@ export const Route = createFileRoute("/api/public/hooks/bling-pedidos")({
           if (itens.length === 0) {
             console.log(`[bling-pedidos] pedido ${blingPedidoId} chegou com itens vazios — pedido_itens preservado sem alteração`);
           } else {
-            // Itens: replace-all — delete existentes e reinsere os atuais
-            await supabaseAdmin.from("pedido_itens").delete().eq("pedido_id", pedidoDbId);
-
+            // Upsert por (pedido_id, sku) — nunca deleta antes de inserir. Entregas duplicadas
+            // do webhook pro mesmo pedido (comum no Bling) não podem mais apagar um item que
+            // outra chamada concorrente acabou de gravar (ver migration pedido-itens-unique-sku).
             const itensPrepared = await Promise.all(
               itens.map(async (it: any) => {
                 let produtoId: string | null = null;
@@ -171,9 +171,9 @@ export const Route = createFileRoute("/api/public/hooks/bling-pedidos")({
             if (itensPrepared.length > 0) {
               const { error: itemsErr } = await supabaseAdmin
                 .from("pedido_itens")
-                .insert(itensPrepared);
+                .upsert(itensPrepared, { onConflict: "pedido_id,sku" });
               if (itemsErr) {
-                console.error("[bling-pedidos] insert itens falhou:", itemsErr.message);
+                console.error("[bling-pedidos] upsert itens falhou:", itemsErr.message);
               }
             }
           }

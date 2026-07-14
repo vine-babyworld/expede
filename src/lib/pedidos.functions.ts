@@ -256,14 +256,16 @@ async function processarPedidoBling(
 
   const pedidoDbId: string = upserted.id;
 
-  // Identifica SKUs de componentes de kits neste pedido (antes do delete)
+  // Identifica SKUs de componentes de kits neste pedido — usado só para pular
+  // relookup de produto/EAN de componentes já conhecidos (evita subrequests repetidos
+  // a cada reconciliação). Preservação de quantidade_bipada agora é responsabilidade
+  // do upsert por (pedido_id, sku) abaixo, não mais de um delete seletivo.
   const componentSkusFromKits = new Set<string>();
   for (const it of itens) {
     const componentes = parseComponentesKit(it.codigo ?? "");
     if (componentes.length >= 2) componentes.forEach((s) => componentSkusFromKits.add(s));
   }
 
-  // Verifica quais componentes já existem no DB (para preservar quantidade_bipada)
   let jaExplodidosSkus = new Set<string>();
   if (componentSkusFromKits.size > 0) {
     const { data: existentes } = await supabaseAdmin
@@ -274,22 +276,8 @@ async function processarPedidoBling(
     jaExplodidosSkus = new Set((existentes ?? []).map((r: any) => r.sku as string).filter(Boolean));
   }
 
-  // Delete: preserva rows de componentes já explodidos (carregam progresso de bipagem)
   if (itens.length === 0) {
     console.log(`[processarPedido] pedido ${blingPedidoId} chegou com itens vazios — pedido_itens preservado sem alteração`);
-  } else if (jaExplodidosSkus.size > 0) {
-    const { data: toDelete } = await supabaseAdmin
-      .from("pedido_itens")
-      .select("id, sku")
-      .eq("pedido_id", pedidoDbId);
-    const idsToDelete = (toDelete ?? [])
-      .filter((r: any) => !jaExplodidosSkus.has(r.sku))
-      .map((r: any) => r.id as string);
-    if (idsToDelete.length > 0) {
-      await supabaseAdmin.from("pedido_itens").delete().in("id", idsToDelete);
-    }
-  } else {
-    await supabaseAdmin.from("pedido_itens").delete().eq("pedido_id", pedidoDbId);
   }
 
   // Monta rows de itens — kits são explodidos em componentes individuais
@@ -372,8 +360,14 @@ async function processarPedidoBling(
   }
 
   if (itensPrepared.length > 0) {
-    const { error: itemsErr } = await supabaseAdmin.from("pedido_itens").insert(itensPrepared);
-    if (itemsErr) console.error("[processarPedido] insert itens falhou:", itemsErr.message);
+    // Upsert por (pedido_id, sku) — nunca deleta antes de gravar. Evita a race condition
+    // de reconciliação concorrente (webhook + reconciliarPedidos) apagando um item que a
+    // outra chamada acabou de inserir; ON CONFLICT não toca quantidade_bipada (só presente
+    // no payload de itens novos), preservando progresso de bipagem automaticamente.
+    const { error: itemsErr } = await supabaseAdmin
+      .from("pedido_itens")
+      .upsert(itensPrepared, { onConflict: "pedido_id,sku" });
+    if (itemsErr) console.error("[processarPedido] upsert itens falhou:", itemsErr.message);
   }
 
   console.log(
