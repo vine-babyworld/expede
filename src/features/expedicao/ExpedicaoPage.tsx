@@ -23,11 +23,20 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { playBeep } from "./beep";
 import { registrarBipagem } from "@/lib/bipagem.functions";
 import { buscarEtiquetaBling } from "@/lib/etiqueta.functions";
 import { gerarDanfeCustom } from "@/lib/danfe.functions";
-import { isPedidoFlex, marcarPedidoImpresso } from "@/lib/pedidos.functions";
+import { isPedidoFlex, marcarPedidoImpresso, nfNaoAutorizada, nfSituacaoLabel } from "@/lib/pedidos.functions";
 import { useQzTray } from "@/hooks/useQzTray";
 import { PrinterConfig } from "@/components/PrinterConfig";
 
@@ -56,6 +65,8 @@ type PedidoExpedicao = {
   cliente: { nome?: string; razaoSocial?: string } | null;
   bling_nota_fiscal_id: number | null;
   bling_nota_fiscal_numero: string | null;
+  nf_situacao: number | null;
+  nf_situacao_motivo: string | null;
   situacao_valor: number | null;
   raw_json: any;
   itens: ItemExpedicao[];
@@ -128,7 +139,7 @@ async function fetchPedidos(): Promise<PedidoExpedicao[]> {
   const { data, error } = await supabase
     .from("pedidos")
     .select(
-      "id, bling_pedido_id, numero, numero_loja, data_pedido, cliente, bling_nota_fiscal_id, bling_nota_fiscal_numero, situacao_id, situacao_valor, marketplace, raw_json, printed_at, bling_divergente, ml_shipment_status, pedido_itens(id, sku, ean, descricao, quantidade, quantidade_bipada, produto:produtos(imagem_url, gtin))",
+      "id, bling_pedido_id, numero, numero_loja, data_pedido, cliente, bling_nota_fiscal_id, bling_nota_fiscal_numero, nf_situacao, nf_situacao_motivo, situacao_id, situacao_valor, marketplace, raw_json, printed_at, bling_divergente, ml_shipment_status, pedido_itens(id, sku, ean, descricao, quantidade, quantidade_bipada, produto:produtos(imagem_url, gtin))",
     )
     .is("printed_at", null)
     .neq("situacao_id", 12)
@@ -148,6 +159,8 @@ async function fetchPedidos(): Promise<PedidoExpedicao[]> {
     cliente: p.cliente ?? null,
     bling_nota_fiscal_id: p.bling_nota_fiscal_id ?? null,
     bling_nota_fiscal_numero: p.bling_nota_fiscal_numero ?? null,
+    nf_situacao: p.nf_situacao ?? null,
+    nf_situacao_motivo: p.nf_situacao_motivo ?? null,
     situacao_valor: p.situacao_valor ?? null,
     raw_json: p.raw_json ?? null,
     printed_at: p.printed_at ?? null,
@@ -208,6 +221,7 @@ export function ExpedicaoPage() {
   const [marketplaceFiltro, setMarketplaceFiltro] = useState<string>("todos");
   const [dataFiltro, setDataFiltro] = useState<DataFiltroId>("todas");
   const [pedidoAtivo, setPedidoAtivo] = useState<PedidoExpedicao | null>(null);
+  const [pedidoNfBloqueada, setPedidoNfBloqueada] = useState<PedidoExpedicao | null>(null);
   const [showPrinterConfig, setShowPrinterConfig] = useState(false);
 
   const pendentes = useMemo(
@@ -266,6 +280,10 @@ export function ExpedicaoPage() {
         toast.info("Este pedido ainda não tem NF emitida no Bling — aguarde o próximo sync");
         return;
       }
+      if (!isPedidoFlex(pedido) && nfNaoAutorizada(pedido)) {
+        setPedidoNfBloqueada(pedido);
+        return;
+      }
       const fresh = pedidos.find((p) => p.id === pedido.id) ?? pedido;
       setPedidoAtivo(fresh);
     },
@@ -287,6 +305,13 @@ export function ExpedicaoPage() {
 
       if (!isFlex && semNf) {
         toast.warning("Pedido aguardando NF no Bling — impressão bloqueada até a NF ser emitida");
+        return;
+      }
+      if (!isFlex && nfNaoAutorizada(pedido)) {
+        toast.warning(
+          `NF não autorizada (${nfSituacaoLabel(pedido.nf_situacao)}) — corrija no Bling antes de imprimir`,
+          { id: "print" },
+        );
         return;
       }
 
@@ -518,6 +543,9 @@ export function ExpedicaoPage() {
         }
       />
 
+      {/* Aviso de NF não autorizada */}
+      <NfNaoAutorizadaDialog pedido={pedidoNfBloqueada} onClose={() => setPedidoNfBloqueada(null)} />
+
       {/* Config de impressora */}
       <PrinterConfig
         open={showPrinterConfig}
@@ -538,6 +566,39 @@ function detectarMarketplace(marketplace: string | null): { nome: string; cor: s
   if (marketplace === "shopee") return { nome: "Shopee", cor: "bg-orange-100 text-orange-800 border-orange-300" };
   if (marketplace === "amazon") return { nome: "Amazon", cor: "bg-amber-100 text-amber-800 border-amber-300" };
   return { nome: "Outros", cor: "bg-gray-100 text-gray-700 border-gray-300" };
+}
+
+function NfNaoAutorizadaDialog({
+  pedido,
+  onClose,
+}: {
+  pedido: PedidoExpedicao | null;
+  onClose: () => void;
+}) {
+  return (
+    <AlertDialog open={!!pedido} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>NF não autorizada</AlertDialogTitle>
+          <AlertDialogDescription>
+            {pedido && (
+              <>
+                O pedido <strong>{pedido.numero_loja || pedido.numero}</strong>
+                {pedido.bling_nota_fiscal_numero ? ` (NF ${pedido.bling_nota_fiscal_numero})` : ""} não
+                possui NF autorizada no Bling — situação atual:{" "}
+                <strong>{nfSituacaoLabel(pedido.nf_situacao)}</strong>.
+                {pedido.nf_situacao_motivo ? ` Motivo: ${pedido.nf_situacao_motivo}.` : ""} Corrija a nota
+                fiscal no Bling antes de bipar este pedido.
+              </>
+            )}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogAction onClick={onClose}>Entendi</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
 }
 
 function PedidoCard({
@@ -608,6 +669,14 @@ function PedidoCard({
           {!isFlex && semNf && (
             <span className="shrink-0 text-[10px] font-medium px-2 py-0.5 rounded border bg-gray-100 text-gray-500 border-gray-300">
               Aguardando NF do Bling
+            </span>
+          )}
+          {!isFlex && nfNaoAutorizada(pedido) && (
+            <span
+              className="shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded border bg-red-100 text-red-700 border-red-300"
+              title={pedido.nf_situacao_motivo ?? undefined}
+            >
+              ⚠ NF não autorizada ({nfSituacaoLabel(pedido.nf_situacao)})
             </span>
           )}
           {blingDivergente && (
