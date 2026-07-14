@@ -3,8 +3,9 @@ import "./lib/error-capture";
 import { consumeLastCapturedError } from "./lib/error-capture";
 import { renderErrorPage } from "./lib/error-page";
 import { runSyncJob } from "./lib/produtos.functions";
-import { reconciliarPedidos } from "./lib/pedidos.functions";
+import { reconciliarPedidos, fetchNfSituacaoBling, NF_SITUACOES_AUTORIZADAS } from "./lib/pedidos.functions";
 import { checarStatusEnvioML } from "./lib/ml.functions";
+import { getDecryptedAccessToken } from "./lib/bling.functions";
 import { supabaseAdmin } from "./integrations/supabase/client.server";
 
 type ServerEntry = {
@@ -76,6 +77,10 @@ const RECONCILIATION_INTERVAL_MS = 60 * 1000;
 let lastMLStatusAt = 0;
 const ML_STATUS_INTERVAL_MS = 5 * 60 * 1000; // 5 min — independente do reconciliador
 const MAX_CANDIDATOS_ML_STATUS = 4;
+
+let lastNfStatusAt = 0;
+const NF_STATUS_INTERVAL_MS = 2 * 60 * 1000; // 2 min — mais curto que o ML (bloqueia bipagem)
+const MAX_CANDIDATOS_NF_STATUS = 4;
 
 // Situacao_ids Bling que indicam pedido já baixado/faturado pelo Bling
 const BLING_SITUACAO_FINALIZADA = new Set([9, 15]); // 9=Atendido, 15=Faturado
@@ -215,6 +220,132 @@ export async function cronMLStatus() {
     console.log("[cron-ml-status] ciclo concluído");
   } catch (e) {
     console.error("[cron-ml-status] exceção não tratada", {
+      message: e instanceof Error ? e.message : String(e),
+      stack: e instanceof Error ? e.stack : undefined,
+    });
+  }
+}
+
+export async function cronNfStatus() {
+  const now = Date.now();
+  console.log("[cron-nf-status] iniciando verificação de gate", { now: new Date(now).toISOString() });
+
+  try {
+    const diffMemMs = now - lastNfStatusAt;
+    if (diffMemMs < NF_STATUS_INTERVAL_MS) {
+      console.log("[cron-nf-status] bloqueado pelo gate em memória", { diffMemMs });
+      return;
+    }
+
+    const db = supabaseAdmin as any;
+    const { data: state } = await db
+      .from("cron_state")
+      .select("last_run_at")
+      .eq("job_name", "nf_status")
+      .maybeSingle();
+
+    const lastRun = state?.last_run_at ? new Date(state.last_run_at as string).getTime() : 0;
+    const diffMs = now - lastRun;
+    if (diffMs < NF_STATUS_INTERVAL_MS) return;
+
+    const { error: upsertError } = await db
+      .from("cron_state")
+      .upsert({ job_name: "nf_status", last_run_at: new Date(now).toISOString() }, { onConflict: "job_name" });
+    if (upsertError) {
+      console.error("[cron-nf-status] upsert cron_state falhou", { message: upsertError.message });
+      return;
+    }
+
+    lastNfStatusAt = now;
+
+    const { data: conn } = await supabaseAdmin
+      .from("bling_connections")
+      .select("id")
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (!conn) {
+      console.log("[cron-nf-status] nenhuma conexão Bling cadastrada");
+      return;
+    }
+
+    let token: string;
+    try {
+      token = await getDecryptedAccessToken(conn.id);
+    } catch (e) {
+      console.error("[cron-nf-status] erro ao obter token:", e);
+      return;
+    }
+
+    const situacoesAutorizadas = Array.from(NF_SITUACOES_AUTORIZADAS);
+
+    const baseQuery = () =>
+      supabaseAdmin
+        .from("pedidos")
+        .select("id, bling_nota_fiscal_id, nf_situacao, nf_situacao_checked_at")
+        .is("printed_at", null)
+        .not("bling_nota_fiscal_id", "is", null)
+        .neq("situacao_id", 12)
+        .eq("arquivado", false)
+        .not("nf_situacao", "in", `(${situacoesAutorizadas.join(",")})`);
+
+    const { data: nuncaVerificados, error: selectError1 } = await baseQuery()
+      .is("nf_situacao", null)
+      .order("data_pedido", { ascending: true })
+      .limit(MAX_CANDIDATOS_NF_STATUS) as any;
+
+    if (selectError1) {
+      console.error("[cron-nf-status] select nunca-verificados falhou:", selectError1.message);
+      return;
+    }
+
+    const slotsRestantes = MAX_CANDIDATOS_NF_STATUS - (nuncaVerificados?.length ?? 0);
+    let retry: any[] = [];
+
+    if (slotsRestantes > 0) {
+      const { data: retryData, error: selectError2 } = await baseQuery()
+        .not("nf_situacao", "is", null)
+        .order("nf_situacao_checked_at", { ascending: true, nullsFirst: true })
+        .limit(slotsRestantes) as any;
+
+      if (selectError2) {
+        console.error("[cron-nf-status] select retry falhou:", selectError2.message);
+      } else {
+        retry = retryData ?? [];
+      }
+    }
+
+    const candidatos = [...(nuncaVerificados ?? []), ...retry];
+    console.log(
+      `[cron-nf-status] ${candidatos.length} candidato(s) encontrado(s)`,
+      `(${nuncaVerificados?.length ?? 0} nunca verificado(s), ${retry.length} retry)`,
+    );
+
+    for (const pedido of candidatos) {
+      if (!pedido.bling_nota_fiscal_id) continue;
+
+      const { situacao, motivo } = await fetchNfSituacaoBling(pedido.bling_nota_fiscal_id, token);
+
+      console.log(
+        `[cron-nf-status] pedido ${pedido.id} nf=${pedido.bling_nota_fiscal_id} situacao=${situacao} motivo=${motivo ?? "null"}`,
+      );
+
+      if (situacao == null) continue; // não sobrescreve com null — mantém o que já sabia (ou continua null)
+
+      await supabaseAdmin
+        .from("pedidos")
+        .update({
+          nf_situacao: situacao,
+          nf_situacao_motivo: motivo,
+          nf_situacao_checked_at: new Date(now).toISOString(),
+        } as any)
+        .eq("id", pedido.id);
+    }
+
+    console.log("[cron-nf-status] ciclo concluído");
+  } catch (e) {
+    console.error("[cron-nf-status] exceção não tratada", {
       message: e instanceof Error ? e.message : String(e),
       stack: e instanceof Error ? e.stack : undefined,
     });
