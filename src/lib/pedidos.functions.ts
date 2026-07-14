@@ -768,6 +768,78 @@ async function fetchNfNumeroBling(nfId: number, token: string): Promise<string |
   }
 }
 
+/**
+ * Consulta a situação real da NF no Bling (autorizada, rejeitada, pendente, etc)
+ * — não confundir com "bling_nota_fiscal_id preenchido", que só indica que o
+ * Bling criou o registro da NF, não que ela foi autorizada pela SEFAZ.
+ * Extração do motivo é best-effort: a API v3 não documenta publicamente um
+ * campo de erro/motivo no GET /nfe/{id}, então tentamos os nomes mais
+ * prováveis e caímos pra `null` se nenhum vier preenchido — a UI sempre tem
+ * o fallback do rótulo da situação (ver nfSituacaoLabel).
+ */
+export async function fetchNfSituacaoBling(
+  nfId: number,
+  token: string,
+): Promise<{ situacao: number | null; motivo: string | null }> {
+  try {
+    const res = await fetch(`${BLING_NFE_URL}/${nfId}`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+    });
+    if (!res.ok) return { situacao: null, motivo: null };
+    const json: any = await res.json().catch(() => null);
+    const d = json?.data ?? null;
+    if (!d) return { situacao: null, motivo: null };
+
+    console.log("[nf-situacao] resposta bruta Bling", JSON.stringify(d).slice(0, 1000));
+
+    const situacao = d.situacao != null ? Number(d.situacao) : null;
+    const motivo: string | null =
+      d.motivo ?? d.mensagem ?? d.erro ?? d.observacoes ?? d.xJust ?? null;
+    return { situacao, motivo: motivo ? String(motivo) : null };
+  } catch (e) {
+    console.error("[nf-situacao] erro ao consultar Bling:", e);
+    return { situacao: null, motivo: null };
+  }
+}
+
+/** Situações do Bling que significam NF de fato autorizada/emitida. */
+export const NF_SITUACOES_AUTORIZADAS = new Set<number>([5, 6]);
+
+const NF_SITUACAO_LABELS: Record<number, string> = {
+  1: "Pendente",
+  2: "Cancelada",
+  3: "Aguardando recibo",
+  4: "Rejeitada",
+  5: "Autorizada",
+  6: "Emitida DANFE",
+  7: "Registrada",
+  8: "Aguardando protocolo",
+  9: "Denegada",
+  10: "Consulta situação",
+  11: "Bloqueada",
+};
+
+export function nfSituacaoLabel(codigo: number | null): string {
+  if (codigo == null) return "não verificada";
+  return NF_SITUACAO_LABELS[codigo] ?? `código ${codigo}`;
+}
+
+/**
+ * true somente quando: a NF existe (bling_nota_fiscal_id preenchido), o cron
+ * já verificou a situação real (nf_situacao != null) e essa situação NÃO está
+ * no conjunto autorizado. Pedido ainda não verificado (nf_situacao null) não
+ * bloqueia — mesma janela de defasagem aceita no design (poucos minutos até
+ * o cronNfStatus alcançar o pedido).
+ */
+export function nfNaoAutorizada(p: {
+  bling_nota_fiscal_id: number | null;
+  nf_situacao: number | null;
+}): boolean {
+  if (!p.bling_nota_fiscal_id) return false;
+  if (p.nf_situacao == null) return false;
+  return !NF_SITUACOES_AUTORIZADAS.has(p.nf_situacao);
+}
+
 export const buscarNumeroNF = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: { pedidoId: string; notaFiscalId: number }) => d)
