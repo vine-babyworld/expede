@@ -202,7 +202,7 @@ export const triggerReconciliar = createServerFn({ method: "POST" })
 // ─── Histórico ─────────────────────────────────────────────────────────────────
 
 const HISTORICO_SELECT =
-  "id, numero, numero_loja, marketplace, cliente, total, printed_at, situacao_id, bling_pedido_id, bling_nota_fiscal_id, raw_json, pedido_itens(id, sku, ean, descricao, quantidade, quantidade_bipada, produto:produtos(imagem_url, gtin))";
+  "id, numero, numero_loja, marketplace, cliente, total, printed_at, situacao_id, bling_pedido_id, bling_nota_fiscal_id, nf_situacao, nf_situacao_motivo, raw_json, pedido_itens(id, sku, ean, descricao, quantidade, quantidade_bipada, produto:produtos(imagem_url, gtin))";
 
 export const HISTORICO_LIMIT = 50;
 
@@ -217,6 +217,8 @@ export type HistoricoRow = {
   situacao_id: number | null;
   bling_pedido_id: number | null;
   bling_nota_fiscal_id: number | null;
+  nf_situacao: number | null;
+  nf_situacao_motivo: string | null;
   raw_json: any;
   itens: Array<{
     id: string;
@@ -267,6 +269,8 @@ export const getHistorico = createServerFn({ method: "POST" })
         situacao_id: p.situacao_id ?? null,
         bling_pedido_id: p.bling_pedido_id ?? null,
         bling_nota_fiscal_id: p.bling_nota_fiscal_id ?? null,
+        nf_situacao: p.nf_situacao ?? null,
+        nf_situacao_motivo: p.nf_situacao_motivo ?? null,
         raw_json: p.raw_json ?? null,
         itens: (p.pedido_itens ?? []).map((i: any) => ({
           id: i.id,

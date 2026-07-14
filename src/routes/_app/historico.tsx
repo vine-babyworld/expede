@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { getHistorico, HISTORICO_LIMIT, type HistoricoRow } from "@/lib/dashboard.functions";
+import { nfNaoAutorizada, nfSituacaoLabel } from "@/lib/pedidos.functions";
 import { buscarEtiquetaBling } from "@/lib/etiqueta.functions";
 import { gerarDanfeCustom } from "@/lib/danfe.functions";
 import { useQzTray } from "@/hooks/useQzTray";
@@ -88,6 +89,10 @@ function HistoricoPage() {
 
       if (!isFlex && semNf) {
         toast.warning("Pedido sem NF — impressão de DANFE indisponível");
+        return;
+      }
+      if (!isFlex && nfNaoAutorizada(pedido)) {
+        toast.warning(`NF não autorizada (${nfSituacaoLabel(pedido.nf_situacao)}) — corrija no Bling antes de reimprimir`);
         return;
       }
 
