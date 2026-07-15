@@ -280,6 +280,12 @@ export async function cronNfStatus() {
 
     const situacoesAutorizadas = Array.from(NF_SITUACOES_AUTORIZADAS);
 
+    // Não colocar o filtro "not in (autorizadas)" aqui: `NOT (coluna IN (...))`
+    // em SQL exclui silenciosamente qualquer linha com coluna NULL (mesma
+    // classe da Lição #10 do projeto) — quebraria o bucket "nunca verificados"
+    // abaixo, que depende de `nf_situacao IS NULL` passar por este filtro
+    // compartilhado. A exclusão de "já autorizada" só é aplicada dentro do
+    // bucket de retry, onde `nf_situacao` já está garantidamente não-nulo.
     const baseQuery = () =>
       supabaseAdmin
         .from("pedidos")
@@ -287,8 +293,7 @@ export async function cronNfStatus() {
         .is("printed_at", null)
         .not("bling_nota_fiscal_id", "is", null)
         .neq("situacao_id", 12)
-        .eq("arquivado", false)
-        .not("nf_situacao", "in", `(${situacoesAutorizadas.join(",")})`);
+        .eq("arquivado", false);
 
     const { data: nuncaVerificados, error: selectError1 } = await baseQuery()
       .is("nf_situacao", null)
@@ -306,6 +311,7 @@ export async function cronNfStatus() {
     if (slotsRestantes > 0) {
       const { data: retryData, error: selectError2 } = await baseQuery()
         .not("nf_situacao", "is", null)
+        .not("nf_situacao", "in", `(${situacoesAutorizadas.join(",")})`)
         .order("nf_situacao_checked_at", { ascending: true, nullsFirst: true })
         .limit(slotsRestantes) as any;
 
