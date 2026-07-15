@@ -6,7 +6,7 @@ const SHOPEE_BASE_SANDBOX = "https://partner.test-stable.shopeemobile.com";
 const SHOPEE_BASE_PROD = "https://partner.shopeemobile.com";
 const SHOPEE_AUTH_PARTNER_PATH = "/api/v2/shop/auth_partner";
 const SHOPEE_TOKEN_GET_PATH = "/api/v2/auth/token/get";
-const SHOPEE_REDIRECT_URI = "https://expede.lovable.app/api/shopee/callback";
+const SHOPEE_REDIRECT_URI = "https://babyworld.expede.workers.dev/api/shopee/callback";
 
 // Endpoints "públicos" da Shopee — assinados sem access_token/shop_id
 // (token/get e refresh_access_token usam o mesmo formato de assinatura).
