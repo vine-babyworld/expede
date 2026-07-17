@@ -293,6 +293,7 @@ export type Database = {
           numero_loja: string | null
           printed_at: string | null
           raw_json: Json
+          situacao_checked_at: string | null
           situacao_id: number | null
           situacao_valor: number | null
           total: number | null
@@ -314,6 +315,7 @@ export type Database = {
           numero_loja?: string | null
           printed_at?: string | null
           raw_json: Json
+          situacao_checked_at?: string | null
           situacao_id?: number | null
           situacao_valor?: number | null
           total?: number | null
@@ -335,6 +337,7 @@ export type Database = {
           numero_loja?: string | null
           printed_at?: string | null
           raw_json?: Json
+          situacao_checked_at?: string | null
           situacao_id?: number | null
           situacao_valor?: number | null
           total?: number | null

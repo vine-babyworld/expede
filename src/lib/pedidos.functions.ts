@@ -6,6 +6,7 @@ import { getDecryptedAccessToken } from "@/lib/bling.functions";
 const BLING_PEDIDOS_URL = "https://api.bling.com.br/Api/v3/pedidos/vendas";
 const DEPOSITO_ALVO = "Geral";
 const MAX_CANDIDATOS_POR_EXECUCAO = 4;
+const MAX_CANDIDATOS_SITUACAO = 4; // orçamento próprio de atualizarSituacoesExistentes (não compartilha com MAX_CANDIDATOS_POR_EXECUCAO)
 const ML_LOJA_ID = "203482894";
 const SHOPEE_LOJA_ID = "204014269";
 const BLING_PRODUTOS_URL = "https://api.bling.com.br/Api/v3/produtos";
@@ -688,7 +689,16 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
 
 // Passo 2 do reconciliar: para pedidos já existentes no banco (últimos 30 dias,
 // situacao_id != 12), busca a situação atual no Bling pelo bling_pedido_id e
-// atualiza apenas o campo situacao_id caso tenha mudado.
+// atualiza situacao_id/NF caso tenham mudado.
+//
+// Rotação por situacao_checked_at (mesmo padrão de cronMLStatus/cronNfStatus,
+// Lição #16): sem isso, a ordenação estática por data_pedido fazia os mesmos
+// MAX_CANDIDATOS_SITUACAO pedidos mais antigos monopolizarem os slots todo
+// ciclo, pra sempre — com centenas de pedidos ativos na janela de 30 dias, o
+// resto do pool (incluindo pedidos travados sem NF) nunca chegava a ser
+// revisitado. Bucket "nunca verificados" tem prioridade (mais antigos
+// primeiro); bucket "retry" só usa slots sobrando, rotacionando por quem foi
+// verificado há mais tempo.
 async function atualizarSituacoesExistentes(
   connId: string,
   token: string,
@@ -696,23 +706,48 @@ async function atualizarSituacoesExistentes(
 ): Promise<void> {
   const desde = new Date(Date.now() - 30 * 86_400_000).toISOString();
 
-  const { data: existentes, error } = await supabaseAdmin
-    .from("pedidos")
-    .select("id, bling_pedido_id, situacao_id, bling_nota_fiscal_id")
-    .eq("bling_connection_id", connId)
-    .gte("data_pedido", desde)
-    .neq("situacao_id", 12)
-    .order("data_pedido", { ascending: true })
-    .limit(4); // reduzido de 8 para 4 (controle de subrequests CF)
+  const baseQuery = () =>
+    supabaseAdmin
+      .from("pedidos")
+      .select("id, bling_pedido_id, situacao_id, bling_nota_fiscal_id, situacao_checked_at")
+      .eq("bling_connection_id", connId)
+      .gte("data_pedido", desde)
+      .neq("situacao_id", 12);
 
-  if (error) {
-    console.error("[reconciliar] erro ao listar pedidos p/ atualizar situação:", error.message);
-    report.situacoes.erros.push(`erro ao listar pedidos: ${error.message}`);
+  const { data: nuncaVerificados, error: selectError1 } = await baseQuery()
+    .is("situacao_checked_at", null)
+    .order("data_pedido", { ascending: true })
+    .limit(MAX_CANDIDATOS_SITUACAO);
+
+  if (selectError1) {
+    console.error("[reconciliar] select nunca-verificados (situação) falhou:", selectError1.message);
+    report.situacoes.erros.push(`erro ao listar pedidos: ${selectError1.message}`);
     return;
   }
 
-  const rows = existentes ?? [];
+  const slotsRestantes = MAX_CANDIDATOS_SITUACAO - (nuncaVerificados?.length ?? 0);
+  let retry: NonNullable<typeof nuncaVerificados> = [];
+
+  if (slotsRestantes > 0) {
+    const { data: retryData, error: selectError2 } = await baseQuery()
+      .not("situacao_checked_at", "is", null)
+      .order("situacao_checked_at", { ascending: true })
+      .limit(slotsRestantes);
+
+    if (selectError2) {
+      console.error("[reconciliar] select retry (situação) falhou:", selectError2.message);
+      report.situacoes.erros.push(`erro ao listar pedidos (retry): ${selectError2.message}`);
+    } else {
+      retry = retryData ?? [];
+    }
+  }
+
+  const rows = [...(nuncaVerificados ?? []), ...retry];
   report.situacoes.verificados = rows.length;
+  console.log(
+    `[reconciliar] ${rows.length} candidato(s) p/ atualizar situação`,
+    `(${nuncaVerificados?.length ?? 0} nunca verificado(s), ${retry.length} retry)`,
+  );
 
   for (const row of rows) {
     const res = await fetch(`${BLING_PEDIDOS_URL}/${row.bling_pedido_id}`, {
@@ -737,28 +772,36 @@ async function atualizarSituacoesExistentes(
     // sempre. Só preenche (nunca apaga um bling_nota_fiscal_id já salvo por uma resposta transitória).
     const nfSurgiu = novaNfId != null && novaNfId !== row.bling_nota_fiscal_id;
 
-    if (situacaoMudou || nfSurgiu) {
-      // Update individual (não upsert em lote): objetos com chaves diferentes num upsert
-      // em lote do PostgREST preenchem colunas ausentes com NULL, o que apagaria o
-      // bling_nota_fiscal_id de pedidos que só tiveram a situação alterada nesta rodada.
-      const patch: { situacao_id?: number; bling_nota_fiscal_id?: number; bling_nota_fiscal_numero?: string | null } = {};
-      if (situacaoMudou) patch.situacao_id = novaSituacaoId;
-      if (nfSurgiu) {
-        patch.bling_nota_fiscal_id = novaNfId;
-        patch.bling_nota_fiscal_numero =
-          d.notaFiscal?.numero != null ? String(d.notaFiscal.numero) : await fetchNfNumeroBling(novaNfId, token);
-      }
+    // situacao_checked_at sempre avança, tenha mudado algo ou não — é o que
+    // faz a rotação acima funcionar: sem isso, um pedido que não mudou de
+    // situação/NF neste ciclo continuaria com situacao_checked_at antigo (ou
+    // nulo) e voltaria a monopolizar um dos slots no próximo ciclo.
+    // Update individual (não upsert em lote): objetos com chaves diferentes
+    // num upsert em lote do PostgREST preenchem colunas ausentes com NULL, o
+    // que apagaria bling_nota_fiscal_id de pedidos que só tiveram a
+    // situação/checked_at atualizados nesta rodada.
+    const patch: {
+      situacao_id?: number;
+      bling_nota_fiscal_id?: number;
+      bling_nota_fiscal_numero?: string | null;
+      situacao_checked_at: string;
+    } = { situacao_checked_at: new Date().toISOString() };
+    if (situacaoMudou) patch.situacao_id = novaSituacaoId;
+    if (nfSurgiu) {
+      patch.bling_nota_fiscal_id = novaNfId;
+      patch.bling_nota_fiscal_numero =
+        d.notaFiscal?.numero != null ? String(d.notaFiscal.numero) : await fetchNfNumeroBling(novaNfId, token);
+    }
 
-      const { error: updErr } = await supabaseAdmin.from("pedidos").update(patch).eq("id", row.id);
+    const { error: updErr } = await supabaseAdmin.from("pedidos").update(patch).eq("id", row.id);
 
-      if (updErr) {
-        console.error(`[reconciliar] update pedido ${row.bling_pedido_id} falhou:`, updErr.message);
-        report.situacoes.erros.push(`${row.bling_pedido_id}: erro ao atualizar — ${updErr.message}`);
-      } else {
-        report.situacoes.atualizados++;
-        if (situacaoMudou) report.detalhes.push(`situação atualizada: pedido ${row.bling_pedido_id} (${row.situacao_id} → ${novaSituacaoId})`);
-        if (nfSurgiu) report.detalhes.push(`NF sincronizada: pedido ${row.bling_pedido_id} (nota fiscal ${novaNfId})`);
-      }
+    if (updErr) {
+      console.error(`[reconciliar] update pedido ${row.bling_pedido_id} falhou:`, updErr.message);
+      report.situacoes.erros.push(`${row.bling_pedido_id}: erro ao atualizar — ${updErr.message}`);
+    } else if (situacaoMudou || nfSurgiu) {
+      report.situacoes.atualizados++;
+      if (situacaoMudou) report.detalhes.push(`situação atualizada: pedido ${row.bling_pedido_id} (${row.situacao_id} → ${novaSituacaoId})`);
+      if (nfSurgiu) report.detalhes.push(`NF sincronizada: pedido ${row.bling_pedido_id} (nota fiscal ${novaNfId})`);
     }
 
     await new Promise((r) => setTimeout(r, 350));
