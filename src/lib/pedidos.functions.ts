@@ -698,7 +698,7 @@ async function atualizarSituacoesExistentes(
 
   const { data: existentes, error } = await supabaseAdmin
     .from("pedidos")
-    .select("id, bling_pedido_id, situacao_id")
+    .select("id, bling_pedido_id, situacao_id, bling_nota_fiscal_id")
     .eq("bling_connection_id", connId)
     .gte("data_pedido", desde)
     .neq("situacao_id", 12)
@@ -714,9 +714,6 @@ async function atualizarSituacoesExistentes(
   const rows = existentes ?? [];
   report.situacoes.verificados = rows.length;
 
-  // Coleta mudanças em memória; um único upsert em lote ao final (1 subrequest total)
-  const pendentes: { id: string; situacao_id: number }[] = [];
-
   for (const row of rows) {
     const res = await fetch(`${BLING_PEDIDOS_URL}/${row.bling_pedido_id}`, {
       headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
@@ -730,27 +727,41 @@ async function atualizarSituacoesExistentes(
     }
 
     const json: any = await res.json().catch(() => null);
-    const novaSituacaoId: number | null = json?.data?.situacao?.id ?? null;
+    const d = json?.data;
+    const novaSituacaoId: number | null = d?.situacao?.id ?? null;
+    const novaNfId: number | null = d?.notaFiscal?.id && d.notaFiscal.id !== 0 ? d.notaFiscal.id : null;
 
-    if (novaSituacaoId != null && novaSituacaoId !== row.situacao_id) {
-      pendentes.push({ id: row.id, situacao_id: novaSituacaoId });
-      report.situacoes.atualizados++;
-      report.detalhes.push(`situação atualizada: pedido ${row.bling_pedido_id} (${row.situacao_id} → ${novaSituacaoId})`);
+    const situacaoMudou = novaSituacaoId != null && novaSituacaoId !== row.situacao_id;
+    // Pedidos importados sem NF (Q2, permitirSemNf) nunca eram revisitados depois — o Bling
+    // podia faturar a NF horas/dias depois e o pedido ficava travado fora do Checkout pra
+    // sempre. Só preenche (nunca apaga um bling_nota_fiscal_id já salvo por uma resposta transitória).
+    const nfSurgiu = novaNfId != null && novaNfId !== row.bling_nota_fiscal_id;
+
+    if (situacaoMudou || nfSurgiu) {
+      // Update individual (não upsert em lote): objetos com chaves diferentes num upsert
+      // em lote do PostgREST preenchem colunas ausentes com NULL, o que apagaria o
+      // bling_nota_fiscal_id de pedidos que só tiveram a situação alterada nesta rodada.
+      const patch: { situacao_id?: number; bling_nota_fiscal_id?: number; bling_nota_fiscal_numero?: string | null } = {};
+      if (situacaoMudou) patch.situacao_id = novaSituacaoId;
+      if (nfSurgiu) {
+        patch.bling_nota_fiscal_id = novaNfId;
+        patch.bling_nota_fiscal_numero =
+          d.notaFiscal?.numero != null ? String(d.notaFiscal.numero) : await fetchNfNumeroBling(novaNfId, token);
+      }
+
+      const { error: updErr } = await supabaseAdmin.from("pedidos").update(patch).eq("id", row.id);
+
+      if (updErr) {
+        console.error(`[reconciliar] update pedido ${row.bling_pedido_id} falhou:`, updErr.message);
+        report.situacoes.erros.push(`${row.bling_pedido_id}: erro ao atualizar — ${updErr.message}`);
+      } else {
+        report.situacoes.atualizados++;
+        if (situacaoMudou) report.detalhes.push(`situação atualizada: pedido ${row.bling_pedido_id} (${row.situacao_id} → ${novaSituacaoId})`);
+        if (nfSurgiu) report.detalhes.push(`NF sincronizada: pedido ${row.bling_pedido_id} (nota fiscal ${novaNfId})`);
+      }
     }
 
     await new Promise((r) => setTimeout(r, 350));
-  }
-
-  if (pendentes.length > 0) {
-    const { error: updErr } = await supabaseAdmin
-      .from("pedidos")
-      .upsert(pendentes as any[]);
-
-    if (updErr) {
-      console.error("[reconciliar] upsert situações em lote falhou:", updErr.message);
-      report.situacoes.erros.push(`erro ao atualizar situações em lote: ${updErr.message}`);
-      report.situacoes.atualizados = 0;
-    }
   }
 }
 
