@@ -420,7 +420,9 @@ export type ReconciliarReport = {
   query4: ReconciliarQueryReport;
   query5: ReconciliarQueryReport;
   situacoes: AtualizarSituacoesReport;
+  itensAusentes: ItensAusentesReport;
   detalhes: string[];
+
   // Total de candidatos distintos vistos nesta rodada (deduplicado entre Q1-Q5) —
   // diferente da soma de query1.encontrados + query2.encontrados, que conta sobreposições.
   totalCandidatos: number;
