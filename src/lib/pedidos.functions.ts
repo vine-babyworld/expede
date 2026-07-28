@@ -438,6 +438,10 @@ function novaSituacoesReport(): AtualizarSituacoesReport {
   return { verificados: 0, atualizados: 0, erros: [] };
 }
 
+function novaItensAusentesReport(): ItensAusentesReport {
+  return { verificados: 0, recuperados: 0, erros: [] };
+}
+
 export async function reconciliarPedidos(): Promise<ReconciliarReport> {
   const report: ReconciliarReport = {
     query1: novoQueryReport(),
@@ -446,7 +450,9 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
     query4: novoQueryReport(),
     query5: novoQueryReport(),
     situacoes: novaSituacoesReport(),
+    itensAusentes: novaItensAusentesReport(),
     detalhes: [],
+
     totalCandidatos: 0,
     importadosNovos: [],
   };
