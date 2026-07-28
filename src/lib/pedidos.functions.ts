@@ -720,12 +720,10 @@ async function reprocessarPedidosSemItens(
   const { data: pedidos, error } = await supabaseAdmin
     .from("pedidos")
     .select("id, bling_pedido_id, numero, marketplace, pedido_itens(id)")
-    .eq("bling_connection_id", connId)
     .gte("data_pedido", desde)
     .not("bling_nota_fiscal_id", "is", null)
     .neq("situacao_id", 12)
-    .order("data_pedido", { ascending: true })
-    .limit(200);
+    .order("data_pedido", { ascending: true });
 
   if (error) {
     console.error("[reconciliar] select itens-ausentes falhou:", error.message);
