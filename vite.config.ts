@@ -17,5 +17,6 @@ export default defineConfig({
   // do server entry acima, só dispara esse hook Nitro.
   nitro: {
     plugins: ["plugins/cloudflare-scheduled.ts"],
-  },
+  } as any,
+
 });
