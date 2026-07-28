@@ -699,8 +699,81 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
   // cancelado) sem que o banco tenha sido atualizado.
   await atualizarSituacoesExistentes(conn.id, token, report);
 
+  // Passo 3: backfill de itens — pedidos já gravados (com NF) que ficaram sem
+  // nenhuma linha em pedido_itens por race condition do Bling (payload do
+  // webhook chegou com itens: []). Sem isso o pedido aparece com "—" na
+  // expedição pra sempre, porque nada no fluxo revisita os itens.
+  await reprocessarPedidosSemItens(conn.id, token, report);
+
   return report;
 }
+
+const MAX_CANDIDATOS_ITENS_AUSENTES = 4;
+
+async function reprocessarPedidosSemItens(
+  connId: string,
+  token: string,
+  report: ReconciliarReport,
+): Promise<void> {
+  const desde = new Date(Date.now() - 30 * 86_400_000).toISOString();
+
+  const { data: pedidos, error } = await supabaseAdmin
+    .from("pedidos")
+    .select("id, bling_pedido_id, numero, marketplace, pedido_itens(id)")
+    .eq("bling_connection_id", connId)
+    .gte("data_pedido", desde)
+    .not("bling_nota_fiscal_id", "is", null)
+    .neq("situacao_id", 12)
+    .order("data_pedido", { ascending: true })
+    .limit(200);
+
+  if (error) {
+    console.error("[reconciliar] select itens-ausentes falhou:", error.message);
+    report.itensAusentes.erros.push(`erro ao listar pedidos: ${error.message}`);
+    return;
+  }
+
+  const semItens = (pedidos ?? [])
+    .filter((p: any) => (p.pedido_itens?.length ?? 0) === 0)
+    .slice(0, MAX_CANDIDATOS_ITENS_AUSENTES);
+
+  report.itensAusentes.verificados = semItens.length;
+  if (semItens.length === 0) return;
+
+  console.log(`[reconciliar] ${semItens.length} pedido(s) sem itens — reprocessando`);
+
+  for (const p of semItens) {
+    const marketplace: "mercadolivre" | "shopee" =
+      (p as any).marketplace === "shopee" ? "shopee" : "mercadolivre";
+
+    const result = await processarPedidoBling((p as any).bling_pedido_id, connId, token, {
+      permitirSemNf: true,
+      marketplace,
+    });
+
+    if (!result.ok) {
+      const msg = result.error ?? result.detalhe;
+      report.itensAusentes.erros.push(`${(p as any).numero}: ${msg}`);
+      report.detalhes.push(`itens-ausentes erro: ${(p as any).numero} — ${msg}`);
+    } else {
+      const { count } = await supabaseAdmin
+        .from("pedido_itens")
+        .select("id", { count: "exact", head: true })
+        .eq("pedido_id", (p as any).id);
+
+      if ((count ?? 0) > 0) {
+        report.itensAusentes.recuperados++;
+        report.detalhes.push(`itens-ausentes recuperado: ${(p as any).numero} — ${count} item(ns)`);
+      } else {
+        report.detalhes.push(`itens-ausentes sem itens no Bling ainda: ${(p as any).numero}`);
+      }
+    }
+
+    // Respeita rate limit da API Bling (3 req/seg)
+    await new Promise((r) => setTimeout(r, 350));
+  }
+}
+
 
 // Passo 2 do reconciliar: para pedidos já existentes no banco (últimos 30 dias,
 // situacao_id != 12), busca a situação atual no Bling pelo bling_pedido_id e
