@@ -278,17 +278,28 @@ export type Database = {
       }
       pedidos: {
         Row: {
+          arquivado: boolean
+          arquivado_em: string | null
+          arquivado_motivo: string | null
           bling_connection_id: string
+          bling_divergente: boolean
           bling_nota_fiscal_id: number | null
           bling_nota_fiscal_numero: string | null
           bling_pedido_id: number
           cliente: Json | null
           created_at: string
           data_pedido: string | null
+          etiqueta_tipo: string | null
           etiqueta_zpl: string | null
           id: string
           marketplace: string | null
           marketplace_order_id: string | null
+          ml_shipment_status: string | null
+          ml_shipment_substatus: string | null
+          ml_status_checked_at: string | null
+          nf_situacao: number | null
+          nf_situacao_checked_at: string | null
+          nf_situacao_motivo: string | null
           numero: string
           numero_loja: string | null
           printed_at: string | null
@@ -300,17 +311,28 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          arquivado?: boolean
+          arquivado_em?: string | null
+          arquivado_motivo?: string | null
           bling_connection_id: string
+          bling_divergente?: boolean
           bling_nota_fiscal_id?: number | null
           bling_nota_fiscal_numero?: string | null
           bling_pedido_id: number
           cliente?: Json | null
           created_at?: string
           data_pedido?: string | null
+          etiqueta_tipo?: string | null
           etiqueta_zpl?: string | null
           id?: string
           marketplace?: string | null
           marketplace_order_id?: string | null
+          ml_shipment_status?: string | null
+          ml_shipment_substatus?: string | null
+          ml_status_checked_at?: string | null
+          nf_situacao?: number | null
+          nf_situacao_checked_at?: string | null
+          nf_situacao_motivo?: string | null
           numero: string
           numero_loja?: string | null
           printed_at?: string | null
@@ -322,17 +344,28 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          arquivado?: boolean
+          arquivado_em?: string | null
+          arquivado_motivo?: string | null
           bling_connection_id?: string
+          bling_divergente?: boolean
           bling_nota_fiscal_id?: number | null
           bling_nota_fiscal_numero?: string | null
           bling_pedido_id?: number
           cliente?: Json | null
           created_at?: string
           data_pedido?: string | null
+          etiqueta_tipo?: string | null
           etiqueta_zpl?: string | null
           id?: string
           marketplace?: string | null
           marketplace_order_id?: string | null
+          ml_shipment_status?: string | null
+          ml_shipment_substatus?: string | null
+          ml_status_checked_at?: string | null
+          nf_situacao?: number | null
+          nf_situacao_checked_at?: string | null
+          nf_situacao_motivo?: string | null
           numero?: string
           numero_loja?: string | null
           printed_at?: string | null
@@ -443,6 +476,57 @@ export type Database = {
           },
           {
             foreignKeyName: "produtos_bling_connection_id_fkey"
+            columns: ["bling_connection_id"]
+            isOneToOne: false
+            referencedRelation: "bling_connections_status"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      produtos_sync_runs: {
+        Row: {
+          bling_connection_id: string | null
+          detalhes: Json | null
+          finalizado_em: string | null
+          id: string
+          iniciado_em: string
+          origem: string
+          total_erros: number
+          total_recebidos: number
+          total_upserted: number
+        }
+        Insert: {
+          bling_connection_id?: string | null
+          detalhes?: Json | null
+          finalizado_em?: string | null
+          id?: string
+          iniciado_em?: string
+          origem?: string
+          total_erros?: number
+          total_recebidos?: number
+          total_upserted?: number
+        }
+        Update: {
+          bling_connection_id?: string | null
+          detalhes?: Json | null
+          finalizado_em?: string | null
+          id?: string
+          iniciado_em?: string
+          origem?: string
+          total_erros?: number
+          total_recebidos?: number
+          total_upserted?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "produtos_sync_runs_bling_connection_id_fkey"
+            columns: ["bling_connection_id"]
+            isOneToOne: false
+            referencedRelation: "bling_connections"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "produtos_sync_runs_bling_connection_id_fkey"
             columns: ["bling_connection_id"]
             isOneToOne: false
             referencedRelation: "bling_connections_status"
