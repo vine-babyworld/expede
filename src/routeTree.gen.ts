@@ -27,6 +27,7 @@ import { Route as ApiShopeeAuthRouteImport } from './routes/api/shopee/auth'
 import { Route as ApiMlCallbackRouteImport } from './routes/api/ml/callback'
 import { Route as ApiMlAuthRouteImport } from './routes/api/ml/auth'
 import { Route as ApiDebugEtiquetaTesteRouteImport } from './routes/api/debug/etiqueta-teste'
+import { Route as ApiDebugDanfeTesteRouteImport } from './routes/api/debug/danfe-teste'
 import { Route as ApiDebugBlingTokenRouteImport } from './routes/api/debug/bling-token'
 import { Route as ApiDebugBlingCheckRouteImport } from './routes/api/debug/bling-check'
 import { Route as ApiAdminReconciliarRouteImport } from './routes/api/admin/reconciliar'
@@ -128,6 +129,11 @@ const ApiDebugEtiquetaTesteRoute = ApiDebugEtiquetaTesteRouteImport.update({
   path: '/api/debug/etiqueta-teste',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiDebugDanfeTesteRoute = ApiDebugDanfeTesteRouteImport.update({
+  id: '/api/debug/danfe-teste',
+  path: '/api/debug/danfe-teste',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiDebugBlingTokenRoute = ApiDebugBlingTokenRouteImport.update({
   id: '/api/debug/bling-token',
   path: '/api/debug/bling-token',
@@ -208,6 +214,7 @@ export interface FileRoutesByFullPath {
   '/api/admin/reconciliar': typeof ApiAdminReconciliarRoute
   '/api/debug/bling-check': typeof ApiDebugBlingCheckRoute
   '/api/debug/bling-token': typeof ApiDebugBlingTokenRoute
+  '/api/debug/danfe-teste': typeof ApiDebugDanfeTesteRoute
   '/api/debug/etiqueta-teste': typeof ApiDebugEtiquetaTesteRoute
   '/api/ml/auth': typeof ApiMlAuthRoute
   '/api/ml/callback': typeof ApiMlCallbackRoute
@@ -237,6 +244,7 @@ export interface FileRoutesByTo {
   '/api/admin/reconciliar': typeof ApiAdminReconciliarRoute
   '/api/debug/bling-check': typeof ApiDebugBlingCheckRoute
   '/api/debug/bling-token': typeof ApiDebugBlingTokenRoute
+  '/api/debug/danfe-teste': typeof ApiDebugDanfeTesteRoute
   '/api/debug/etiqueta-teste': typeof ApiDebugEtiquetaTesteRoute
   '/api/ml/auth': typeof ApiMlAuthRoute
   '/api/ml/callback': typeof ApiMlCallbackRoute
@@ -269,6 +277,7 @@ export interface FileRoutesById {
   '/api/admin/reconciliar': typeof ApiAdminReconciliarRoute
   '/api/debug/bling-check': typeof ApiDebugBlingCheckRoute
   '/api/debug/bling-token': typeof ApiDebugBlingTokenRoute
+  '/api/debug/danfe-teste': typeof ApiDebugDanfeTesteRoute
   '/api/debug/etiqueta-teste': typeof ApiDebugEtiquetaTesteRoute
   '/api/ml/auth': typeof ApiMlAuthRoute
   '/api/ml/callback': typeof ApiMlCallbackRoute
@@ -301,6 +310,7 @@ export interface FileRouteTypes {
     | '/api/admin/reconciliar'
     | '/api/debug/bling-check'
     | '/api/debug/bling-token'
+    | '/api/debug/danfe-teste'
     | '/api/debug/etiqueta-teste'
     | '/api/ml/auth'
     | '/api/ml/callback'
@@ -330,6 +340,7 @@ export interface FileRouteTypes {
     | '/api/admin/reconciliar'
     | '/api/debug/bling-check'
     | '/api/debug/bling-token'
+    | '/api/debug/danfe-teste'
     | '/api/debug/etiqueta-teste'
     | '/api/ml/auth'
     | '/api/ml/callback'
@@ -361,6 +372,7 @@ export interface FileRouteTypes {
     | '/api/admin/reconciliar'
     | '/api/debug/bling-check'
     | '/api/debug/bling-token'
+    | '/api/debug/danfe-teste'
     | '/api/debug/etiqueta-teste'
     | '/api/ml/auth'
     | '/api/ml/callback'
@@ -383,6 +395,7 @@ export interface RootRouteChildren {
   ApiAdminReconciliarRoute: typeof ApiAdminReconciliarRoute
   ApiDebugBlingCheckRoute: typeof ApiDebugBlingCheckRoute
   ApiDebugBlingTokenRoute: typeof ApiDebugBlingTokenRoute
+  ApiDebugDanfeTesteRoute: typeof ApiDebugDanfeTesteRoute
   ApiDebugEtiquetaTesteRoute: typeof ApiDebugEtiquetaTesteRoute
   ApiMlAuthRoute: typeof ApiMlAuthRoute
   ApiMlCallbackRoute: typeof ApiMlCallbackRoute
@@ -523,6 +536,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiDebugEtiquetaTesteRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/debug/danfe-teste': {
+      id: '/api/debug/danfe-teste'
+      path: '/api/debug/danfe-teste'
+      fullPath: '/api/debug/danfe-teste'
+      preLoaderRoute: typeof ApiDebugDanfeTesteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/debug/bling-token': {
       id: '/api/debug/bling-token'
       path: '/api/debug/bling-token'
@@ -651,6 +671,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAdminReconciliarRoute: ApiAdminReconciliarRoute,
   ApiDebugBlingCheckRoute: ApiDebugBlingCheckRoute,
   ApiDebugBlingTokenRoute: ApiDebugBlingTokenRoute,
+  ApiDebugDanfeTesteRoute: ApiDebugDanfeTesteRoute,
   ApiDebugEtiquetaTesteRoute: ApiDebugEtiquetaTesteRoute,
   ApiMlAuthRoute: ApiMlAuthRoute,
   ApiMlCallbackRoute: ApiMlCallbackRoute,
