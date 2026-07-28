@@ -400,6 +400,13 @@ export type AtualizarSituacoesReport = {
   erros: string[];
 };
 
+export type ItensAusentesReport = {
+  verificados: number;
+  recuperados: number;
+  erros: string[];
+};
+
+
 export type PedidoImportadoNovo = {
   numeroLoja: string | null;
   numero: string;
