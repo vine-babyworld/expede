@@ -22,7 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { getHistorico, HISTORICO_LIMIT, type HistoricoRow } from "@/lib/dashboard.functions";
-import { nfNaoAutorizada, nfSituacaoLabel } from "@/lib/pedidos.functions";
+import { isPedidoFlex, nfNaoAutorizada, nfSituacaoLabel } from "@/lib/pedidos.functions";
 import { buscarEtiquetaBling } from "@/lib/etiqueta.functions";
 import { gerarDanfeCustom } from "@/lib/danfe.functions";
 import { useQzTray } from "@/hooks/useQzTray";
@@ -55,8 +55,9 @@ function formatDateTime(iso: string | null): string {
 
 function marketplaceBadge(marketplace: string | null): { nome: string; cor: string } {
   if (marketplace === "shopee") return { nome: "Shopee", cor: "bg-orange-100 text-orange-800 border-orange-300" };
-  if (marketplace === "mercadolivreflex") return { nome: "ML Flex", cor: "bg-yellow-100 text-yellow-800 border-yellow-300" };
-  if (marketplace === "mercadolivre") return { nome: "Mercado Livre", cor: "bg-yellow-100 text-yellow-800 border-yellow-300" };
+  if (marketplace === "mercadolivre" || marketplace === "mercadolivreflex") {
+    return { nome: "Mercado Livre", cor: "bg-yellow-100 text-yellow-800 border-yellow-300" };
+  }
   if (marketplace === "amazon") return { nome: "Amazon", cor: "bg-gray-100 text-gray-700 border-gray-300" };
   return { nome: marketplace ?? "—", cor: "bg-gray-100 text-gray-700 border-gray-300" };
 }
@@ -106,8 +107,7 @@ function HistoricoPage() {
         return;
       }
 
-      const isFlex = !!(pedido.raw_json as any)
-        ?.transporte?.volumes?.[0]?.servico?.toLowerCase().includes("flex");
+      const isFlex = isPedidoFlex(pedido);
       const semNf = !pedido.bling_nota_fiscal_id;
 
       if (!isFlex && semNf) {
@@ -269,6 +269,7 @@ function HistoricoPage() {
             ) : (
               rows.map((p) => {
                 const badge = marketplaceBadge(p.marketplace);
+                const flex = isPedidoFlex(p);
                 return (
                   <tr key={p.id} className="border-t hover:bg-muted/30 transition-colors">
                     <td className="px-4 py-3">
@@ -280,11 +281,18 @@ function HistoricoPage() {
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      <span
-                        className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${badge.cor}`}
-                      >
-                        {badge.nome}
-                      </span>
+                      <div className="flex flex-wrap gap-1.5">
+                        <span
+                          className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${badge.cor}`}
+                        >
+                          {badge.nome}
+                        </span>
+                        {flex && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border bg-yellow-100 text-yellow-800 border-yellow-300">
+                            FLEX
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td
                       className="px-4 py-3 max-w-[200px] truncate"

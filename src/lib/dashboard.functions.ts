@@ -256,7 +256,17 @@ export const getHistorico = createServerFn({ method: "POST" })
       );
     }
 
-    if (marketplace) {
+    if (marketplace === "mercadolivreflex") {
+      query = query.or(
+        "marketplace.eq.mercadolivreflex,raw_json->transporte->volumes->0->>servico.ilike.*flex*",
+      );
+    } else if (marketplace === "mercadolivre") {
+      query = query
+        .eq("marketplace", "mercadolivre")
+        .or(
+          "raw_json->transporte->volumes->0->>servico.is.null,raw_json->transporte->volumes->0->>servico.not.ilike.*flex*",
+        );
+    } else if (marketplace) {
       query = query.eq("marketplace", marketplace);
     }
 
