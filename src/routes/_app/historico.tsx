@@ -14,8 +14,15 @@ import {
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { getHistorico, HISTORICO_LIMIT, type HistoricoRow } from "@/lib/dashboard.functions";
-import { nfNaoAutorizada, nfSituacaoLabel } from "@/lib/pedidos.functions";
+import { isPedidoFlex, nfNaoAutorizada, nfSituacaoLabel } from "@/lib/pedidos.functions";
 import { buscarEtiquetaBling } from "@/lib/etiqueta.functions";
 import { gerarDanfeCustom } from "@/lib/danfe.functions";
 import { useQzTray } from "@/hooks/useQzTray";
@@ -25,6 +32,14 @@ export const Route = createFileRoute("/_app/historico")({
 });
 
 const IMPRESSORA_KEY = "qztray_impressora_padrao";
+
+const MARKETPLACE_OPTIONS = [
+  { value: "todos", label: "Todos os marketplaces" },
+  { value: "mercadolivre", label: "Mercado Livre" },
+  { value: "mercadolivreflex", label: "ML Flex" },
+  { value: "shopee", label: "Shopee" },
+  { value: "amazon", label: "Amazon" },
+] as const;
 
 function formatDateTime(iso: string | null): string {
   if (!iso) return "—";
@@ -40,8 +55,9 @@ function formatDateTime(iso: string | null): string {
 
 function marketplaceBadge(marketplace: string | null): { nome: string; cor: string } {
   if (marketplace === "shopee") return { nome: "Shopee", cor: "bg-orange-100 text-orange-800 border-orange-300" };
-  if (marketplace === "mercadolivreflex") return { nome: "ML Flex", cor: "bg-yellow-100 text-yellow-800 border-yellow-300" };
-  if (marketplace === "mercadolivre") return { nome: "Mercado Livre", cor: "bg-yellow-100 text-yellow-800 border-yellow-300" };
+  if (marketplace === "mercadolivre" || marketplace === "mercadolivreflex") {
+    return { nome: "Mercado Livre", cor: "bg-yellow-100 text-yellow-800 border-yellow-300" };
+  }
   if (marketplace === "amazon") return { nome: "Amazon", cor: "bg-gray-100 text-gray-700 border-gray-300" };
   return { nome: marketplace ?? "—", cor: "bg-gray-100 text-gray-700 border-gray-300" };
 }
@@ -55,6 +71,7 @@ function HistoricoPage() {
   const [page, setPage] = useState(1);
   const [busca, setBusca] = useState("");
   const [buscaDebounced, setBuscaDebounced] = useState("");
+  const [marketplace, setMarketplace] = useState("todos");
   const fn = useServerFn(getHistorico);
   const qzTray = useQzTray();
 
@@ -67,8 +84,15 @@ function HistoricoPage() {
   }, [busca]);
 
   const { data, isLoading } = useQuery({
-    queryKey: ["historico", page, buscaDebounced],
-    queryFn: () => fn({ data: { page, busca: buscaDebounced } }),
+    queryKey: ["historico", page, buscaDebounced, marketplace],
+    queryFn: () =>
+      fn({
+        data: {
+          page,
+          busca: buscaDebounced,
+          marketplace: marketplace === "todos" ? undefined : marketplace,
+        },
+      }),
   });
 
   const rows: HistoricoRow[] = data?.rows ?? [];
@@ -83,8 +107,7 @@ function HistoricoPage() {
         return;
       }
 
-      const isFlex = !!(pedido.raw_json as any)
-        ?.transporte?.volumes?.[0]?.servico?.toLowerCase().includes("flex");
+      const isFlex = isPedidoFlex(pedido);
       const semNf = !pedido.bling_nota_fiscal_id;
 
       if (!isFlex && semNf) {
@@ -171,23 +194,45 @@ function HistoricoPage() {
         </span>
       </div>
 
-      {/* Busca */}
-      <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-        <Input
-          placeholder="Buscar por número, nº da loja ou cliente..."
-          value={busca}
-          onChange={(e) => setBusca(e.target.value)}
-          className="pl-9 pr-9"
-        />
-        {busca && (
-          <button
-            onClick={() => setBusca("")}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        )}
+      {/* Filtros */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="relative w-full sm:max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+          <Input
+            placeholder="Buscar por número, nº da loja ou cliente..."
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+            className="pl-9 pr-9"
+          />
+          {busca && (
+            <button
+              onClick={() => setBusca("")}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              aria-label="Limpar busca"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+
+        <Select
+          value={marketplace}
+          onValueChange={(value) => {
+            setMarketplace(value);
+            setPage(1);
+          }}
+        >
+          <SelectTrigger className="w-full sm:w-[220px]" aria-label="Filtrar por marketplace">
+            <SelectValue placeholder="Marketplace" />
+          </SelectTrigger>
+          <SelectContent>
+            {MARKETPLACE_OPTIONS.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Tabela */}
@@ -215,8 +260,8 @@ function HistoricoPage() {
                 <td colSpan={6} className="text-center py-12 text-muted-foreground">
                   <PackageCheck className="h-10 w-10 mx-auto mb-2 opacity-30" />
                   <p>
-                    {buscaDebounced
-                      ? "Nenhum resultado para essa busca"
+                    {buscaDebounced || marketplace !== "todos"
+                      ? "Nenhum pedido encontrado com esses filtros"
                       : "Nenhum pedido expedido nos últimos 30 dias"}
                   </p>
                 </td>
@@ -224,6 +269,7 @@ function HistoricoPage() {
             ) : (
               rows.map((p) => {
                 const badge = marketplaceBadge(p.marketplace);
+                const flex = isPedidoFlex(p);
                 return (
                   <tr key={p.id} className="border-t hover:bg-muted/30 transition-colors">
                     <td className="px-4 py-3">
@@ -235,11 +281,18 @@ function HistoricoPage() {
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      <span
-                        className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${badge.cor}`}
-                      >
-                        {badge.nome}
-                      </span>
+                      <div className="flex flex-wrap gap-1.5">
+                        <span
+                          className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${badge.cor}`}
+                        >
+                          {badge.nome}
+                        </span>
+                        {flex && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border bg-yellow-100 text-yellow-800 border-yellow-300">
+                            FLEX
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td
                       className="px-4 py-3 max-w-[200px] truncate"

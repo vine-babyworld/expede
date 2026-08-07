@@ -234,10 +234,11 @@ export type HistoricoRow = {
 
 export const getHistorico = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: { page?: number; busca?: string }) => d)
+  .inputValidator((d: { page?: number; busca?: string; marketplace?: string }) => d)
   .handler(async ({ data }) => {
     const page = Math.max(1, data.page ?? 1);
     const busca = data.busca?.trim() ?? "";
+    const marketplace = data.marketplace?.trim() ?? "";
     const since = new Date(Date.now() - 30 * 86_400_000).toISOString();
 
     let query = supabaseAdmin
@@ -253,6 +254,20 @@ export const getHistorico = createServerFn({ method: "POST" })
       query = query.or(
         `numero.ilike.%${busca}%,numero_loja.ilike.%${busca}%,cliente->>nome.ilike.%${busca}%,cliente->>razaoSocial.ilike.%${busca}%`,
       );
+    }
+
+    if (marketplace === "mercadolivreflex") {
+      query = query.or(
+        "marketplace.eq.mercadolivreflex,raw_json->transporte->volumes->0->>servico.ilike.*flex*",
+      );
+    } else if (marketplace === "mercadolivre") {
+      query = query
+        .eq("marketplace", "mercadolivre")
+        .or(
+          "raw_json->transporte->volumes->0->>servico.is.null,raw_json->transporte->volumes->0->>servico.not.ilike.*flex*",
+        );
+    } else if (marketplace) {
+      query = query.eq("marketplace", marketplace);
     }
 
     const { data: rows, count } = await query;
