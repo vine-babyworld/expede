@@ -14,6 +14,13 @@ import {
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { getHistorico, HISTORICO_LIMIT, type HistoricoRow } from "@/lib/dashboard.functions";
 import { nfNaoAutorizada, nfSituacaoLabel } from "@/lib/pedidos.functions";
 import { buscarEtiquetaBling } from "@/lib/etiqueta.functions";
@@ -25,6 +32,14 @@ export const Route = createFileRoute("/_app/historico")({
 });
 
 const IMPRESSORA_KEY = "qztray_impressora_padrao";
+
+const MARKETPLACE_OPTIONS = [
+  { value: "todos", label: "Todos os marketplaces" },
+  { value: "mercadolivre", label: "Mercado Livre" },
+  { value: "mercadolivreflex", label: "ML Flex" },
+  { value: "shopee", label: "Shopee" },
+  { value: "amazon", label: "Amazon" },
+] as const;
 
 function formatDateTime(iso: string | null): string {
   if (!iso) return "—";
@@ -55,6 +70,7 @@ function HistoricoPage() {
   const [page, setPage] = useState(1);
   const [busca, setBusca] = useState("");
   const [buscaDebounced, setBuscaDebounced] = useState("");
+  const [marketplace, setMarketplace] = useState("todos");
   const fn = useServerFn(getHistorico);
   const qzTray = useQzTray();
 
@@ -67,8 +83,15 @@ function HistoricoPage() {
   }, [busca]);
 
   const { data, isLoading } = useQuery({
-    queryKey: ["historico", page, buscaDebounced],
-    queryFn: () => fn({ data: { page, busca: buscaDebounced } }),
+    queryKey: ["historico", page, buscaDebounced, marketplace],
+    queryFn: () =>
+      fn({
+        data: {
+          page,
+          busca: buscaDebounced,
+          marketplace: marketplace === "todos" ? undefined : marketplace,
+        },
+      }),
   });
 
   const rows: HistoricoRow[] = data?.rows ?? [];
@@ -171,23 +194,45 @@ function HistoricoPage() {
         </span>
       </div>
 
-      {/* Busca */}
-      <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-        <Input
-          placeholder="Buscar por número, nº da loja ou cliente..."
-          value={busca}
-          onChange={(e) => setBusca(e.target.value)}
-          className="pl-9 pr-9"
-        />
-        {busca && (
-          <button
-            onClick={() => setBusca("")}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        )}
+      {/* Filtros */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="relative w-full sm:max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+          <Input
+            placeholder="Buscar por número, nº da loja ou cliente..."
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+            className="pl-9 pr-9"
+          />
+          {busca && (
+            <button
+              onClick={() => setBusca("")}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              aria-label="Limpar busca"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+
+        <Select
+          value={marketplace}
+          onValueChange={(value) => {
+            setMarketplace(value);
+            setPage(1);
+          }}
+        >
+          <SelectTrigger className="w-full sm:w-[220px]" aria-label="Filtrar por marketplace">
+            <SelectValue placeholder="Marketplace" />
+          </SelectTrigger>
+          <SelectContent>
+            {MARKETPLACE_OPTIONS.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Tabela */}
@@ -215,8 +260,8 @@ function HistoricoPage() {
                 <td colSpan={6} className="text-center py-12 text-muted-foreground">
                   <PackageCheck className="h-10 w-10 mx-auto mb-2 opacity-30" />
                   <p>
-                    {buscaDebounced
-                      ? "Nenhum resultado para essa busca"
+                    {buscaDebounced || marketplace !== "todos"
+                      ? "Nenhum pedido encontrado com esses filtros"
                       : "Nenhum pedido expedido nos últimos 30 dias"}
                   </p>
                 </td>
