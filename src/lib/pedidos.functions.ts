@@ -2,13 +2,20 @@ import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { getDecryptedAccessToken } from "@/lib/bling.functions";
+import {
+  classificarEmissaoNf,
+  isPedidoFlex,
+  ML_BLING_LOJA_ID as ML_LOJA_ID,
+  SHOPEE_BLING_LOJA_ID as SHOPEE_LOJA_ID,
+  type MarketplacePedido,
+} from "@/lib/nf-emissao.policy";
+
+export { isPedidoFlex } from "@/lib/nf-emissao.policy";
 
 const BLING_PEDIDOS_URL = "https://api.bling.com.br/Api/v3/pedidos/vendas";
 const DEPOSITO_ALVO = "Geral";
 const MAX_CANDIDATOS_POR_EXECUCAO = 4;
 const MAX_CANDIDATOS_SITUACAO = 4; // orçamento próprio de atualizarSituacoesExistentes (não compartilha com MAX_CANDIDATOS_POR_EXECUCAO)
-const ML_LOJA_ID = "203482894";
-const SHOPEE_LOJA_ID = "204014269";
 const BLING_PRODUTOS_URL = "https://api.bling.com.br/Api/v3/produtos";
 const BLING_NFE_URL = "https://api.bling.com.br/Api/v3/nfe";
 
@@ -24,6 +31,9 @@ export type PedidoRow = {
   cliente: Record<string, any> | null;
   bling_nota_fiscal_id: number | null;
   bling_nota_fiscal_numero: string | null;
+  nf_emissao_modo: string | null;
+  nf_emissao_status: string | null;
+  nf_emissao_error: string | null;
   etiqueta_zpl: string | null;
   created_at: string;
   updated_at: string;
@@ -58,7 +68,7 @@ export const listarPedidos = createServerFn({ method: "POST" })
     let query = supabaseAdmin
       .from("pedidos")
       .select(
-        "id, bling_pedido_id, numero, numero_loja, situacao_id, situacao_valor, data_pedido, total, cliente, bling_nota_fiscal_id, bling_nota_fiscal_numero, etiqueta_zpl, created_at, updated_at, ml_shipment_status, ml_shipment_substatus, bling_divergente, pedido_itens(count)",
+        "id, bling_pedido_id, numero, numero_loja, situacao_id, situacao_valor, data_pedido, total, cliente, bling_nota_fiscal_id, bling_nota_fiscal_numero, nf_emissao_modo, nf_emissao_status, nf_emissao_error, etiqueta_zpl, created_at, updated_at, ml_shipment_status, ml_shipment_substatus, bling_divergente, pedido_itens(count)",
         { count: "exact" },
       );
 
@@ -89,14 +99,6 @@ export const listarPedidos = createServerFn({ method: "POST" })
       pageSize: PAGE_SIZE,
     };
   });
-
-// Identifica pedidos FLEX (Mercado Livre Flex): pelo campo marketplace
-// ou pela presença da tag "flex" no serviço de transporte do pedido.
-export function isPedidoFlex(p: { marketplace?: string | null; raw_json?: any }): boolean {
-  if (p.marketplace === "mercadolivreflex") return true;
-  const servico: string = p.raw_json?.transporte?.volumes?.[0]?.servico ?? "";
-  return servico.toLowerCase().includes("flex");
-}
 
 // ---- Kit explosion helpers ----
 
@@ -182,6 +184,83 @@ async function buscarEanPorSku(
 
 // ---- / Kit explosion helpers ----
 
+export async function sincronizarPoliticaInicialEmissaoNf(
+  pedidoDbId: string,
+  detalhe: any,
+  marketplace: MarketplacePedido,
+): Promise<void> {
+  const db = supabaseAdmin as any;
+  const classificacao = classificarEmissaoNf(detalhe, marketplace);
+
+  if (classificacao === "out_of_scope") return;
+
+  if (classificacao === "existing") {
+    // Se o Bling criou a nota antes do controlador assumir, ela não pertence à
+    // fila do EXPEDE. Evita reenviar uma NF que a automação antiga já tratou.
+    await db
+      .from("pedidos")
+      .update({
+        nf_emissao_status: "sent",
+        nf_emissao_locked_at: null,
+        nf_emissao_error: null,
+      })
+      .eq("id", pedidoDbId)
+      .eq("nf_emissao_modo", "automatic");
+    return;
+  }
+
+  if (classificacao === "manual") {
+    await db
+      .from("pedidos")
+      .update({
+        nf_emissao_modo: "manual",
+        nf_emissao_status: "manual",
+        nf_emissao_locked_at: null,
+        nf_emissao_error: null,
+      })
+      .eq("id", pedidoDbId);
+    return;
+  }
+
+  if (classificacao === "automatic") {
+    await db
+      .from("pedidos")
+      .update({
+        nf_emissao_modo: "automatic",
+        nf_emissao_status: "pending",
+        nf_emissao_error: null,
+      })
+      .eq("id", pedidoDbId)
+      .is("nf_emissao_modo", null);
+
+    // Um payload inicial incompleto pode ter sido bloqueado sem serviço. Assim
+    // que o detalhe ficar completo, promove apenas esse bloqueio conhecido.
+    await db
+      .from("pedidos")
+      .update({ nf_emissao_status: "pending", nf_emissao_error: null })
+      .eq("id", pedidoDbId)
+      .eq("nf_emissao_modo", "automatic")
+      .eq("nf_emissao_status", "blocked")
+      .eq("nf_emissao_error", "UNKNOWN_LOGISTICS_SERVICE");
+    return;
+  }
+
+  const error = classificacao === "cancelled"
+    ? "ORDER_CANCELLED"
+    : "UNKNOWN_LOGISTICS_SERVICE";
+
+  await db
+    .from("pedidos")
+    .update({
+      nf_emissao_modo: "automatic",
+      nf_emissao_status: "blocked",
+      nf_emissao_error: error,
+      nf_emissao_locked_at: null,
+    })
+    .eq("id", pedidoDbId)
+    .is("nf_emissao_modo", null);
+}
+
 // Shared helper — mesma lógica do webhook bling-pedidos.ts
 async function processarPedidoBling(
   blingPedidoId: number | string,
@@ -256,6 +335,12 @@ async function processarPedidoBling(
   }
 
   const pedidoDbId: string = upserted.id;
+
+  await sincronizarPoliticaInicialEmissaoNf(
+    pedidoDbId,
+    d,
+    opts.marketplace ?? "mercadolivre",
+  );
 
   // Identifica SKUs de componentes de kits neste pedido — usado só para pular
   // relookup de produto/EAN de componentes já conhecidos (evita subrequests repetidos
@@ -795,7 +880,7 @@ async function atualizarSituacoesExistentes(
   const baseQuery = () =>
     supabaseAdmin
       .from("pedidos")
-      .select("id, bling_pedido_id, situacao_id, bling_nota_fiscal_id, situacao_checked_at")
+      .select("id, bling_pedido_id, situacao_id, bling_nota_fiscal_id, situacao_checked_at, nf_emissao_modo")
       .eq("bling_connection_id", connId)
       .gte("data_pedido", desde)
       .neq("situacao_id", 12);
@@ -870,6 +955,9 @@ async function atualizarSituacoesExistentes(
       situacao_id?: number;
       bling_nota_fiscal_id?: number;
       bling_nota_fiscal_numero?: string | null;
+      nf_emissao_status?: string;
+      nf_emissao_locked_at?: null;
+      nf_emissao_error?: null;
       situacao_checked_at: string;
     } = { situacao_checked_at: new Date().toISOString() };
     if (situacaoMudou) patch.situacao_id = novaSituacaoId;
@@ -877,6 +965,11 @@ async function atualizarSituacoesExistentes(
       patch.bling_nota_fiscal_id = novaNfId;
       patch.bling_nota_fiscal_numero =
         d.notaFiscal?.numero != null ? String(d.notaFiscal.numero) : await fetchNfNumeroBling(novaNfId, token);
+      if ((row as any).nf_emissao_modo === "automatic") {
+        patch.nf_emissao_status = "sent";
+        patch.nf_emissao_locked_at = null;
+        patch.nf_emissao_error = null;
+      }
     }
 
     const { error: updErr } = await supabaseAdmin.from("pedidos").update(patch).eq("id", row.id);

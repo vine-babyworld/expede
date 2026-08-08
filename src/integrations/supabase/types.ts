@@ -14,6 +14,24 @@ export type Database = {
   }
   public: {
     Tables: {
+      app_config: {
+        Row: {
+          key: string
+          updated_at: string
+          value: Json
+        }
+        Insert: {
+          key: string
+          updated_at?: string
+          value: Json
+        }
+        Update: {
+          key?: string
+          updated_at?: string
+          value?: Json
+        }
+        Relationships: []
+      }
       bipagens: {
         Row: {
           codigo_bipado: string
@@ -300,6 +318,12 @@ export type Database = {
           nf_situacao: number | null
           nf_situacao_checked_at: string | null
           nf_situacao_motivo: string | null
+          nf_emissao_attempts: number
+          nf_emissao_error: string | null
+          nf_emissao_last_attempt_at: string | null
+          nf_emissao_locked_at: string | null
+          nf_emissao_modo: string | null
+          nf_emissao_status: string | null
           numero: string
           numero_loja: string | null
           printed_at: string | null
@@ -333,6 +357,12 @@ export type Database = {
           nf_situacao?: number | null
           nf_situacao_checked_at?: string | null
           nf_situacao_motivo?: string | null
+          nf_emissao_attempts?: number
+          nf_emissao_error?: string | null
+          nf_emissao_last_attempt_at?: string | null
+          nf_emissao_locked_at?: string | null
+          nf_emissao_modo?: string | null
+          nf_emissao_status?: string | null
           numero: string
           numero_loja?: string | null
           printed_at?: string | null
@@ -366,6 +396,12 @@ export type Database = {
           nf_situacao?: number | null
           nf_situacao_checked_at?: string | null
           nf_situacao_motivo?: string | null
+          nf_emissao_attempts?: number
+          nf_emissao_error?: string | null
+          nf_emissao_last_attempt_at?: string | null
+          nf_emissao_locked_at?: string | null
+          nf_emissao_modo?: string | null
+          nf_emissao_status?: string | null
           numero?: string
           numero_loja?: string | null
           printed_at?: string | null
