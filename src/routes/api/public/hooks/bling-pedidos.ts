@@ -1,6 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { getDecryptedAccessToken } from "@/lib/bling.functions";
+import { sincronizarPoliticaInicialEmissaoNf } from "@/lib/pedidos.functions";
+import { marketplacePelaLojaBling } from "@/lib/nf-emissao.policy";
 
 const BLING_PEDIDOS_URL = "https://api.bling.com.br/Api/v3/pedidos/vendas";
 const DEPOSITO_ALVO = "Geral";
@@ -68,10 +70,18 @@ export const Route = createFileRoute("/api/public/hooks/bling-pedidos")({
             return Response.json({ ok: false, error: "empty_response" });
           }
 
-          // Filtro 1: só pedidos com nota fiscal emitida
-          if (!d.notaFiscal?.id) {
-            console.log(`[bling-pedidos] pedido ${blingPedidoId} sem NF — ignorado`);
-            return Response.json({ skipped: "no_invoice" });
+          const marketplaceDetectado =
+            marketplacePelaLojaBling(d) ??
+            marketplacePelaLojaBling((body as any)?.data);
+
+          // Pedidos sem NF só entram pelo webhook quando o detalhe confirma a
+          // loja Mercado Livre. Outros canais mantêm o fluxo anterior e o
+          // reconciliador continua como fallback se o Bling omitir loja.id.
+          if (!d.notaFiscal?.id && marketplaceDetectado !== "mercadolivre") {
+            console.log(
+              `[bling-pedidos] pedido ${blingPedidoId} sem NF e fora da loja ML conhecida — ignorado`,
+            );
+            return Response.json({ skipped: "no_invoice_out_of_scope" });
           }
 
           // Filtro 2: todos os itens devem ser do depósito "Geral"
@@ -98,9 +108,10 @@ export const Route = createFileRoute("/api/public/hooks/bling-pedidos")({
             total:                    d.total ?? null,
             // contato na Bling API v3 = cliente no nosso domínio (ver comentário na migration)
             cliente:                  d.contato ?? null,
-            bling_nota_fiscal_id:     d.notaFiscal.id,
-            bling_nota_fiscal_numero: d.notaFiscal.numero ?? null,
+            bling_nota_fiscal_id:     d.notaFiscal?.id ?? null,
+            bling_nota_fiscal_numero: d.notaFiscal?.numero ?? null,
             raw_json:                 d,
+            ...(marketplaceDetectado ? { marketplace: marketplaceDetectado } : {}),
           };
 
           const { data: upserted, error: upsertErr } = await supabaseAdmin
@@ -118,6 +129,14 @@ export const Route = createFileRoute("/api/public/hooks/bling-pedidos")({
           }
 
           const pedidoDbId: string = upserted.id;
+
+          if (marketplaceDetectado) {
+            await sincronizarPoliticaInicialEmissaoNf(
+              pedidoDbId,
+              d,
+              marketplaceDetectado,
+            );
+          }
 
           if (itens.length === 0) {
             console.log(`[bling-pedidos] pedido ${blingPedidoId} chegou com itens vazios — pedido_itens preservado sem alteração`);

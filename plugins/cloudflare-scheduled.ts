@@ -1,5 +1,5 @@
 import { definePlugin } from "nitro";
-import { cronReconciliar, cronSyncPoll, cronMLStatus, cronNfStatus } from "../src/server";
+import { cronReconciliar, cronSyncPoll, cronMLStatus, cronNfStatus, cronNfEmissao } from "../src/server";
 
 // O preset Nitro cloudflare-module não usa o `scheduled` exportado em src/server.ts —
 // Cron Triggers do Cloudflare chegam aqui via hook "cloudflare:scheduled".
@@ -17,6 +17,9 @@ export default definePlugin((nitroApp) => {
     );
     context.waitUntil(
       cronNfStatus().catch((e: unknown) => console.error("[cron-nf-status] erro:", e)),
+    );
+    context.waitUntil(
+      cronNfEmissao().catch((e: unknown) => console.error("[cron-nf-emissao] erro:", e)),
     );
   });
 });

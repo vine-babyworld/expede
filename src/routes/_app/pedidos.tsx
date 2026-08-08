@@ -30,6 +30,30 @@ function SituacaoBadge({ situacaoId, mlShipmentStatus }: { situacaoId: number | 
   return <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700">Em aberto</span>;
 }
 
+function EmissaoNfBadge({ status, error }: { status: string | null; error: string | null }) {
+  if (!status) return <span className="text-muted-foreground">—</span>;
+
+  const config: Record<string, { label: string; className: string }> = {
+    pending: { label: "Pendente", className: "bg-yellow-100 text-yellow-800" },
+    processing: { label: "Emitindo", className: "bg-blue-100 text-blue-800" },
+    created: { label: "NF criada", className: "bg-indigo-100 text-indigo-800" },
+    sent: { label: "Enviada", className: "bg-green-100 text-green-800" },
+    retry: { label: "Tentar novamente", className: "bg-orange-100 text-orange-800" },
+    blocked: { label: "Bloqueada", className: "bg-red-100 text-red-800" },
+    manual: { label: "Manual (Flex)", className: "bg-gray-100 text-gray-700" },
+  };
+  const item = config[status] ?? { label: status, className: "bg-gray-100 text-gray-700" };
+
+  return (
+    <span
+      className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${item.className}`}
+      title={error ?? undefined}
+    >
+      {item.label}
+    </span>
+  );
+}
+
 function formatBRL(value: number | null): string {
   if (value === null) return "—";
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
@@ -228,6 +252,7 @@ function PedidosPage() {
               <th className="text-left px-4 py-3 font-medium">Cliente</th>
               <th className="text-right px-4 py-3 font-medium">Total</th>
               <th className="text-left px-4 py-3 font-medium">NF</th>
+              <th className="text-left px-4 py-3 font-medium">Emissão NF</th>
               <th className="text-left px-4 py-3 font-medium">Situação</th>
               <th className="text-right px-4 py-3 font-medium">Itens</th>
               <th className="px-4 py-3" />
@@ -236,13 +261,13 @@ function PedidosPage() {
           <tbody>
             {q.isLoading ? (
               <tr>
-                <td colSpan={8} className="text-center py-12 text-muted-foreground">
+                <td colSpan={9} className="text-center py-12 text-muted-foreground">
                   <Loader2 className="h-5 w-5 animate-spin mx-auto" />
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={8} className="text-center py-12 text-muted-foreground">
+                <td colSpan={9} className="text-center py-12 text-muted-foreground">
                   <ClipboardList className="h-10 w-10 mx-auto mb-2 opacity-30" />
                   <p>Nenhum pedido encontrado</p>
                 </td>
@@ -286,6 +311,9 @@ function PedidosPage() {
                     </td>
                     <td className="px-4 py-3 font-mono text-xs">
                       {row.bling_nota_fiscal_numero ?? "—"}
+                    </td>
+                    <td className="px-4 py-3">
+                      <EmissaoNfBadge status={row.nf_emissao_status} error={row.nf_emissao_error} />
                     </td>
                     <td className="px-4 py-3"><SituacaoBadge situacaoId={row.situacao_id} mlShipmentStatus={row.ml_shipment_status} /></td>
                     <td className="px-4 py-3 text-right text-muted-foreground">
