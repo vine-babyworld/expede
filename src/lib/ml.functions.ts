@@ -4,7 +4,7 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 
 const ML_CLIENT_ID = process.env.ML_CLIENT_ID!;
 const ML_CLIENT_SECRET = process.env.ML_CLIENT_SECRET!;
-const ML_REDIRECT_URI = "https://expede.lovable.app/api/ml/callback";
+const ML_REDIRECT_URI = "https://babyworld.expede.workers.dev/api/ml/callback";
 const ML_AUTH_URL = "https://auth.mercadolivre.com.br/authorization";
 
 // ── Auth URL ─────────────────────────────────────────────────────────────────
