@@ -1,7 +1,7 @@
 # Design: Shopee em produção + canal de marketplace unificado
 
-**Data:** 2026-08-10 (revisão 2)
-**Status:** Aprovado (decisões de design + revisão técnica de segurança/operação do gateway confirmadas pelo Vinicius)
+**Data:** 2026-08-10 (revisão 3)
+**Status:** Em revisão (aguardando fechamento dos itens de infraestrutura de domínio/rede desta rodada — decisões de design e de segurança/operação do gateway já confirmadas pelo Vinicius)
 
 ---
 
@@ -73,12 +73,23 @@ A instância já foi provisionada pelo Vinicius:
 | SO | Ubuntu 24.04 LTS |
 | Plano | General Purpose, US$ 5/mês — 512 MB RAM, 2 vCPUs, 20 GB SSD |
 | IPv4 estático | `54.20.20.253` (recurso `expede-shopee-static-ip-prod`, já associado) |
-| IPv6 | Desabilitado |
-| Firewall HTTP público | Sendo removido (80/443 não devem ficar públicos — ver Especificação do gateway) |
+| IPv6 | **Desabilitado** (confirmado) |
+| Firewall HTTP público | **Removido** (80/443 não ficam públicos — confirmado) |
+| SSH | Restrição final **pendente de confirmação** — ainda não fechado numa allowlist de IP específica |
 | Cloudflare Tunnel / Access / nginx | Ainda não configurados |
+| Hostname do gateway | `shopee-egress.bwbaby.com.br` (fixado — ver "Domínio corporativo" abaixo) |
 
 **Nunca registrar aqui**: token do Tunnel, Access Client Secret, chaves SSH privadas,
 Partner Key da Shopee. Só fatos de infraestrutura pública (IP, nome, região).
+
+### Domínio corporativo (`bwbaby.com.br`) — em transição, zona ainda não ativa
+
+`bwbaby.com.br` está em transição do Registro.br pra Cloudflare. Nameservers já
+configurados no domínio: `dane.ns.cloudflare.com` e `rita.ns.cloudflare.com`. **A
+zona ainda não foi ativada na Cloudflare** — Tunnel/Access **não podem ser
+configurados** até essa ativação completar (propagação de NS + zona "Active" no
+painel Cloudflare). Isso é um bloqueio sequencial: nada de Frente 1 além do que já
+foi feito (provisionamento Lightsail) avança antes disso.
 
 ## Arquitetura
 
@@ -86,13 +97,14 @@ Partner Key da Shopee. Só fatos de infraestrutura pública (IP, nome, região).
 
 **Pré-requisitos, nesta ordem:**
 
-1. **Hostname corporativo para o gateway**: precisa de um domínio da empresa
-   gerenciado na Cloudflare (ex: `shopee-egress.<domínio-da-empresa>`) — confirmar
-   com o Vinicius qual domínio antes de configurar Tunnel/Access.
+1. **Hostname corporativo para o gateway**: **fixado** — `shopee-egress.bwbaby.com.br`.
+   Bloqueado até a zona `bwbaby.com.br` ativar na Cloudflare (ver "Domínio
+   corporativo" acima) — sem isso não dá pra criar o registro DNS nem configurar
+   Access na frente do Tunnel.
 2. ~~Provisionar Lightsail + IP estático~~ — **feito** (ver Registro de infraestrutura
    acima).
 3. Configurar Cloudflare Tunnel + Access + nginx (especificação abaixo) — **ainda
-   não feito**.
+   não feito, bloqueado pela ativação da zona `bwbaby.com.br`**.
 4. Preencher e enviar o formulário Go-Live com o IP `54.20.20.253`.
 5. Aguardar aprovação da Shopee — sem prazo garantido. **Não assumir que o Live
    Partner ID será `1235356`** — esse é o Test Partner ID do sandbox; produção emite
@@ -103,9 +115,11 @@ Partner Key da Shopee. Só fatos de infraestrutura pública (IP, nome, região).
 **Exposição de rede:**
 - nginx escuta **somente em `127.0.0.1`** (ex: `127.0.0.1:8080`) — nunca em
   `0.0.0.0`.
-- Portas 80/443 **fechadas publicamente** no firewall da instância (Lightsail
-  firewall + `ufw`) — já em andamento pelo Vinicius.
-- SSH restrito (allowlist de IP de origem, não `0.0.0.0/0`).
+- Portas 80/443 **fechadas publicamente** no firewall da instância — **confirmado
+  feito** (ver Registro de infraestrutura).
+- SSH: **restrição final ainda pendente de confirmação** — objetivo é allowlist de
+  IP de origem, não `0.0.0.0/0`, mas isso não está fechado ainda. Não assumir que
+  já está restrito ao planejar os próximos passos.
 - `cloudflared` roda como serviço systemd na própria instância e aponta pro nginx
   via `127.0.0.1:8080` — é o único caminho de entrada de tráfego externo pro nginx,
   via o túnel outbound do `cloudflared` (não precisa de porta pública aberta pra
@@ -156,10 +170,13 @@ Partner Key da Shopee. Só fatos de infraestrutura pública (IP, nome, região).
 - `nginx.service` e `cloudflared.service` habilitados no boot, `Restart=on-failure`
   (systemd já cobre isso por padrão pro nginx no Ubuntu; confirmar/adicionar
   explicitamente pro `cloudflared`).
-- **Health check**: endpoint leve no nginx (`location /healthz { return 200; }`,
-  não exposto via o túnel Access, só local) monitorado por um script cron simples
-  ou pelo próprio `cloudflared`/Lightsail health check, pra detectar o proxy
-  travado.
+- **Health check**: endpoint leve no nginx (`location /healthz { return 200; }`).
+  **Só responde pelo loopback** (`127.0.0.1`, dentro da própria instância) — **não
+  pode ser publicado pelo hostname do Tunnel** nem ficar acessível via Access. O
+  acesso externo ao gateway fica restrito ao estritamente necessário: só
+  `/api/v2/` com Service Token válido. Monitoramento do `/healthz` roda local
+  (script cron simples na própria VM ou verificação via `cloudflared`/Lightsail
+  contra `127.0.0.1`), nunca exposto de fora.
 - **Swap**: 512 MB de RAM é pouco — adicionar um swapfile (ex: 1 GB) pra evitar
   OOM kill do nginx/`cloudflared` sob pico, já que não há orçamento de memória
   sobrando nessa instância.
@@ -264,8 +281,9 @@ export interface CanalMarketplace {
    `auth_partner` (browser) é a exceção documentada.
 5. nginx só aceita `/api/v2/` + métodos GET/POST, só encaminha pra
    `partner.shopeemobile.com`, remove os headers de Access/Cookie/Authorization
-   antes do upstream, e não grava query/body/tokens em log (Worker, nginx e
-   qualquer observabilidade).
+   antes do upstream, não grava query/body/tokens em log (Worker, nginx e
+   qualquer observabilidade), e `/healthz` responde só por loopback — nunca
+   acessível de fora via o hostname do Tunnel.
 6. `getShopeeConnection()` (status na UI) reflete só a conexão de produção
    (`is_sandbox = false`).
 7. `etiqueta.functions.ts` não tem mais `if (marketplace === "shopee")` inline —
@@ -289,10 +307,15 @@ export interface CanalMarketplace {
 
 ## Pendências / bloqueios externos
 
-- **Vinicius**: definir o domínio corporativo pra `shopee-egress.<domínio>`.
-- **Vinicius**: terminar de fechar o firewall público (80/443) — já em andamento.
-- **Vinicius + eu**: configurar Tunnel/Access/nginx na instância já provisionada.
-- **Vinicius**: preencher e enviar o formulário Go-Live com IP `54.20.20.253`.
+- **Bloqueio sequencial no topo da fila**: ativação da zona `bwbaby.com.br` na
+  Cloudflare (nameservers já apontados, zona ainda não ativa) — nada de
+  Tunnel/Access/DNS pode ser configurado antes disso.
+- **Vinicius**: confirmar a restrição final de SSH na Lightsail (ainda pendente).
+- **Vinicius + eu**: configurar Tunnel/Access/nginx na instância já provisionada —
+  só depois da zona ativar.
+- **Vinicius**: preencher e enviar o formulário Go-Live com IP `54.20.20.253` — só
+  depois do gateway estar validado (não faz sentido submeter o IP antes de
+  confirmar que o gateway funciona de ponta a ponta).
 - Aprovação da Shopee — sem prazo, decisão deles.
 - **Gate de deploy geral do projeto** (não específico do Shopee): `VITE_SUPABASE_*`
   precisa continuar resolvendo corretamente em qualquer build novo — validar de
