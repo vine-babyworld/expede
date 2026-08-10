@@ -28,6 +28,18 @@ sudo ss -tlnp | grep nginx
 ```
 Esperado: `127.0.0.1:8080`, nada em `0.0.0.0:80` ou `:443`.
 
+**Validar que nada de sensível vaza pro log — com um segredo fictício na
+query, antes de qualquer chamada real:**
+```bash
+curl -s -o /dev/null "http://127.0.0.1:8080/api/v2/shop/auth_partner?partner_id=1&timestamp=1&sign=SEGREDO_FICTICIO_TESTE_LOG"
+sudo grep -c "SEGREDO_FICTICIO_TESTE_LOG" /var/log/nginx/shopee-egress.access.log /var/log/nginx/shopee-egress.error.log 2>/dev/null
+```
+Esperado: `0` ocorrências nos dois arquivos (o segundo nem deve existir,
+já que `error_log` está redirecionado pra `/dev/null`). Se
+`SEGREDO_FICTICIO_TESTE_LOG` aparecer em qualquer um dos dois, **parar e
+corrigir a config antes de seguir** — não prosseguir pro Tunnel/Access com
+esse vazamento confirmado.
+
 ## 3. Cloudflare Tunnel — criar e validar (NÃO publicar ainda)
 
 **Ordem importa**: criar e validar o túnel aqui, mas só rodar `route dns` +
