@@ -149,15 +149,33 @@ function HistoricoPage() {
 
       toast.loading("Imprimindo...", { id: "reprint" });
 
+      // (pedido marcado como impresso sem etiqueta some da fila sem deixar rastro — Lição #18)
+      let etiquetaOk = false;
       if (etiquetaSettled.status === "fulfilled") {
         const et = etiquetaSettled.value;
         if (et.ok && et.tipo === "zpl") {
           try {
             await qzTray.imprimirZpl(et.conteudo, impressora);
+            etiquetaOk = true;
           } catch (err) {
             console.warn("[reprint] etiqueta:", err);
           }
+        } else if (et.ok && et.tipo === "pdf_base64") {
+          try {
+            await qzTray.imprimirPdf(et.conteudo, impressora);
+            etiquetaOk = true;
+          } catch (err) {
+            console.warn("[reprint] etiqueta PDF:", err);
+          }
+        } else if (!et.ok) {
+          console.warn("[reprint] etiqueta não disponível:", (et as any).error);
         }
+      } else {
+        console.warn("[reprint] etiqueta rejeitou:", etiquetaSettled.reason);
+      }
+
+      if (!etiquetaOk) {
+        toast.warning("Etiqueta de transporte não impressa", { id: "etiqueta-falha", duration: 8000 });
       }
 
       if (danfeSettled.status === "fulfilled" && danfeSettled.value.ok) {

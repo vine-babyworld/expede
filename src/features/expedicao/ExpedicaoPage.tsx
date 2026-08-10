@@ -361,13 +361,16 @@ export function ExpedicaoPage() {
 
       toast.loading("Imprimindo...", { id: "print" });
 
-      // Etiqueta: opcional — erro apenas loga, nunca bloqueia a DANFE
+      // Etiqueta: opcional — erro nunca bloqueia a DANFE, mas precisa avisar o operador
+      // (pedido marcado como impresso sem etiqueta some da fila sem deixar rastro — Lição #18)
+      let etiquetaOk = false;
       if (etiquetaSettled.status === "fulfilled") {
         const et = etiquetaSettled.value;
         if (et.ok && et.tipo === "zpl") {
           try {
             await qzTray.imprimirZpl(et.conteudo, impressora);
             imprimiuAlgo = true;
+            etiquetaOk = true;
           } catch (err) {
             console.warn("[impressao] falha ao imprimir etiqueta:", err);
           }
@@ -375,6 +378,7 @@ export function ExpedicaoPage() {
           try {
             await qzTray.imprimirPdf(et.conteudo, impressora);
             imprimiuAlgo = true;
+            etiquetaOk = true;
           } catch (err) {
             console.warn("[impressao] falha ao imprimir etiqueta PDF:", err);
           }
@@ -383,6 +387,13 @@ export function ExpedicaoPage() {
         }
       } else {
         console.warn("[impressao] etiqueta rejeitou:", etiquetaSettled.reason);
+      }
+
+      if (!etiquetaOk) {
+        toast.warning("Etiqueta de transporte não impressa — reimprima em Pedidos", {
+          id: "etiqueta-falha",
+          duration: 8000,
+        });
       }
 
       // DANFE: sempre imprime quando disponível
