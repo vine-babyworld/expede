@@ -46,7 +46,9 @@ tunnel ingress rule` direto e inspeção de logs/status do systemd.
 - Headers removidos antes do upstream: `CF-Access-Client-Id`, `CF-Access-Client-Secret`, `Cf-Access-Jwt-Assertion`, `Cookie`, qualquer `Authorization` recebido.
 - Log: nunca gravar querystring, body ou credenciais — em nenhuma camada (Worker, nginx, observabilidade).
 - `/healthz` responde só por loopback — nunca publicado pelo hostname do Tunnel (reforçado pelo `path` do ingress).
-- Segredos de teste (Service Token) nunca literais em comando/histórico de shell — sempre `read -s` + variável temporária, `unset` depois de usar.
+- Segredos de teste (Service Token) nunca literais em comando/histórico de shell nem em argumentos de processo — `read -s` pra captura, `curl -K -` (headers via stdin) pra uso, `unset` depois.
+- Ordem de publicação do gateway: Service Token → Access Application (Service Auth) → só então DNS route + serviço do túnel — nunca publicar o hostname antes do Access estar configurado.
+- Credencial do túnel (`~/.cloudflared/<TUNNEL_ID>.json`) copiada pra `/etc/cloudflared/` com permissão `600`; `cert.pem` da conta protegido/removido depois da rota DNS criada (não é necessário pra rodar o túnel).
 - Multi-loja Shopee fora de escopo — sempre usa a conexão `is_sandbox=false` mais recente, sem iterar por `shop_id` arbitrário.
 - Fallback ML pro registro `CANAIS` precisa ser preservado exatamente (`marketplace` nulo/legado → ML), comportamento de hoje.
 - **Todo trabalho roda numa worktree/branch própria (`shopee-producao`), nunca commitado direto em `main`** — worktree criada antes de qualquer artefato.
@@ -135,20 +137,25 @@ tunnel ingress rule` direto e inspeção de logs/status do systemd.
 
 - [ ] **Step 1: Criar a worktree**
 
+  Comandos em Git Bash (`C:\Users\Vinicius\EXPEDE` = `/c/Users/Vinicius/EXPEDE`
+  — `cd C:\Users\...` não funciona corretamente no Git Bash, usar sempre o
+  caminho estilo Unix):
+
   ```bash
-  cd C:\Users\Vinicius\EXPEDE
+  cd /c/Users/Vinicius/EXPEDE
   git worktree add ../shopee-producao -b shopee-producao
   ```
 
   Segue o mesmo padrão já em uso no projeto pra trabalho isolado (ver
   `CURRENT-STATE.md`, worktree `nf-ml-controlada`). Resultado: diretório
-  `C:\Users\Vinicius\shopee-producao`, checkout da branch nova
-  `shopee-producao`, `main` no diretório original **intocado**.
+  `/c/Users/Vinicius/shopee-producao` (= `C:\Users\Vinicius\shopee-producao`
+  no Explorer/PowerShell), checkout da branch nova `shopee-producao`, `main`
+  no diretório original **intocado**.
 
 - [ ] **Step 2: Confirmar isolamento**
 
   ```bash
-  cd C:\Users\Vinicius\shopee-producao
+  cd /c/Users/Vinicius/shopee-producao
   git status
   git branch --show-current
   ```
@@ -158,7 +165,7 @@ tunnel ingress rule` direto e inspeção de logs/status do systemd.
 
 - [ ] **Step 3: Todo o resto deste plano (Tasks 4-12) roda dentro desta worktree**
 
-  `C:\Users\Vinicius\shopee-producao`, não em `C:\Users\Vinicius\EXPEDE`.
+  `/c/Users/Vinicius/shopee-producao`, não em `/c/Users/Vinicius/EXPEDE`.
 
 ---
 
@@ -290,7 +297,12 @@ tunnel ingress rule` direto e inspeção de logs/status do systemd.
   ```
   Esperado: `127.0.0.1:8080`, nada em `0.0.0.0:80` ou `:443`.
 
-  ## 3. Cloudflare Tunnel
+  ## 3. Cloudflare Tunnel — criar e validar (NÃO publicar ainda)
+
+  **Ordem importa**: criar e validar o túnel aqui, mas só rodar `route dns` +
+  iniciar o serviço depois que o Access (seção 4) já estiver configurado —
+  senão existe uma janela em que o hostname resolve e o túnel responde
+  publicamente sem nenhuma política de autenticação na frente.
 
   ```bash
   curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
@@ -299,23 +311,63 @@ tunnel ingress rule` direto e inspeção de logs/status do systemd.
   cloudflared tunnel create expede-shopee-egress
   ```
   Anotar o `TUNNEL_ID` gerado, preencher em `cloudflared-config.yml` (2
-  ocorrências), copiar pra `/etc/cloudflared/config.yml` na instância.
+  ocorrências).
 
-  **Validar a config antes de rodar como serviço:**
+  **O arquivo de credencial do túnel nasce em `~/.cloudflared/<TUNNEL_ID>.json`
+  — a config aponta pra `/etc/cloudflared/<TUNNEL_ID>.json`, que não existe
+  ainda.** Criar o diretório protegido e copiar com permissão restrita:
   ```bash
-  cloudflared tunnel ingress validate /etc/cloudflared/config.yml
+  sudo mkdir -p /etc/cloudflared
+  sudo cp ~/.cloudflared/<TUNNEL_ID>.json /etc/cloudflared/<TUNNEL_ID>.json
+  sudo chown root:root /etc/cloudflared/<TUNNEL_ID>.json
+  sudo chmod 600 /etc/cloudflared/<TUNNEL_ID>.json
   ```
-  Esperado: `OK` / sem erro de sintaxe.
+  Só então copiar `cloudflared-config.yml` (já preenchido) pra
+  `/etc/cloudflared/config.yml`.
 
-  **Testar quais regras casam com quais paths (sem precisar do serviço rodando):**
+  **Verificar a sintaxe exata da versão instalada antes de validar** (a flag
+  `--config` pode mudar de posição entre versões do `cloudflared`):
   ```bash
-  cloudflared tunnel ingress rule https://shopee-egress.bwbaby.com.br/api/v2/shop/auth_partner
-  cloudflared tunnel ingress rule https://shopee-egress.bwbaby.com.br/healthz
+  cloudflared tunnel ingress --help
+  ```
+  Confirmar ali como passar o arquivo de config pro `validate`/`rule` (a
+  forma mais comum é a flag global antes do subcomando). Validar:
+  ```bash
+  cloudflared tunnel --config /etc/cloudflared/config.yml ingress validate
+  ```
+  Esperado: `OK` / sem erro de sintaxe. Se o `--help` mostrar uma posição
+  diferente pra flag, usar a forma que ele indicar — não a forma acima às
+  cegas.
+
+  **Testar quais regras casam com quais paths (sem precisar do serviço
+  rodando nem do DNS publicado ainda):**
+  ```bash
+  cloudflared tunnel --config /etc/cloudflared/config.yml ingress rule https://shopee-egress.bwbaby.com.br/api/v2/shop/auth_partner
+  cloudflared tunnel --config /etc/cloudflared/config.yml ingress rule https://shopee-egress.bwbaby.com.br/healthz
   ```
   Esperado: o primeiro casa com a regra `service: http://127.0.0.1:8080`; o
   segundo casa com a regra de fallback `http_status:404` (não com a regra
   do nginx) — confirma que `/healthz` não é alcançável pelo hostname público
-  **antes mesmo de expor o túnel de verdade**.
+  **antes mesmo de publicar o túnel de verdade**.
+
+  ## 4. Cloudflare Access (Service Token) — ANTES de publicar o túnel
+
+  Criar nesta ordem, pra nunca existir uma janela pública sem proteção:
+
+  1. Zero Trust → Access → Service Auth → **Create Service Token primeiro**:
+     - Nome: `expede-worker-shopee-gateway`
+     - **Definir expiração** (ex: 1 ano) — anotar a data em
+       `PENDING-DECISIONS.md` ou equivalente, criar lembrete de rotação antes
+       de vencer.
+     - Copiar `Client ID` e `Client Secret` — **não colar em chat/log**, só
+       digitar direto no `wrangler secret put` (Task 10) ou capturar via
+       `read -s` em teste manual (Task 6).
+  2. **Só depois**, Zero Trust → Access → Applications → Add an application
+     → Self-hosted:
+     - Domain: `shopee-egress.bwbaby.com.br`
+     - Policy: Service Auth, exigindo o Service Token criado no passo 1.
+
+  ## 5. Publicar o túnel (DNS + serviço) — só depois do Access configurado
 
   ```bash
   cloudflared tunnel route dns expede-shopee-egress shopee-egress.bwbaby.com.br
@@ -324,22 +376,19 @@ tunnel ingress rule` direto e inspeção de logs/status do systemd.
   sudo systemctl status cloudflared   # confirmar "active (running)"
   ```
 
-  ## 4. Cloudflare Access (Service Token)
+  A partir daqui o hostname resolve e responde — mas já protegido pelo
+  Access configurado na seção 4, sem janela pública desprotegida.
 
-  No painel Cloudflare Zero Trust → Access → Applications → Add an
-  application → Self-hosted:
-  - Domain: `shopee-egress.bwbaby.com.br`
-  - Policy: Service Auth, exigindo o Service Token que será criado a seguir.
+  **`cert.pem` não é necessário pra rodar o túnel** (só foi usado pra criar
+  o túnel e a rota DNS, nas etapas 3-5 acima) — proteger ou remover depois de
+  confirmado que o serviço está rodando:
+  ```bash
+  sudo chmod 600 ~/.cloudflared/cert.pem
+  # ou, se preferir não deixar nem isso na instância:
+  # shred -u ~/.cloudflared/cert.pem
+  ```
 
-  Zero Trust → Access → Service Auth → Create Service Token:
-  - Nome: `expede-worker-shopee-gateway`
-  - **Definir expiração** (ex: 1 ano) — anotar a data em `PENDING-DECISIONS.md`
-    ou equivalente, criar lembrete de rotação antes de vencer.
-  - Copiar `Client ID` e `Client Secret` — **não colar em chat/log**, só
-    digitar direto no `wrangler secret put` (Task 10) ou capturar via `read -s`
-    em teste manual (Task 6).
-
-  ## 5. SSH — Lightsail firewall primeiro, `ufw` só depois de validar
+  ## 6. SSH — Lightsail firewall primeiro, `ufw` só depois de validar
 
   **Não configurar `ufw` ainda.** O Lightsail Browser SSH (acesso via
   console AWS, no navegador) pode ser bloqueado por uma regra `ufw` mal
@@ -362,7 +411,7 @@ tunnel ingress rule` direto e inspeção de logs/status do systemd.
   camada extra — decisão e execução ficam pra quando isso estiver validado,
   não faz parte da execução inicial deste plano.
 
-  ## 6. systemd — auto-restart
+  ## 7. systemd — auto-restart
 
   nginx e `cloudflared` já vêm com unit systemd padrão no Ubuntu 24.04.
   Confirmar `Restart=on-failure` em ambos:
@@ -377,7 +426,7 @@ tunnel ingress rule` direto e inspeção de logs/status do systemd.
 - [ ] **Step 5: Commit — só na worktree, nunca em `main`**
 
   ```bash
-  cd C:\Users\Vinicius\shopee-producao
+  cd /c/Users/Vinicius/shopee-producao
   git add ops/shopee-gateway/
   git commit -m "docs(ops): runbook e configs do gateway de egress Shopee (Lightsail)"
   ```
@@ -390,7 +439,7 @@ tunnel ingress rule` direto e inspeção de logs/status do systemd.
 
 **Files:** nenhum no repo (execução remota via SSH, seguindo `ops/shopee-gateway/README.md`)
 
-- [ ] **Step 1: Seguir `ops/shopee-gateway/README.md` seções 1-4, na ordem**
+- [ ] **Step 1: Seguir `ops/shopee-gateway/README.md` seções 1-5, na ordem (Access antes de publicar o túnel — seção 4 vem antes da 5 de propósito)**
 
   Executado pelo Vinicius (ou por mim com acesso SSH, se ele conceder e
   confirmar explicitamente) — mexe numa VM de produção fora do
@@ -436,20 +485,29 @@ tunnel ingress rule` direto e inspeção de logs/status do systemd.
   echo
   ```
 
-  Isso evita que o secret fique no histórico do shell (`~/.bash_history`)
-  ou visível em `ps`/logs de sessão, ao contrário de colar o valor direto
-  num `-H "CF-Access-Client-Secret: valor"`.
+  Isso evita que o secret fique no histórico do shell (`~/.bash_history`).
+  **Mas `read -s` sozinho não é suficiente**: passar o valor direto num
+  `-H "CF-Access-Client-Secret: ${VAR}"` ainda coloca o secret nos
+  **argumentos do processo** (visível via `ps aux`/`/proc/<pid>/cmdline`
+  enquanto o `curl` roda, mesmo vindo de uma variável de shell). Usar
+  `curl -K -` (config lido da entrada padrão) evita isso — os headers vão
+  no stdin, não no `argv`.
 
-- [ ] **Step 2: Testar autenticado, de fora da Lightsail**
+- [ ] **Step 2: Testar autenticado, de fora da Lightsail — secret via stdin, não via argv**
 
   ```bash
-  curl -s -o /dev/null -w "%{http_code}\n" \
-    -H "CF-Access-Client-Id: ${CF_TEST_CLIENT_ID}" \
-    -H "CF-Access-Client-Secret: ${CF_TEST_CLIENT_SECRET}" \
-    "https://shopee-egress.bwbaby.com.br/api/v2/shop/auth_partner?partner_id=1&timestamp=1&sign=x"
+  curl -s -o /dev/null -w "%{http_code}\n" -K - \
+    "https://shopee-egress.bwbaby.com.br/api/v2/shop/auth_partner?partner_id=1&timestamp=1&sign=x" <<EOF
+  header = "CF-Access-Client-Id: ${CF_TEST_CLIENT_ID}"
+  header = "CF-Access-Client-Secret: ${CF_TEST_CLIENT_SECRET}"
+  EOF
   ```
-  Esperado: resposta da Shopee (não HTML de login do Access — se vier isso,
-  o Service Token não está sendo aceito, revisar a Policy).
+  `-K -` faz o `curl` ler diretivas de config (formato `chave = "valor"`) do
+  stdin — o heredoc sem aspas no delimitador (`<<EOF`, não `<<'EOF'`) permite
+  a expansão das variáveis de shell, mas o valor nunca aparece na lista de
+  argumentos do processo `curl`. Esperado: resposta da Shopee (não HTML de
+  login do Access — se vier isso, o Service Token não está sendo aceito,
+  revisar a Policy).
 
 - [ ] **Step 3: Testar sem o Service Token — deve ser rejeitado**
 
@@ -459,15 +517,20 @@ tunnel ingress rule` direto e inspeção de logs/status do systemd.
   ```
   Esperado: bloqueado pelo Access.
 
-- [ ] **Step 4: Testar método/path fora do permitido — deve ser rejeitado pelo nginx**
+- [ ] **Step 4: Testar método/path fora do permitido — deve ser rejeitado pelo nginx (secret ainda via stdin)**
 
   ```bash
-  curl -s -o /dev/null -w "%{http_code}\n" -X DELETE \
-    -H "CF-Access-Client-Id: ${CF_TEST_CLIENT_ID}" -H "CF-Access-Client-Secret: ${CF_TEST_CLIENT_SECRET}" \
-    "https://shopee-egress.bwbaby.com.br/api/v2/shop/auth_partner"
-  curl -s -o /dev/null -w "%{http_code}\n" \
-    -H "CF-Access-Client-Id: ${CF_TEST_CLIENT_ID}" -H "CF-Access-Client-Secret: ${CF_TEST_CLIENT_SECRET}" \
-    "https://shopee-egress.bwbaby.com.br/api/v1/outro-path"
+  curl -s -o /dev/null -w "%{http_code}\n" -X DELETE -K - \
+    "https://shopee-egress.bwbaby.com.br/api/v2/shop/auth_partner" <<EOF
+  header = "CF-Access-Client-Id: ${CF_TEST_CLIENT_ID}"
+  header = "CF-Access-Client-Secret: ${CF_TEST_CLIENT_SECRET}"
+  EOF
+
+  curl -s -o /dev/null -w "%{http_code}\n" -K - \
+    "https://shopee-egress.bwbaby.com.br/api/v1/outro-path" <<EOF
+  header = "CF-Access-Client-Id: ${CF_TEST_CLIENT_ID}"
+  header = "CF-Access-Client-Secret: ${CF_TEST_CLIENT_SECRET}"
+  EOF
   ```
   Esperado: ambos rejeitados (o segundo já nem chega no nginx — `path` do
   ingress barra qualquer coisa fora de `/api/v2/`).
@@ -534,7 +597,7 @@ tunnel ingress rule` direto e inspeção de logs/status do systemd.
 - [ ] **Step 1: Confirmar que está na worktree, branch correta**
 
   ```bash
-  cd C:\Users\Vinicius\shopee-producao
+  cd /c/Users/Vinicius/shopee-producao
   git branch --show-current
   ```
   Esperado: `shopee-producao`.
@@ -745,7 +808,7 @@ tunnel ingress rule` direto e inspeção de logs/status do systemd.
 - [ ] **Step 3: Merge da branch `shopee-producao` em `main` — só com autorização explícita do Vinicius**
 
   ```bash
-  cd C:\Users\Vinicius\EXPEDE
+  cd /c/Users/Vinicius/EXPEDE
   git checkout main
   git pull origin main
   git merge shopee-producao
@@ -1087,11 +1150,13 @@ tunnel ingress rule` direto e inspeção de logs/status do systemd.
 - [ ] Zona `bwbaby.com.br` ativa na Cloudflare antes de qualquer config de Tunnel/Access
 - [ ] DNSSEC reativado (DS cadastrado no Registro.br) só depois da zona estável — nunca com zona `Pending`
 - [ ] Worktree `shopee-producao` criada antes de qualquer artefato de código/config — nada commitado direto em `main` até o merge da Task 11
-- [ ] `cloudflared-config.yml` com `path: ^/api/v2/.*`, validado com `cloudflared tunnel ingress validate` e `ingress rule` pros dois paths de teste
+- [ ] `cloudflared-config.yml` com `path: ^/api/v2/.*`, validado com `cloudflared tunnel --config ... ingress validate` e `ingress rule` pros dois paths de teste (sintaxe exata confirmada via `--help` antes de assumir)
+- [ ] Credencial do túnel copiada pra `/etc/cloudflared/<TUNNEL_ID>.json` com permissão `600`; `cert.pem` protegido/removido depois da rota DNS criada
+- [ ] Service Token e Access Application criados **antes** da rota DNS/serviço do túnel — sem janela pública desprotegida
 - [ ] Gateway (nginx + Tunnel + Access) validado isoladamente com `curl` antes do Go-Live
 - [ ] `/healthz` confirmado inacessível de fora (só loopback, reforçado pelo `path` do ingress)
 - [ ] SSH: firewall Lightsail usado primeiro; `ufw` só depois de validar origem real + caminho de recuperação
-- [ ] Segredos de teste do Service Token nunca literais em comando — sempre `read -s` + variável temporária, `unset` depois
+- [ ] Segredos de teste do Service Token nunca literais em comando/argv — `read -s` pra captura, `curl -K -` (stdin) pro uso, `unset` depois
 - [ ] IP de saída da Lightsail confirmado como `54.20.20.253` antes do envio do Go-Live
 - [ ] Formulário Go-Live enviado com o IP correto e Live Redirect URL Domain correto (só domínio)
 - [ ] Live Partner ID/Key reais (não `1235356`) configurados como secrets
