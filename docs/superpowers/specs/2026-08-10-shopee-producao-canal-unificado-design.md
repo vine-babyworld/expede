@@ -1,7 +1,7 @@
 # Design: Shopee em produção + canal de marketplace unificado
 
-**Data:** 2026-08-10
-**Status:** Aprovado (decisões de design confirmadas via AskUserQuestion com o Vinicius)
+**Data:** 2026-08-10 (revisado)
+**Status:** Aprovado (decisões de design confirmadas via AskUserQuestion com o Vinicius; revisão técnica de arquitetura do gateway incorporada)
 
 ---
 
@@ -34,68 +34,108 @@ recente na tabela). Achado adicional: o fluxo de reimpressão em `pedidos.tsx` e
 `historico.tsx` só tratava etiqueta do tipo `zpl`, ignorando silenciosamente o tipo
 `pdf_base64` (usado pelo fallback Shopee/ML) — também corrigido no commit `89427d0`.
 
-## Decisões de design (brainstorming, confirmadas pelo Vinicius)
+## Decisões de design (brainstorming + revisão técnica, confirmadas pelo Vinicius)
 
 1. **Sandbox vs produção**: parar de insistir no ambiente sandbox da Shopee (já
    duplamente confirmado quebrado do lado deles) e migrar para o Partner App de
    **produção** via o botão **Go-Live** do próprio app "EXPEDE" no Shopee Open
-   Platform Console — não é um app novo, é o mesmo app (`partner_id 1235356`)
-   promovido, confirmado visualmente (botão presente na página de detalhe do app)
-   e por um guia de integração de terceiro (Smartship) que documenta o mesmo padrão
-   de fluxo do Shopee Open Platform.
-2. **IP fixo para produção**: o formulário Go-Live exige uma **IP Address Whitelist**.
-   Nem Cloudflare Workers nem Supabase Edge Functions (as duas camadas que o EXPEDE já
-   usa) oferecem IP de saída fixo fora do plano Enterprise da Cloudflare (recurso
-   "Dedicated Egress IP", sem preço público, claramente desproporcional pra essa
-   necessidade). Decisão: **AWS Lightsail, região São Paulo, plano $5/mês** — inclui
-   1 IP estático grátis enquanto atrelado à instância rodando. A instância roda só um
-   forwarder mínimo (nginx `stream` ou `socat`) que aceita conexão **apenas** do
-   Worker do EXPEDE (segredo compartilhado, não é proxy aberto) e repassa só para os
-   hosts da Shopee (`partner.shopeemobile.com` / `partner.test-stable.shopeemobile.com`).
-   Nenhum dado de pedido/token é armazenado na VPS — é só um salto de rede.
-3. **Canal unificado no código**: criar um contrato comum (`buscarEtiqueta`,
+   Platform Console — não é um app novo, é o mesmo app promovido, confirmado
+   visualmente (botão presente na página de detalhe do app).
+2. **Ordem de execução**: a infraestrutura de IP fixo (item 3 abaixo) precisa existir
+   **antes** de enviar o formulário Go-Live, porque o próprio formulário exige o IP
+   estático no campo "IP Address Whitelist". Não dá pra submeter primeiro e provisionar
+   depois.
+3. **Gateway de egress para IP fixo**: nem Cloudflare Workers nem Supabase Edge
+   Functions oferecem IP de saída fixo fora do plano Enterprise da Cloudflare (recurso
+   "Dedicated Egress IP", sem preço público, desproporcional pra essa necessidade).
+   Decisão: **AWS Lightsail, região São Paulo, plano $5/mês**, com IP estático
+   associado — rodando um **gateway HTTP reverso**, não um forward de TCP cru:
+   `Worker → Cloudflare Tunnel/Access → nginx (HTTP) na Lightsail → partner.shopeemobile.com`.
+   Detalhes de segurança do gateway na seção Arquitetura.
+4. **Autenticação Worker↔gateway**: não usar IP de origem do Worker como controle de
+   acesso — o IP do Cloudflare Worker é dinâmico/compartilhado, não é uma credencial
+   válida. Usar **Cloudflare Access Service Token** (preferencial) ou, se inviável,
+   assinatura HMAC com timestamp no payload da chamada ao gateway.
+5. **Canal unificado no código**: criar um contrato comum (`buscarEtiqueta`,
    `getConnectionStatus`, `disconnect`) que `ml.functions.ts` e `shopee.ts` passam a
-   implementar, sem reescrever a lógica interna de cada um — só expondo o mesmo
-   formato. Objetivo: `etiqueta.functions.ts` deixa de ter um `if (marketplace ===
-   "shopee")` inline e passa a fazer lookup por um registro de canais, removendo a
-   classe de duplicação que causou o bug do `pdf_base64` faltando em 2 de 3 lugares.
-4. **Fora de escopo (YAGNI)**: painel de status de canais, suporte a múltiplas lojas
-   Shopee simultâneas, Amazon (filtro existe na UI mas não tem implementação real,
-   sem pedido usando), refazer a lógica interna de assinatura/token da Shopee (já
-   validada correta).
+   implementar, sem reescrever a lógica interna de cada um. `etiqueta.functions.ts`
+   passa a fazer lookup por um registro de canais em vez do `if (marketplace ===
+   "shopee")` inline, removendo a classe de duplicação que causou o bug do
+   `pdf_base64` faltando em 2 de 3 lugares — **preservando o fallback atual pra
+   Mercado Livre** quando `marketplace` é `null`/legado (comportamento de hoje,
+   não pode regredir).
+6. **Fora de escopo (YAGNI)**: painel de status de canais, suporte a múltiplas lojas
+   Shopee simultâneas, Amazon (filtro existe na UI mas não tem implementação real),
+   refazer a lógica interna de assinatura/token da Shopee (já validada correta).
 
 ## Arquitetura
 
-### Frente 1 — Shopee em produção (bloqueada em ação externa do Vinicius)
+### Frente 1 — Shopee em produção + gateway de egress
 
-**Pré-requisito, fora do código**: Vinicius preenche e envia o formulário Go-Live no
-Shopee Open Platform Console (Product Brief, screenshot da UI, Live Redirect URL
-Domain = `https://babyworld.expede.workers.dev`, IP Address Whitelist = IP estático
-da Lightsail). Aprovação é decisão da Shopee, sem prazo garantido — mesma classe de
-dependência externa que já bloqueou o sandbox por semanas (Lição #21). **Não há
-garantia de que a aprovação resolve o problema** — só que o código do nosso lado já
-foi verificado correto e não há razão técnica conhecida pra falhar depois de
-aprovado.
+**Pré-requisitos, fora do código, nesta ordem:**
+
+1. **Hostname corporativo para o gateway**: precisa de um domínio da empresa gerenciado
+   na Cloudflare (ex: `shopee-egress.<domínio-da-empresa>`) pra servir de hostname
+   público do túnel/Access — é o que recebe TLS válido e fica na frente do nginx da
+   Lightsail. Confirmar com o Vinicius qual domínio usar antes de configurar (não
+   necessariamente `lojababyworld.com.br` — a zona precisa estar na Cloudflare pra
+   Tunnel/Access funcionarem).
+2. **Provisionar a instância Lightsail** (São Paulo) e **associar o IP estático** —
+   isso acontece **antes** do formulário Go-Live, já que o IP precisa estar disponível
+   pra preencher o campo "IP Address Whitelist".
+3. **Configurar Cloudflare Tunnel (`cloudflared`)** rodando na Lightsail, publicando
+   o hostname `shopee-egress.<domínio>` protegido por **Cloudflare Access** com
+   **Service Token** (não expõe a Lightsail direto na internet pra além do túnel).
+4. **nginx HTTP** na Lightsail, atrás do túnel, como reverse proxy que:
+   - só faz `proxy_pass` para `partner.shopeemobile.com` (e `partner.test-stable.
+     shopeemobile.com` se ainda quisermos suporte a teste via o mesmo gateway) —
+     qualquer outro host de destino é rejeitado;
+   - preserva exatamente o path (`/api/v2/...`) e a querystring recebidos, sem
+     reescrever parâmetros;
+   - **não loga nem armazena** query string, body ou headers de autorização —
+     `access_log off` ou log format que mascara esses campos (a query/body carrega
+     `access_token`, `partner_key`-derived `sign`, etc., que são segredos).
+5. **Preencher e enviar o formulário Go-Live** no Shopee Open Platform Console:
+   - **IP Address Whitelist** = IP estático da Lightsail (não o IP do Worker — nunca
+     fazia sentido, é dinâmico);
+   - **Live Redirect URL Domain** = só o domínio (`https://babyworld.expede.workers.dev`),
+     **distinto** da URL completa de callback usada no código
+     (`https://babyworld.expede.workers.dev/api/shopee/callback`) — mesma pegadinha
+     já documentada na Lição #21 pro campo equivalente do sandbox ("esse campo espera
+     só o domínio, não a URL completa com path");
+   - Product Brief, screenshot da UI, credencial de teste do EXPEDE pra revisão da
+     Shopee (dados que só o Vinicius preenche).
+6. **Aguardar aprovação da Shopee** — sem prazo garantido, decisão deles. **Não
+   assumir que o Live Partner ID será `1235356`** — esse é o Test Partner ID do
+   sandbox; o processo de Go-Live emite um Partner ID e Partner Key **novos e
+   diferentes** pro ambiente Live, específicos desse app.
 
 **Passo a passo técnico, só depois da aprovação:**
 
-1. Provisionar a instância Lightsail (São Paulo), configurar firewall (só porta do
-   forwarder, só IP do Cloudflare Worker de origem se possível, senão segredo
-   compartilhado no payload), instalar `unattended-upgrades`.
-2. `wrangler secret put SHOPEE_PARTNER_ID` / `SHOPEE_PARTNER_KEY` (credenciais Live,
-   nunca coladas em chat/log — digitadas direto no prompt interativo do wrangler,
-   mesmo padrão da Lição #21).
-3. `wrangler.jsonc`: `SHOPEE_SANDBOX` passa a `"false"`.
-4. `src/lib/shopee.ts`: todas as chamadas `fetch()` para hosts Shopee passam a ir
-   através do proxy Lightsail em vez de direto (novo helper, ex: `shopeeFetch()` que
-   substitui o `fetch()` cru usado em `buildShopeeUrl`-consumers).
-5. **Corrigir `buscarEtiquetaShopee()`** para parar de usar `SHOPEE_TEST_SHOP_ID` e
-   em vez disso consultar `shopee_connections` pela conexão ativa mais recente
-   (mesmo padrão de `getMLAccessToken()` em `ml.functions.ts:113-128`) — necessário
-   de qualquer forma pra funcionar com uma loja real de produção.
-6. Testar: Conectar → autorizar na Shopee → confirmar linha nova em
-   `shopee_connections` (`is_sandbox: false`) → bipar um pedido Shopee real e
-   confirmar que a etiqueta sai na impressora térmica.
+7. `wrangler secret put SHOPEE_PARTNER_ID` / `SHOPEE_PARTNER_KEY` com os valores Live
+   reais recebidos da Shopee (nunca colados em chat/log — digitados direto no prompt
+   interativo do wrangler, mesmo padrão da Lição #21).
+8. `wrangler.jsonc`: `SHOPEE_SANDBOX` passa a `"false"`.
+9. `src/lib/shopee.ts`: as chamadas **server-to-server** (token exchange, refresh
+   token, create/poll/download shipping document) passam a ir através do gateway
+   (`https://shopee-egress.<domínio>/...`, autenticado com o Service Token/HMAC do
+   item 4 da decisão de design) em vez de direto pro host da Shopee.
+   **Exceção explícita**: `getShopeeAuthUrl()` (o `auth_partner`) **não** passa pelo
+   gateway — essa etapa é uma navegação de **browser** (o operador clica "Conectar",
+   o servidor monta a URL e devolve um redirect 302, e é o navegador do operador que
+   visita a Shopee diretamente, não uma chamada server-to-server nossa). O IP
+   whitelist da Shopee não se aplica a esse passo.
+10. **Corrigir `buscarEtiquetaShopee()`** para parar de usar `SHOPEE_TEST_SHOP_ID` e
+    em vez disso consultar `shopee_connections` filtrando **`is_sandbox = false`**
+    e pegando a conexão de produção ativa mais recente (mesmo padrão de
+    `getMLAccessToken()` em `ml.functions.ts:113-128`). Não itera por `shop_id`
+    arbitrário — múltiplas lojas Shopee estão fora de escopo.
+11. `getShopeeConnection()` (status exibido na UI de Configurações) também passa a
+    filtrar `is_sandbox = false` em produção, pra não misturar uma conexão sandbox
+    residual com o status real de produção mostrado pro operador.
+12. Testar ponta a ponta: Conectar → autorizar na Shopee → confirmar linha nova em
+    `shopee_connections` (`is_sandbox: false`) → bipar um pedido Shopee real →
+    confirmar que a etiqueta sai na impressora térmica.
 
 ### Frente 2 — Canal unificado (não depende da Frente 1, pode começar já)
 
@@ -125,11 +165,25 @@ export interface CanalMarketplace {
   agrupa sob o contrato comum).
 - `etiqueta.functions.ts`: novo registro `const CANAIS: Record<string, CanalMarketplace>`.
   `buscarEtiquetaBling` troca o bloco `if (marketplace === "shopee") ... else if
-  (numeroLoja) [ML]` (linhas 53-82 hoje) por `CANAIS[marketplace]?.buscarEtiqueta(numeroLoja)`.
-- **Nenhuma mudança de comportamento esperada** — é refactor puro. Validação: os 3
-  fluxos de reimpressão (Expedição/Pedidos/Histórico) continuam chamando só
-  `buscarEtiquetaBling`, que já é o único ponto de entrada — a unificação acontece
-  inteiramente dentro dele, sem tocar nos 3 arquivos de novo.
+  (numeroLoja) [ML]` (linhas 53-82 hoje) por
+  `(CANAIS[marketplace ?? ""] ?? CANAIS["mercadolivre"]).buscarEtiqueta(numeroLoja)`
+  — **preserva exatamente** o fallback atual pra ML quando `marketplace` é
+  `null`/vazio/desconhecido (comportamento documentado hoje como "inclui pedidos
+  legados sem marketplace definido", linha 69).
+- **Nenhuma mudança de comportamento esperada** além da correção do fallback já
+  descrita — é refactor puro no resto. Validação: os 3 fluxos de reimpressão
+  (Expedição/Pedidos/Histórico) continuam chamando só `buscarEtiquetaBling`, que já
+  é o único ponto de entrada — a unificação acontece inteiramente dentro dele.
+
+## Ordem de entrega (dois blocos separados)
+
+1. **Bloco 1 — Infraestrutura + Shopee produção**: provisionamento Lightsail/Tunnel/
+   Access/nginx (fora do repo, documentado em `docs/`), + mudanças de código da
+   Frente 1 (`shopee.ts`, `wrangler.jsonc`, secrets). Commitado e deployado
+   separadamente, só depois de testado ponta a ponta com um pedido real.
+2. **Bloco 2 — Canal unificado**: refactor da Frente 2, commitado depois do Bloco 1
+   estar validado em produção — evita misturar uma mudança de infraestrutura externa
+   (com aprovação de terceiro no meio) com um refactor interno que não depende dela.
 
 ## Critérios de aceite
 
@@ -137,34 +191,43 @@ export interface CanalMarketplace {
    junto com a DANFE — sem erro `shopee_no_connection`.
 2. `shopee_connections` tem uma linha com `is_sandbox: false` após a autorização de
    produção.
-3. `buscarEtiquetaShopee()` funciona para qualquer `shop_id` presente em
-   `shopee_connections`, não só o hardcoded.
-4. Todas as chamadas de produção à API da Shopee passam pelo proxy Lightsail — IP de
-   origem visto pela Shopee é o IP estático da instância.
-5. `etiqueta.functions.ts` não tem mais `if (marketplace === "shopee")` inline —
-   lookup único via `CANAIS`.
-6. `npm run build` passa limpo; os 3 fluxos de reimpressão continuam funcionando
-   para ML sem regressão (validação manual, já que não há suite de testes automatizados
-   no projeto).
+3. `buscarEtiquetaShopee()` usa a conexão de produção ativa (`is_sandbox = false`) —
+   não itera por `shop_id` arbitrário (multi-loja fora de escopo).
+4. Todas as chamadas **server-to-server** de produção à API da Shopee (token
+   exchange, refresh, shipping document) passam pelo gateway — IP de origem visto
+   pela Shopee é o IP estático da Lightsail. A navegação `auth_partner` (browser) é
+   a exceção documentada e não passa pelo gateway.
+5. O gateway nginx rejeita qualquer destino que não seja `partner.shopeemobile.com`
+   (e o host sandbox, se mantido pra teste) e não grava query/body/tokens em log.
+6. `getShopeeConnection()` (status na UI) reflete só a conexão de produção
+   (`is_sandbox = false`).
+7. `etiqueta.functions.ts` não tem mais `if (marketplace === "shopee")` inline —
+   lookup único via `CANAIS`, com fallback pra ML preservado quando `marketplace`
+   é nulo/legado.
+8. `npm run build` passa limpo; os 3 fluxos de reimpressão continuam funcionando
+   para ML sem regressão (validação manual, já que não há suite de testes
+   automatizados no projeto).
 
 ## Arquivos afetados
 
 | Arquivo | Tipo de mudança |
 |---|---|
-| `src/lib/shopee.ts` | Corrige `buscarEtiquetaShopee` (lookup real de `shop_id`), adiciona `shopeeFetch()` via proxy, exporta objeto `CanalMarketplace` |
+| `src/lib/shopee.ts` | Corrige `buscarEtiquetaShopee`/`getShopeeConnection` (filtro `is_sandbox=false`), adiciona `shopeeFetch()` via gateway (exceto `getShopeeAuthUrl`), exporta objeto `CanalMarketplace` |
 | `src/lib/ml.functions.ts` | Exporta objeto `CanalMarketplace` |
 | `src/lib/canais/types.ts` | Novo — contrato `CanalMarketplace` |
-| `src/lib/etiqueta.functions.ts` | Troca if/else por lookup em `CANAIS` |
+| `src/lib/etiqueta.functions.ts` | Troca if/else por lookup em `CANAIS`, preservando fallback ML |
 | `wrangler.jsonc` | `SHOPEE_SANDBOX=false` (só após aprovação Go-Live) |
-| Secrets Cloudflare | `SHOPEE_PARTNER_ID`/`SHOPEE_PARTNER_KEY` (Live), substituindo os `TEST_*` |
-| Infraestrutura nova | Instância AWS Lightsail (São Paulo, $5/mês) rodando proxy de encaminhamento |
+| Secrets Cloudflare | `SHOPEE_PARTNER_ID`/`SHOPEE_PARTNER_KEY` (Live, valores reais emitidos pela Shopee) |
+| Infraestrutura nova (fora do repo de código) | Lightsail (São Paulo, IP estático) + Cloudflare Tunnel/Access (Service Token) + nginx reverse proxy restrito a `partner.shopeemobile.com` |
 
 ## Pendências / bloqueios externos
 
-- **Vinicius**: preencher e enviar o formulário Go-Live no Shopee Open Platform
-  Console (Product Brief, screenshot, credencial de teste do EXPEDE pra revisão da
-  Shopee, Live Redirect URL Domain, IP da Lightsail depois de provisionada).
-- Aprovação da Shopee — sem prazo, decisão deles.
-- Provisionamento da instância Lightsail — ação do Vinicius (ou eu posso ajudar a
-  configurar o forwarder depois que a instância existir, mas a criação da conta/
-  cobrança é dele).
+- **Vinicius**: definir o domínio corporativo pra hospedar `shopee-egress.<domínio>`
+  na Cloudflare (pré-requisito do Tunnel/Access).
+- **Vinicius**: provisionar Lightsail + IP estático, configurar Tunnel/Access/nginx
+  (posso ajudar a escrever a config do nginx e o script do `cloudflared` quando a
+  instância e o domínio existirem).
+- **Vinicius**: preencher e enviar o formulário Go-Live (Product Brief, screenshot,
+  credencial de teste do EXPEDE, Live Redirect URL Domain, IP estático da Lightsail).
+- Aprovação da Shopee — sem prazo, decisão deles. Live Partner ID/Key só existem
+  depois da aprovação, não assumir `1235356`.
