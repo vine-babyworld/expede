@@ -1,0 +1,12 @@
+# Template — substituir <TUNNEL_ID> pelo ID real gerado por
+# `cloudflared tunnel create expede-shopee-egress` (Task 5).
+tunnel: <TUNNEL_ID>
+credentials-file: /etc/cloudflared/<TUNNEL_ID>.json
+
+ingress:
+  # path restrito é OBRIGATÓRIO: sem ele, qualquer path (incluindo
+  # /healthz) seria roteado pro nginx via o hostname público do túnel.
+  - hostname: shopee-egress.bwbaby.com.br
+    path: ^/api/v2/.*
+    service: http://127.0.0.1:8080
+  - service: http_status:404
