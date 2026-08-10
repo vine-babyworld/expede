@@ -5,12 +5,15 @@
 > tarefa. Steps usam checkbox (`- [ ]`) pra tracking.
 >
 > **BLOQUEIO ATIVO, NÃO IGNORAR:** nenhuma tarefa deste plano pode ser executada
-> além da criação dos arquivos de configuração (Task 2) até o Vinicius confirmar
-> que a zona `bwbaby.com.br` está **Active** no painel Cloudflare (ver Task 1).
-> **Não rodar `npx wrangler deploy`, não enviar o formulário Go-Live da Shopee, e
-> não alterar `wrangler.jsonc`/secrets de produção sem confirmação explícita do
-> Vinicius** — regra permanente do projeto (`CLAUDE.md`, "Deploy é sempre
-> manual") mais o bloqueio específico desta feature.
+> além da criação da worktree (Task 3) e dos arquivos de configuração (Task 4)
+> até o Vinicius confirmar que a zona `bwbaby.com.br` está **Active** no painel
+> Cloudflare (Task 1). **Não rodar `npx wrangler deploy`, não enviar o
+> formulário Go-Live da Shopee, não configurar Tunnel/Access/nginx na Lightsail,
+> e não alterar `wrangler.jsonc`/secrets de produção sem confirmação explícita
+> do Vinicius** — regra permanente do projeto (`CLAUDE.md`, "Deploy é sempre
+> manual") mais o bloqueio específico desta feature. **Todos os artefatos de
+> código e configuração deste plano são criados numa worktree própria — nunca
+> commitados direto em `main`.**
 
 **Goal:** Migrar a integração Shopee do sandbox quebrado (Lição #21) pro
 ambiente de produção via Go-Live, com um gateway de IP fixo (Lightsail) na
@@ -30,22 +33,27 @@ Cloudflare Tunnel + Access, nginx, AWS Lightsail (Ubuntu 24.04), systemd.
 
 Não há test suite no projeto — verificação é via `npm run build` (TypeScript)
 e teste manual (dev server / produção). Infraestrutura (Tunnel/nginx/systemd)
-não tem equivalente de "teste automatizado" — verificação é `curl` direto e
-inspeção de logs/status do systemd.
+não tem equivalente de "teste automatizado" — verificação é `curl`/`cloudflared
+tunnel ingress rule` direto e inspeção de logs/status do systemd.
 
 ## Global Constraints
 
-- Hostname do gateway fixado: `shopee-egress.bwbaby.com.br` (spec, decisão 1 do domínio corporativo).
+- Hostname do gateway fixado: `shopee-egress.bwbaby.com.br`.
 - Autenticação Worker↔gateway: **Cloudflare Access Service Token**, não IP do Worker, não HMAC (HMAC só entra com nova decisão explícita se o Service Token se mostrar inviável).
 - nginx escuta **só em `127.0.0.1`** — nunca `0.0.0.0`. Portas 80/443 fechadas publicamente (já feito na instância).
 - Proxy de saída: só `partner.shopeemobile.com`, só `/api/v2/`, só métodos `GET`/`POST`, `proxy_ssl_verify on`.
+- Ingress do Tunnel restrito por `path: ^/api/v2/.*` — sem isso, todo path (incluindo `/healthz`) seria roteado pro nginx via o hostname público.
 - Headers removidos antes do upstream: `CF-Access-Client-Id`, `CF-Access-Client-Secret`, `Cf-Access-Jwt-Assertion`, `Cookie`, qualquer `Authorization` recebido.
 - Log: nunca gravar querystring, body ou credenciais — em nenhuma camada (Worker, nginx, observabilidade).
-- `/healthz` responde só por loopback — nunca publicado pelo hostname do Tunnel.
+- `/healthz` responde só por loopback — nunca publicado pelo hostname do Tunnel (reforçado pelo `path` do ingress).
+- Segredos de teste (Service Token) nunca literais em comando/histórico de shell — sempre `read -s` + variável temporária, `unset` depois de usar.
 - Multi-loja Shopee fora de escopo — sempre usa a conexão `is_sandbox=false` mais recente, sem iterar por `shop_id` arbitrário.
 - Fallback ML pro registro `CANAIS` precisa ser preservado exatamente (`marketplace` nulo/legado → ML), comportamento de hoje.
-- Trabalho da Frente 1 roda em branch/worktree própria (`shopee-producao`), não direto em `main`.
+- **Todo trabalho roda numa worktree/branch própria (`shopee-producao`), nunca commitado direto em `main`** — worktree criada antes de qualquer artefato.
 - Bloco 2 (canal unificado) só começa depois do Bloco 1 validado em produção (ordem de entrega do spec).
+- SSH na Lightsail: usar o firewall da própria Lightsail primeiro (não `ufw`) até a origem real de SSH estar identificada e validada, com caminho de recuperação confirmado.
+- DNSSEC de `bwbaby.com.br` só é reativado depois da zona estar **Active** (nunca com zona `Pending`).
+- IP de saída da Lightsail confirmado como `54.20.20.253` **antes** de enviar o Go-Live.
 
 ---
 
@@ -53,15 +61,15 @@ inspeção de logs/status do systemd.
 
 | Arquivo | Operação | Responsabilidade |
 |---|---|---|
-| `ops/shopee-gateway/nginx-shopee-egress.conf` | Create | Config nginx do gateway (versionada no repo, copiada pra Lightsail) |
-| `ops/shopee-gateway/cloudflared-config.yml` | Create | Config do túnel Cloudflare (template, `TUNNEL_ID` preenchido na hora) |
-| `ops/shopee-gateway/setup-swap.sh` | Create | Script de setup de swap 1GB pra instância de 512MB |
-| `ops/shopee-gateway/README.md` | Create | Runbook passo a passo pra configurar a VM (comandos SSH) |
-| `src/lib/shopee.ts` | Modify | `shopeeFetch()` via gateway, `buscarEtiquetaShopee`/`getShopeeConnection` filtram `is_sandbox=false`, exporta `CanalMarketplace` |
-| `wrangler.jsonc` | Modify | `SHOPEE_SANDBOX=false` (só após aprovação) |
-| `src/lib/canais/types.ts` | Create | Contrato `CanalMarketplace` (Bloco 2) |
-| `src/lib/ml.functions.ts` | Modify | Exporta objeto `CanalMarketplace` (Bloco 2) |
-| `src/lib/etiqueta.functions.ts` | Modify | Lookup via `CANAIS` com fallback ML preservado (Bloco 2) |
+| `ops/shopee-gateway/nginx-shopee-egress.conf` | Create (na worktree) | Config nginx do gateway |
+| `ops/shopee-gateway/cloudflared-config.yml` | Create (na worktree) | Config do túnel Cloudflare, com `path` restrito |
+| `ops/shopee-gateway/setup-swap.sh` | Create (na worktree) | Script de setup de swap 1GB pra instância de 512MB |
+| `ops/shopee-gateway/README.md` | Create (na worktree) | Runbook passo a passo pra configurar a VM |
+| `src/lib/shopee.ts` | Modify (na worktree) | `shopeeFetch()` via gateway, `buscarEtiquetaShopee`/`getShopeeConnection` filtram `is_sandbox=false`, exporta `CanalMarketplace` |
+| `wrangler.jsonc` | Modify (na worktree) | `SHOPEE_SANDBOX=false` (só após aprovação) |
+| `src/lib/canais/types.ts` | Create (Bloco 2) | Contrato `CanalMarketplace` |
+| `src/lib/ml.functions.ts` | Modify (Bloco 2) | Exporta objeto `CanalMarketplace` |
+| `src/lib/etiqueta.functions.ts` | Modify (Bloco 2) | Lookup via `CANAIS` com fallback ML preservado |
 
 ---
 
@@ -75,21 +83,88 @@ inspeção de logs/status do systemd.
 
   No painel Cloudflare → domínio `bwbaby.com.br` → status deve mostrar
   "Active", não "Pending Nameservers". Nameservers esperados: `dane.ns.
-  cloudflare.com` e `rita.ns.cloudflare.com` (já configurados no Registro.br,
-  faltando propagar/ativar).
+  cloudflare.com` e `rita.ns.cloudflare.com`.
 
 - [ ] **Step 2: Se ainda não estiver ativa — PARAR aqui**
 
-  Não prosseguir pra Task 3 em diante (tudo que envolve Tunnel/DNS/Access).
-  Task 2 (criar os arquivos de config no repo) pode ser feita antes, já que
-  não depende da zona estar ativa — só do hostname já estar decidido
-  (`shopee-egress.bwbaby.com.br`, que já está).
+  Não prosseguir pra Task 2 em diante. Nem a worktree nem os artefatos
+  dependem tecnicamente da zona, mas o plano trata a confirmação como gate
+  de entrada de qualquer trabalho desta feature, pra não haver ambiguidade
+  sobre o que já pode rodar.
 
 ---
 
-### Task 2: Artefatos de configuração do gateway (versionados no repo)
+### Task 2: Reativar DNSSEC de `bwbaby.com.br` (pós-ativação)
 
-**Files:**
+**BLOQUEADO até Task 1 confirmar zona `Active`. Nunca fazer isso com a zona `Pending`.**
+
+**Files:** nenhum (ação no painel Cloudflare + Registro.br)
+
+- [ ] **Step 1: Aguardar a zona estabilizar**
+
+  Depois do status virar `Active`, aguardar propagação completa (checar
+  resolução DNS de `bwbaby.com.br` de fora, ex: `dig bwbaby.com.br NS
+  +short` batendo com os nameservers da Cloudflare) antes de mexer em
+  DNSSEC — mudança de DNSSEC numa zona ainda instável pode causar falha de
+  resolução do domínio inteiro.
+
+- [ ] **Step 2: Habilitar DNSSEC no painel Cloudflare**
+
+  Zona `bwbaby.com.br` → DNS → Settings → DNSSEC → Enable. A Cloudflare
+  gera e mostra um registro **DS** (Delegation Signer — algoritmo, key tag,
+  digest).
+
+- [ ] **Step 3: Cadastrar o DS no Registro.br**
+
+  Painel do Registro.br → domínio `bwbaby.com.br` → DNSSEC → cadastrar o DS
+  fornecido pela Cloudflare no Step 2 (copiar os valores exatos, não
+  digitar de memória).
+
+- [ ] **Step 4: Confirmar propagação e validação da cadeia**
+
+  Voltar no painel Cloudflare depois de algumas horas — o status de DNSSEC
+  deve mudar pra "Active" (chain of trust validada). Se continuar
+  "Pending"/erro por mais de ~24h, revisar se o DS cadastrado no Registro.br
+  bate exatamente com o gerado pela Cloudflare.
+
+---
+
+### Task 3: Criar worktree da branch `shopee-producao`
+
+**Files:** nenhum no repo `main` — cria um diretório de worktree separado
+
+- [ ] **Step 1: Criar a worktree**
+
+  ```bash
+  cd C:\Users\Vinicius\EXPEDE
+  git worktree add ../shopee-producao -b shopee-producao
+  ```
+
+  Segue o mesmo padrão já em uso no projeto pra trabalho isolado (ver
+  `CURRENT-STATE.md`, worktree `nf-ml-controlada`). Resultado: diretório
+  `C:\Users\Vinicius\shopee-producao`, checkout da branch nova
+  `shopee-producao`, `main` no diretório original **intocado**.
+
+- [ ] **Step 2: Confirmar isolamento**
+
+  ```bash
+  cd C:\Users\Vinicius\shopee-producao
+  git status
+  git branch --show-current
+  ```
+
+  Esperado: branch `shopee-producao`, working tree limpo (idêntico ao
+  `main` no momento da criação).
+
+- [ ] **Step 3: Todo o resto deste plano (Tasks 4-12) roda dentro desta worktree**
+
+  `C:\Users\Vinicius\shopee-producao`, não em `C:\Users\Vinicius\EXPEDE`.
+
+---
+
+### Task 4: Artefatos de configuração do gateway (na worktree)
+
+**Files (dentro de `C:\Users\Vinicius\shopee-producao`):**
 - Create: `ops/shopee-gateway/nginx-shopee-egress.conf`
 - Create: `ops/shopee-gateway/cloudflared-config.yml`
 - Create: `ops/shopee-gateway/setup-swap.sh`
@@ -111,9 +186,9 @@ inspeção de logs/status do systemd.
       access_log /var/log/nginx/shopee-egress.access.log shopee_gateway;
       error_log /var/log/nginx/shopee-egress.error.log;
 
-      # Health check — SÓ loopback. Nunca deixar isso acessível pelo hostname
-      # do Tunnel (não referenciar essa location em nenhuma config exposta
-      # via cloudflared).
+      # Health check — SÓ loopback. Redundante com o `path` restrito no
+      # ingress do cloudflared (Task 4, Step 2), mas mantido como segunda
+      # camada de defesa: mesmo que o ingress mude, esta location não some.
       location = /healthz {
           default_type text/plain;
           return 200 "ok";
@@ -127,8 +202,6 @@ inspeção de logs/status do systemd.
           proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
           proxy_ssl_server_name on;
 
-          # Remove headers de entrada antes de repassar upstream — Access/Cookie/
-          # Authorization não fazem sentido pra Shopee e não podem vazar.
           proxy_set_header Host partner.shopeemobile.com;
           proxy_set_header CF-Access-Client-Id "";
           proxy_set_header CF-Access-Client-Secret "";
@@ -145,17 +218,19 @@ inspeção de logs/status do systemd.
   }
   ```
 
-- [ ] **Step 2: Criar `ops/shopee-gateway/cloudflared-config.yml`**
+- [ ] **Step 2: Criar `ops/shopee-gateway/cloudflared-config.yml`, COM o `path` restrito**
 
   ```yaml
   # Template — substituir <TUNNEL_ID> pelo ID real gerado por
-  # `cloudflared tunnel create expede-shopee-egress` (Task 3).
+  # `cloudflared tunnel create expede-shopee-egress` (Task 5).
   tunnel: <TUNNEL_ID>
   credentials-file: /etc/cloudflared/<TUNNEL_ID>.json
 
   ingress:
-    # Só expõe /api/v2/* — /healthz do nginx NUNCA é roteado aqui de propósito.
+    # path restrito é OBRIGATÓRIO: sem ele, qualquer path (incluindo
+    # /healthz) seria roteado pro nginx via o hostname público do túnel.
     - hostname: shopee-egress.bwbaby.com.br
+      path: ^/api/v2/.*
       service: http://127.0.0.1:8080
     - service: http_status:404
   ```
@@ -187,14 +262,13 @@ inspeção de logs/status do systemd.
   ```markdown
   # Gateway de egress Shopee — runbook
 
-  Pré-requisito: zona `bwbaby.com.br` **Active** na Cloudflare (Task 1 do
-  plano de implementação). Não seguir os passos abaixo antes disso.
+  Pré-requisitos: zona `bwbaby.com.br` **Active** (Task 1) e worktree
+  `shopee-producao` criada (Task 3). Não seguir os passos abaixo antes disso.
 
   Instância alvo: `expede-shopee-proxy-prod` (São Paulo, IP `54.20.20.253`).
 
   ## 1. Swap
 
-  Copiar `setup-swap.sh` pra instância e rodar como root:
   ```bash
   scp ops/shopee-gateway/setup-swap.sh ubuntu@54.20.20.253:/tmp/
   ssh ubuntu@54.20.20.253 'sudo bash /tmp/setup-swap.sh'
@@ -206,7 +280,7 @@ inspeção de logs/status do systemd.
   sudo apt update && sudo apt install -y nginx
   ```
   Copiar `nginx-shopee-egress.conf` pra
-  `/etc/nginx/sites-available/shopee-egress.conf` na instância, linkar em
+  `/etc/nginx/sites-available/shopee-egress.conf`, linkar em
   `sites-enabled`, remover o `default` do nginx se existir, `nginx -t` pra
   validar sintaxe, `systemctl reload nginx`.
 
@@ -227,6 +301,22 @@ inspeção de logs/status do systemd.
   Anotar o `TUNNEL_ID` gerado, preencher em `cloudflared-config.yml` (2
   ocorrências), copiar pra `/etc/cloudflared/config.yml` na instância.
 
+  **Validar a config antes de rodar como serviço:**
+  ```bash
+  cloudflared tunnel ingress validate /etc/cloudflared/config.yml
+  ```
+  Esperado: `OK` / sem erro de sintaxe.
+
+  **Testar quais regras casam com quais paths (sem precisar do serviço rodando):**
+  ```bash
+  cloudflared tunnel ingress rule https://shopee-egress.bwbaby.com.br/api/v2/shop/auth_partner
+  cloudflared tunnel ingress rule https://shopee-egress.bwbaby.com.br/healthz
+  ```
+  Esperado: o primeiro casa com a regra `service: http://127.0.0.1:8080`; o
+  segundo casa com a regra de fallback `http_status:404` (não com a regra
+  do nginx) — confirma que `/healthz` não é alcançável pelo hostname público
+  **antes mesmo de expor o túnel de verdade**.
+
   ```bash
   cloudflared tunnel route dns expede-shopee-egress shopee-egress.bwbaby.com.br
   sudo cloudflared service install
@@ -246,54 +336,65 @@ inspeção de logs/status do systemd.
   - **Definir expiração** (ex: 1 ano) — anotar a data em `PENDING-DECISIONS.md`
     ou equivalente, criar lembrete de rotação antes de vencer.
   - Copiar `Client ID` e `Client Secret` — **não colar em chat/log**, só
-    digitar direto no `wrangler secret put` (Task 7).
+    digitar direto no `wrangler secret put` (Task 10) ou capturar via `read -s`
+    em teste manual (Task 6).
 
-  ## 5. SSH — restrição final (pendente de confirmação, ver spec)
+  ## 5. SSH — Lightsail firewall primeiro, `ufw` só depois de validar
 
-  ```bash
-  sudo ufw allow from <IP_DE_ORIGEM_DO_VINICIUS>/32 to any port 22 proto tcp
-  sudo ufw default deny incoming
-  sudo ufw allow 22/tcp from <IP_DE_ORIGEM_DO_VINICIUS>/32
-  sudo ufw enable
-  ```
-  Substituir `<IP_DE_ORIGEM_DO_VINICIUS>` pelo IP real de onde ele acessa via
-  SSH — decisão ainda pendente, não aplicar com um IP genérico/errado (risco
-  de se trancar pra fora da instância).
+  **Não configurar `ufw` ainda.** O Lightsail Browser SSH (acesso via
+  console AWS, no navegador) pode ser bloqueado por uma regra `ufw` mal
+  configurada, e isso tranca o acesso à instância sem caminho de volta fácil.
+
+  Passo inicial: usar o **firewall da própria Lightsail** (aba "Networking"
+  da instância no console AWS) pra restringir a porta 22 — esse firewall é
+  gerenciado fora da instância, então um erro de config não derruba o acesso
+  via Browser SSH (que passa por outro caminho da AWS, não pela regra de
+  rede da instância da mesma forma que uma conexão SSH direta de terceiros).
+
+  Antes de qualquer restrição adicional via `ufw`:
+  1. Identificar o(s) IP(s) real(is) de origem que o Vinicius usa pra SSH.
+  2. Validar que a conexão funciona a partir desse(s) IP(s) com a regra do
+     firewall Lightsail já restrita.
+  3. Confirmar que existe caminho de recuperação (Browser SSH continua
+     acessível) caso alguma regra saia errada.
+
+  Só depois desses 3 pontos confirmados, `ufw` pode ser adicionado como
+  camada extra — decisão e execução ficam pra quando isso estiver validado,
+  não faz parte da execução inicial deste plano.
 
   ## 6. systemd — auto-restart
 
-  nginx e `cloudflared` já vêm com unit systemd padrão no Ubuntu 24.04
-  (`nginx.service`, `cloudflared.service` criado pelo `service install`
-  acima). Confirmar `Restart=on-failure` em ambos:
+  nginx e `cloudflared` já vêm com unit systemd padrão no Ubuntu 24.04.
+  Confirmar `Restart=on-failure` em ambos:
   ```bash
   systemctl show nginx.service -p Restart
   systemctl show cloudflared.service -p Restart
   ```
-  Se algum não tiver `Restart=on-failure`, adicionar via
-  `systemctl edit <service>` (drop-in), não editar o unit file gerado
-  diretamente.
+  Se algum não tiver, adicionar via `systemctl edit <service>` (drop-in), não
+  editar o unit file gerado diretamente.
   ```
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Commit — só na worktree, nunca em `main`**
 
   ```bash
+  cd C:\Users\Vinicius\shopee-producao
   git add ops/shopee-gateway/
   git commit -m "docs(ops): runbook e configs do gateway de egress Shopee (Lightsail)"
   ```
 
 ---
 
-### Task 3: Configurar Tunnel + Access + nginx na Lightsail
+### Task 5: Configurar Tunnel + Access + nginx na Lightsail
 
-**BLOQUEADO até Task 1 confirmar zona `bwbaby.com.br` ativa.**
+**BLOQUEADO até Task 2 (DNSSEC, se aplicável ao momento) e Task 4 completas.**
 
 **Files:** nenhum no repo (execução remota via SSH, seguindo `ops/shopee-gateway/README.md`)
 
 - [ ] **Step 1: Seguir `ops/shopee-gateway/README.md` seções 1-4, na ordem**
 
   Executado pelo Vinicius (ou por mim com acesso SSH, se ele conceder e
-  confirmar explicitamente) — não é algo que rodo sem confirmação, já que
-  mexe numa VM de produção fora do repositório de código.
+  confirmar explicitamente) — mexe numa VM de produção fora do
+  repositório de código, não roda sem confirmação.
 
 - [ ] **Step 2: Validar nginx isoladamente, direto na instância**
 
@@ -306,65 +407,106 @@ inspeção de logs/status do systemd.
   curl -s -o /dev/null -w "%{http_code}\n" \
     "http://127.0.0.1:8080/api/v2/shop/auth_partner?partner_id=1&timestamp=1&sign=x"
   ```
-  Esperado: algum status HTTP vindo da Shopee de verdade (ex: `400`/`403` por
-  parâmetros inválidos) — confirma que o proxy está alcançando
-  `partner.shopeemobile.com`, não que a chamada é válida.
+  Esperado: algum status HTTP vindo da Shopee de verdade (ex: `400`/`403`
+  por parâmetros inválidos) — confirma que o proxy alcança
+  `partner.shopeemobile.com`.
 
-- [ ] **Step 3: Validar `/healthz` NÃO está acessível de fora**
+- [ ] **Step 3: Validar `/healthz` NÃO está acessível de fora, via o hostname real**
 
   De uma máquina fora da Lightsail:
   ```bash
   curl -s -o /dev/null -w "%{http_code}\n" https://shopee-egress.bwbaby.com.br/healthz
   ```
-  Esperado: **não** `200` — ou 404 (rota não mapeada no `ingress` do
-  cloudflared) ou bloqueio do Access. Se retornar `200` com `ok`, a config do
-  `cloudflared-config.yml` está expondo o `/healthz` sem querer — corrigir
-  antes de prosseguir.
+  Esperado: **não** `200` (o `path: ^/api/v2/.*` do ingress já garante isso —
+  ver validação prévia com `cloudflared tunnel ingress rule` no README).
 
 ---
 
-### Task 4: Validar o gateway ponta a ponta com Service Token
+### Task 6: Validar o gateway ponta a ponta com Service Token
 
-**BLOQUEADO até Task 3 completa.**
+**BLOQUEADO até Task 5 completa.**
 
 **Files:** nenhum
 
-- [ ] **Step 1: Testar autenticado, de fora da Lightsail**
+- [ ] **Step 1: Capturar o Service Token com entrada silenciosa — nunca literal no comando**
+
+  ```bash
+  read -r -p "CF Access Client ID: " CF_TEST_CLIENT_ID
+  read -r -s -p "CF Access Client Secret: " CF_TEST_CLIENT_SECRET
+  echo
+  ```
+
+  Isso evita que o secret fique no histórico do shell (`~/.bash_history`)
+  ou visível em `ps`/logs de sessão, ao contrário de colar o valor direto
+  num `-H "CF-Access-Client-Secret: valor"`.
+
+- [ ] **Step 2: Testar autenticado, de fora da Lightsail**
 
   ```bash
   curl -s -o /dev/null -w "%{http_code}\n" \
-    -H "CF-Access-Client-Id: <CLIENT_ID>" \
-    -H "CF-Access-Client-Secret: <CLIENT_SECRET>" \
+    -H "CF-Access-Client-Id: ${CF_TEST_CLIENT_ID}" \
+    -H "CF-Access-Client-Secret: ${CF_TEST_CLIENT_SECRET}" \
     "https://shopee-egress.bwbaby.com.br/api/v2/shop/auth_partner?partner_id=1&timestamp=1&sign=x"
   ```
-  Esperado: resposta da Shopee (não do Access — se vier HTML de login do
-  Access, o Service Token não está sendo aceito, revisar a Policy).
+  Esperado: resposta da Shopee (não HTML de login do Access — se vier isso,
+  o Service Token não está sendo aceito, revisar a Policy).
 
-- [ ] **Step 2: Testar sem o Service Token — deve ser rejeitado**
+- [ ] **Step 3: Testar sem o Service Token — deve ser rejeitado**
 
   ```bash
   curl -s -o /dev/null -w "%{http_code}\n" \
     "https://shopee-egress.bwbaby.com.br/api/v2/shop/auth_partner?partner_id=1&timestamp=1&sign=x"
   ```
-  Esperado: bloqueado pelo Access (não chega no nginx/Shopee).
+  Esperado: bloqueado pelo Access.
 
-- [ ] **Step 3: Testar método/path fora do permitido — deve ser rejeitado pelo nginx**
+- [ ] **Step 4: Testar método/path fora do permitido — deve ser rejeitado pelo nginx**
 
   ```bash
   curl -s -o /dev/null -w "%{http_code}\n" -X DELETE \
-    -H "CF-Access-Client-Id: <CLIENT_ID>" -H "CF-Access-Client-Secret: <CLIENT_SECRET>" \
+    -H "CF-Access-Client-Id: ${CF_TEST_CLIENT_ID}" -H "CF-Access-Client-Secret: ${CF_TEST_CLIENT_SECRET}" \
     "https://shopee-egress.bwbaby.com.br/api/v2/shop/auth_partner"
   curl -s -o /dev/null -w "%{http_code}\n" \
-    -H "CF-Access-Client-Id: <CLIENT_ID>" -H "CF-Access-Client-Secret: <CLIENT_SECRET>" \
+    -H "CF-Access-Client-Id: ${CF_TEST_CLIENT_ID}" -H "CF-Access-Client-Secret: ${CF_TEST_CLIENT_SECRET}" \
     "https://shopee-egress.bwbaby.com.br/api/v1/outro-path"
   ```
-  Esperado: ambos rejeitados (nginx `403`/`444`, não alcançam a Shopee).
+  Esperado: ambos rejeitados (o segundo já nem chega no nginx — `path` do
+  ingress barra qualquer coisa fora de `/api/v2/`).
+
+- [ ] **Step 5: Limpar as variáveis com o secret assim que terminar os testes**
+
+  ```bash
+  unset CF_TEST_CLIENT_ID CF_TEST_CLIENT_SECRET
+  ```
 
 ---
 
-### Task 5: Preencher e enviar o formulário Go-Live
+### Task 7: Confirmar o IP de saída público da Lightsail
 
-**BLOQUEADO até Task 4 confirmar o gateway funcionando ponta a ponta.**
+**BLOQUEADO até Task 6. Deve passar antes de enviar o formulário Go-Live (Task 8).**
+
+**Files:** nenhum
+
+- [ ] **Step 1: De dentro da própria instância Lightsail, checar o IPv4 de saída**
+
+  ```bash
+  ssh ubuntu@54.20.20.253
+  curl -s https://api.ipify.org
+  echo
+  ```
+  Esperado: **exatamente** `54.20.20.253`.
+
+- [ ] **Step 2: Se o IP retornado for diferente — parar e investigar antes de prosseguir**
+
+  Possíveis causas: IP estático não associado corretamente à instância,
+  rota de saída alternativa (ex: IPv6 habilitado de novo, NAT diferente).
+  Não faz sentido preencher o whitelist da Shopee com `54.20.20.253` se o
+  tráfego real sai por outro IP — o Go-Live falharia silenciosamente depois.
+
+---
+
+### Task 8: Preencher e enviar o formulário Go-Live
+
+**BLOQUEADO até Task 7 confirmar o IP de saída correto.**
 
 **Files:** nenhum (ação do Vinicius no console da Shopee)
 
@@ -374,26 +516,28 @@ inspeção de logs/status do systemd.
   teste do EXPEDE pra revisão.
 
 - [ ] **Step 2: Aguardar aprovação** — sem prazo garantido. Não prosseguir
-  pra Task 6 antes da aprovação chegar (Live Partner ID/Key emitidos).
+  pra Task 9 antes da aprovação chegar (Live Partner ID/Key emitidos).
 
 ---
 
-### Task 6: `shopeeFetch()` via gateway + correção de `is_sandbox` (código)
+### Task 9: `shopeeFetch()` via gateway + correção de `is_sandbox` (código, na worktree)
 
-**BLOQUEADO até Task 5 (aprovação da Shopee com credenciais Live em mãos).**
+**BLOQUEADO até Task 8 (aprovação da Shopee com credenciais Live em mãos).**
 
-**Files:**
+**Files (dentro de `C:\Users\Vinicius\shopee-producao`):**
 - Modify: `src/lib/shopee.ts`
 
 **Interfaces:**
 - Consumes: nenhuma (self-contained neste arquivo)
 - Produces: `shopeeFetch(url: string, init?: RequestInit): Promise<Response>` — usado internamente por `buildShopeeUrl`-consumers em vez de `fetch()` cru, para chamadas server-to-server. `getShopeeAuthUrl()` continua sem usar `shopeeFetch` (exceção documentada — navegação de browser).
 
-- [ ] **Step 1: Trabalhar numa branch própria**
+- [ ] **Step 1: Confirmar que está na worktree, branch correta**
 
   ```bash
-  git checkout -b shopee-producao
+  cd C:\Users\Vinicius\shopee-producao
+  git branch --show-current
   ```
+  Esperado: `shopee-producao`.
 
 - [ ] **Step 2: Adicionar `shopeeFetch()` em `src/lib/shopee.ts`, logo após os imports (linha 3)**
 
@@ -405,6 +549,11 @@ inspeção de logs/status do systemd.
    * (IP fixo exigido pelo whitelist da Shopee) autenticado com Cloudflare
    * Access Service Token. EXCEÇÃO: getShopeeAuthUrl() não usa isso — é uma
    * navegação de browser (auth_partner), não uma chamada nossa.
+   *
+   * Headers são construídos via `new Headers()` em vez de spread de objeto —
+   * `init?.headers` pode chegar como Headers, array de tuplas ou objeto
+   * simples, e um spread ingênuo (`{...init?.headers}`) só funciona certo
+   * pro último caso, perdendo headers nos outros dois.
    */
   async function shopeeFetch(shopeeUrl: string, init?: RequestInit): Promise<Response> {
     if (isShopeeSandbox()) {
@@ -421,14 +570,11 @@ inspeção de logs/status do systemd.
     const url = new URL(shopeeUrl);
     const gatewayUrl = `${SHOPEE_GATEWAY_URL}${url.pathname}${url.search}`;
 
-    return fetch(gatewayUrl, {
-      ...init,
-      headers: {
-        ...(init?.headers ?? {}),
-        "CF-Access-Client-Id": clientId,
-        "CF-Access-Client-Secret": clientSecret,
-      },
-    });
+    const headers = new Headers(init?.headers);
+    headers.set("CF-Access-Client-Id", clientId);
+    headers.set("CF-Access-Client-Secret", clientSecret);
+
+    return fetch(gatewayUrl, { ...init, headers });
   }
   ```
 
@@ -439,8 +585,7 @@ inspeção de logs/status do systemd.
   `createRes`/`downloadRes`) e `pollShopeeShippingDocumentReady` (linha ~258):
   trocar `await fetch(url, {...})` por `await shopeeFetch(url, {...})`. **Não
   tocar em `getShopeeAuthUrl()`** — continua montando a URL e devolvendo pro
-  caller sem chamar `fetch`/`shopeeFetch` nenhum (é só string building, quem
-  navega é o browser via redirect 302 na rota `/api/shopee/auth`).
+  caller sem chamar `fetch`/`shopeeFetch` nenhum.
 
 - [ ] **Step 4: Corrigir `buscarEtiquetaShopee()` pra usar a conexão real em vez de `SHOPEE_TEST_SHOP_ID`**
 
@@ -521,7 +666,7 @@ inspeção de logs/status do systemd.
   ```
   Esperado: zero erros novos.
 
-- [ ] **Step 7: Commit (ainda na branch `shopee-producao`, sem merge em `main`)**
+- [ ] **Step 7: Commit (na worktree, sem merge em `main`)**
 
   ```bash
   git add src/lib/shopee.ts
@@ -530,11 +675,11 @@ inspeção de logs/status do systemd.
 
 ---
 
-### Task 7: Secrets + flag de produção
+### Task 10: Secrets + flag de produção
 
-**BLOQUEADO — só depois da Task 6 e com autorização explícita do Vinicius pra mexer em secrets/config de produção.**
+**BLOQUEADO — só depois da Task 9 e com autorização explícita do Vinicius pra mexer em secrets/config de produção.**
 
-**Files:**
+**Files (na worktree):**
 - Modify: `wrangler.jsonc`
 
 - [ ] **Step 1: Configurar os secrets (Vinicius digita direto no prompt interativo, nunca colar em chat)**
@@ -562,11 +707,6 @@ inspeção de logs/status do systemd.
     "SHOPEE_SANDBOX": "false"
   }
   ```
-  (Os `SHOPEE_TEST_*` deixam de ser necessários já que `buscarEtiquetaShopee`
-  não depende mais de `SHOPEE_TEST_SHOP_ID` — Task 6, Step 4. Se quiser manter
-  a capacidade de testar em sandbox depois, deixar os `TEST_*` e só trocar
-  `SHOPEE_SANDBOX` via variável de ambiente na hora do deploy, não hardcoded —
-  decisão do Vinicius, não assumir.)
 
 - [ ] **Step 3: Commit**
 
@@ -577,11 +717,11 @@ inspeção de logs/status do systemd.
 
 ---
 
-### Task 8: Gate de deploy + deploy controlado
+### Task 11: Gate de deploy + deploy controlado
 
-**BLOQUEADO até Task 7. Requer autorização explícita do Vinicius antes do Step 3.**
+**BLOQUEADO até Task 10. Requer autorização explícita do Vinicius antes do Step 3.**
 
-**Files:** nenhum (build + deploy)
+**Files:** nenhum (build + deploy, a partir da worktree)
 
 - [ ] **Step 1: Rodar o gate de deploy geral do projeto (bloqueio documentado desde 08/08/2026)**
 
@@ -589,25 +729,23 @@ inspeção de logs/status do systemd.
   npm run build
   ```
   Confirmar que o build local tem `.env` presente (`VITE_SUPABASE_URL`,
-  `VITE_SUPABASE_PUBLISHABLE_KEY`) — verificar:
+  `VITE_SUPABASE_PUBLISHABLE_KEY`):
   ```bash
   grep -c "VITE_SUPABASE_URL" .env
   ```
-  Esperado: `1` (ou mais). Se `.env` não tiver essas chaves, **parar** — não
-  builda/deploya sem isso (Lições #24-26).
+  Esperado: `1` ou mais. Se não tiver, **parar** (Lições #24-26).
 
 - [ ] **Step 2: Validar a SPA em navegador real, servindo o build local**
 
   ```bash
   npx vite preview
   ```
-  Abrir no navegador, confirmar tela de login renderiza sem erro de
-  configuração ausente (mesmo critério documentado no `SESSION-HANDOFF.md` de
-  08/08 — HTTP 200 sozinho não é suficiente, tem que executar o JS).
+  Confirmar tela de login renderiza sem erro de configuração ausente.
 
 - [ ] **Step 3: Merge da branch `shopee-producao` em `main` — só com autorização explícita do Vinicius**
 
   ```bash
+  cd C:\Users\Vinicius\EXPEDE
   git checkout main
   git pull origin main
   git merge shopee-producao
@@ -627,9 +765,9 @@ inspeção de logs/status do systemd.
 
 ---
 
-### Task 9: Teste ponta a ponta em produção + rollback se necessário
+### Task 12: Teste ponta a ponta em produção + rollback se necessário
 
-**BLOQUEADO até Task 8.**
+**BLOQUEADO até Task 11.**
 
 **Files:** nenhum
 
@@ -654,22 +792,22 @@ inspeção de logs/status do systemd.
   ```bash
   npx wrangler rollback
   ```
-  Ou publicar a versão anterior conhecida boa. A infraestrutura do gateway é
-  aditiva (não precisa ser desfeita) — só reverter o código do Worker.
+  A infraestrutura do gateway é aditiva (não precisa ser desfeita) — só
+  reverter o código do Worker.
 
 ---
 
 ## Bloco 2 — Canal unificado no código
 
-**Só começa depois do Bloco 1 validado em produção (Task 9 completa).**
+**Só começa depois do Bloco 1 validado em produção (Task 12 completa). Pode continuar na mesma worktree ou numa nova — decisão de conveniência, não crítica, já que não depende de aprovação externa.**
 
-### Task 10: Contrato `CanalMarketplace`
+### Task 13: Contrato `CanalMarketplace`
 
 **Files:**
 - Create: `src/lib/canais/types.ts`
 
 **Interfaces:**
-- Produces: `EtiquetaResult`, `ConnectionStatus`, `CanalMarketplace` — usados pelas Tasks 11-13.
+- Produces: `EtiquetaResult`, `ConnectionStatus`, `CanalMarketplace` — usados pelas Tasks 14-16.
 
 - [ ] **Step 1: Criar o arquivo**
 
@@ -705,7 +843,7 @@ inspeção de logs/status do systemd.
 
 ---
 
-### Task 11: `ml.functions.ts` exporta `CanalMarketplace`
+### Task 14: `ml.functions.ts` exporta `CanalMarketplace`
 
 **Files:**
 - Modify: `src/lib/ml.functions.ts`
@@ -754,7 +892,7 @@ inspeção de logs/status do systemd.
 
 ---
 
-### Task 12: `shopee.ts` exporta `CanalMarketplace`
+### Task 15: `shopee.ts` exporta `CanalMarketplace`
 
 **Files:**
 - Modify: `src/lib/shopee.ts`
@@ -803,7 +941,7 @@ inspeção de logs/status do systemd.
 
 ---
 
-### Task 13: `etiqueta.functions.ts` usa o registro `CANAIS`
+### Task 16: `etiqueta.functions.ts` usa o registro `CANAIS`
 
 **Files:**
 - Modify: `src/lib/etiqueta.functions.ts`
@@ -903,9 +1041,7 @@ inspeção de logs/status do systemd.
   ```bash
   npm run build
   ```
-  Esperado: zero erros novos. `EtiquetaTipo` já inclui `"zpl" | "pdf_base64" |
-  "pdf_url" | "desconhecido"` (linha 9) — `canalResult.tipo` (`"zpl" |
-  "pdf_base64"`) é subtipo compatível, sem cast necessário.
+  Esperado: zero erros novos.
 
 - [ ] **Step 4: Commit**
 
@@ -916,7 +1052,7 @@ inspeção de logs/status do systemd.
 
 ---
 
-### Task 14: Validação manual dos 3 fluxos de reimpressão
+### Task 17: Validação manual dos 3 fluxos de reimpressão
 
 **Files:** nenhum
 
@@ -936,8 +1072,7 @@ inspeção de logs/status do systemd.
      normalmente.
   4. Pedido Shopee real (já em produção pelo Bloco 1): os 3 fluxos acima
      buscam a etiqueta via `canalShopee` e imprimem — mesmo resultado do
-     teste da Task 9, agora passando pelo registro `CANAIS` em vez do
-     `if/else` antigo.
+     teste da Task 12, agora passando pelo registro `CANAIS`.
 
 - [ ] **Step 3: Commit final (se algum ajuste foi necessário) e push**
 
@@ -950,10 +1085,17 @@ inspeção de logs/status do systemd.
 ## Checklist de aceite final
 
 - [ ] Zona `bwbaby.com.br` ativa na Cloudflare antes de qualquer config de Tunnel/Access
+- [ ] DNSSEC reativado (DS cadastrado no Registro.br) só depois da zona estável — nunca com zona `Pending`
+- [ ] Worktree `shopee-producao` criada antes de qualquer artefato de código/config — nada commitado direto em `main` até o merge da Task 11
+- [ ] `cloudflared-config.yml` com `path: ^/api/v2/.*`, validado com `cloudflared tunnel ingress validate` e `ingress rule` pros dois paths de teste
 - [ ] Gateway (nginx + Tunnel + Access) validado isoladamente com `curl` antes do Go-Live
-- [ ] `/healthz` confirmado inacessível de fora (só loopback)
-- [ ] Formulário Go-Live enviado com o IP correto (`54.20.20.253`) e Live Redirect URL Domain correto (só domínio)
+- [ ] `/healthz` confirmado inacessível de fora (só loopback, reforçado pelo `path` do ingress)
+- [ ] SSH: firewall Lightsail usado primeiro; `ufw` só depois de validar origem real + caminho de recuperação
+- [ ] Segredos de teste do Service Token nunca literais em comando — sempre `read -s` + variável temporária, `unset` depois
+- [ ] IP de saída da Lightsail confirmado como `54.20.20.253` antes do envio do Go-Live
+- [ ] Formulário Go-Live enviado com o IP correto e Live Redirect URL Domain correto (só domínio)
 - [ ] Live Partner ID/Key reais (não `1235356`) configurados como secrets
+- [ ] `shopeeFetch()` usa `new Headers()` + `.set()`, não spread de objeto
 - [ ] Gate `VITE_SUPABASE_*` + validação em navegador real passou antes do deploy de produção
 - [ ] Deploy só depois de autorização explícita do Vinicius
 - [ ] Pedido Shopee real imprime etiqueta + DANFE em produção
