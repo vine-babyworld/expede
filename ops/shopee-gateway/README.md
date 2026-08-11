@@ -164,3 +164,54 @@ systemctl show cloudflared.service -p Restart
 ```
 Se algum não tiver, adicionar via `systemctl edit <service>` (drop-in), não
 editar o unit file gerado diretamente.
+
+Na instalação validada em produção, o `cloudflared` já usava
+`Restart=on-failure`, mas o nginx usava `Restart=no`. O drop-in aplicado ao
+nginx foi:
+
+```ini
+[Unit]
+Wants=network-online.target
+After=network-online.target nss-lookup.target
+
+[Service]
+Restart=on-failure
+RestartSec=5s
+```
+
+Salvar em `/etc/systemd/system/nginx.service.d/restart.conf` e aplicar:
+
+```bash
+sudo systemctl daemon-reload
+sudo nginx -t
+sudo systemctl restart nginx
+```
+
+## 8. Validação final e reboot
+
+A cadeia TLS atual de `partner.shopeemobile.com` exige
+`proxy_ssl_verify_depth 3`; sem essa diretiva o nginx pode responder 502 com
+`unable to get local issuer certificate`, embora `curl` e `openssl` validem a
+mesma cadeia. A configuração versionada nesta pasta já inclui o ajuste.
+
+Antes e depois de um reboot controlado, confirmar:
+
+```bash
+systemctl is-active nginx cloudflared
+systemctl is-enabled nginx cloudflared
+systemctl show nginx.service cloudflared.service -p Id -p Restart
+sudo ss -tlnp | grep 8080
+curl -sS -o /dev/null -w 'health=%{http_code}\n' http://127.0.0.1:8080/healthz
+curl -sS --max-time 30 -w '\nshopee=%{http_code} %{content_type}\n' \
+  http://127.0.0.1:8080/api/v2/shop/auth_partner
+```
+
+Esperado: ambos os serviços ativos/habilitados, ambos com
+`Restart=on-failure`, porta 8080 apenas em `127.0.0.1`, health 200 e a rota da
+Shopee devolvendo JSON (inclusive um erro de parâmetro da própria API é uma
+resposta válida para esse teste sem credenciais).
+
+No hostname externo, confirmar também que a chamada sem Service Token recebe
+403 e que a chamada autenticada recebe o mesmo JSON da Shopee. Digitar o
+Client ID e o Client Secret somente via entrada silenciosa (`read -s`) e
+remover as variáveis da sessão imediatamente após o teste.

@@ -477,7 +477,7 @@ tunnel ingress rule` direto e inspeção de logs/status do systemd.
 
 **Files:** nenhum
 
-- [ ] **Step 1: Capturar o Service Token com entrada silenciosa — nunca literal no comando**
+- [x] **Step 1: Capturar o Service Token com entrada silenciosa — nunca literal no comando**
 
   ```bash
   read -r -p "CF Access Client ID: " CF_TEST_CLIENT_ID
@@ -493,7 +493,7 @@ tunnel ingress rule` direto e inspeção de logs/status do systemd.
   `curl -K -` (config lido da entrada padrão) evita isso — os headers vão
   no stdin, não no `argv`.
 
-- [ ] **Step 2: Testar autenticado, de fora da Lightsail — secret via stdin, não via argv**
+- [x] **Step 2: Testar autenticado, de fora da Lightsail — secret via stdin, não via argv**
 
   ```bash
   curl -s -o /dev/null -w "%{http_code}\n" -K - \
@@ -509,7 +509,7 @@ tunnel ingress rule` direto e inspeção de logs/status do systemd.
   login do Access — se vier isso, o Service Token não está sendo aceito,
   revisar a Policy).
 
-- [ ] **Step 3: Testar sem o Service Token — deve ser rejeitado**
+- [x] **Step 3: Testar sem o Service Token — deve ser rejeitado**
 
   ```bash
   curl -s -o /dev/null -w "%{http_code}\n" \
@@ -535,7 +535,7 @@ tunnel ingress rule` direto e inspeção de logs/status do systemd.
   Esperado: ambos rejeitados (o segundo já nem chega no nginx — `path` do
   ingress barra qualquer coisa fora de `/api/v2/`).
 
-- [ ] **Step 5: Limpar as variáveis com o secret assim que terminar os testes**
+- [x] **Step 5: Limpar as variáveis com o secret assim que terminar os testes**
 
   ```bash
   unset CF_TEST_CLIENT_ID CF_TEST_CLIENT_SECRET
@@ -549,7 +549,7 @@ tunnel ingress rule` direto e inspeção de logs/status do systemd.
 
 **Files:** nenhum
 
-- [ ] **Step 1: De dentro da própria instância Lightsail, checar o IPv4 de saída**
+- [x] **Step 1: De dentro da própria instância Lightsail, checar o IPv4 de saída**
 
   ```bash
   ssh ubuntu@54.20.20.253
@@ -573,7 +573,7 @@ tunnel ingress rule` direto e inspeção de logs/status do systemd.
 
 **Files:** nenhum (ação do Vinicius no console da Shopee)
 
-- [ ] **Step 1: Vinicius preenche o formulário** com IP `54.20.20.253`, Live
+- [x] **Step 1: Vinicius preenche o formulário** com IP `54.20.20.253`, Live
   Redirect URL Domain = `https://babyworld.expede.workers.dev` (só o domínio,
   não o path completo — Lição #21), Product Brief, screenshot, credencial de
   teste do EXPEDE pra revisão.
@@ -1149,16 +1149,16 @@ tunnel ingress rule` direto e inspeção de logs/status do systemd.
 
 - [ ] Zona `bwbaby.com.br` ativa na Cloudflare antes de qualquer config de Tunnel/Access
 - [ ] DNSSEC reativado (DS cadastrado no Registro.br) só depois da zona estável — nunca com zona `Pending`
-- [ ] Worktree `shopee-producao` criada antes de qualquer artefato de código/config — nada commitado direto em `main` até o merge da Task 11
+- [x] Worktree `shopee-producao` criada antes de qualquer artefato de código/config — nada commitado direto em `main` até o merge da Task 11
 - [ ] `cloudflared-config.yml` com `path: ^/api/v2/.*`, validado com `cloudflared tunnel --config ... ingress validate` e `ingress rule` pros dois paths de teste (sintaxe exata confirmada via `--help` antes de assumir)
 - [ ] Credencial do túnel copiada pra `/etc/cloudflared/<TUNNEL_ID>.json` com permissão `600`; `cert.pem` protegido/removido depois da rota DNS criada
-- [ ] Service Token e Access Application criados **antes** da rota DNS/serviço do túnel — sem janela pública desprotegida
-- [ ] Gateway (nginx + Tunnel + Access) validado isoladamente com `curl` antes do Go-Live
-- [ ] `/healthz` confirmado inacessível de fora (só loopback, reforçado pelo `path` do ingress)
+- [x] Service Token e Access Application criados **antes** da rota DNS/serviço do túnel — sem janela pública desprotegida
+- [x] Gateway (nginx + Tunnel + Access) validado isoladamente com `curl` antes do Go-Live
+- [x] `/healthz` confirmado inacessível de fora (só loopback, reforçado pelo `path` do ingress)
 - [ ] SSH: firewall Lightsail usado primeiro; `ufw` só depois de validar origem real + caminho de recuperação
-- [ ] Segredos de teste do Service Token nunca literais em comando/argv — `read -s` pra captura, `curl -K -` (stdin) pro uso, `unset` depois
-- [ ] IP de saída da Lightsail confirmado como `54.20.20.253` antes do envio do Go-Live
-- [ ] Formulário Go-Live enviado com o IP correto e Live Redirect URL Domain correto (só domínio)
+- [x] Segredos de teste do Service Token nunca literais em comando/argv — `read -s` pra captura, `curl -K -` (stdin) pro uso, `unset` depois
+- [x] IP de saída da Lightsail confirmado como `54.20.20.253` antes do envio do Go-Live
+- [x] Formulário Go-Live enviado com o IP correto e Live Redirect URL Domain correto (só domínio)
 - [ ] Live Partner ID/Key reais (não `1235356`) configurados como secrets
 - [ ] `shopeeFetch()` usa `new Headers()` + `.set()`, não spread de objeto
 - [ ] Gate `VITE_SUPABASE_*` + validação em navegador real passou antes do deploy de produção
