@@ -811,7 +811,7 @@ tunnel ingress rule` direto e inspeção de logs/status do systemd.
   ```
   Confirmar tela de login renderiza sem erro de configuração ausente.
 
-- [ ] **Step 3: Merge da branch `shopee-producao` em `main` — só com autorização explícita do Vinicius**
+- [x] **Step 3: Merge da branch `shopee-producao` em `main` — só com autorização explícita do Vinicius**
 
   ```bash
   cd /c/Users/Vinicius/EXPEDE
@@ -820,7 +820,7 @@ tunnel ingress rule` direto e inspeção de logs/status do systemd.
   git merge shopee-producao
   ```
 
-- [ ] **Step 4: Deploy — só com autorização explícita do Vinicius**
+- [x] **Step 4: Deploy — só com autorização explícita do Vinicius**
 
   ```bash
   npm run build
@@ -1170,11 +1170,11 @@ tunnel ingress rule` direto e inspeção de logs/status do systemd.
 - [x] Live Partner ID/Key reais (não `1235356`) configurados como secrets
 - [x] `shopeeFetch()` usa `new Headers()` + `.set()`, não spread de objeto
 - [x] Gate `VITE_SUPABASE_*` + validação em navegador real passou antes do deploy de produção
-- [ ] Deploy só depois de autorização explícita do Vinicius
+- [x] Deploy só depois de autorização explícita do Vinicius
 - [ ] Pedido Shopee real imprime etiqueta + DANFE em produção
 - [ ] `shopee_connections` mostra `is_sandbox: false` após autorização de produção
 - [ ] `etiqueta.functions.ts` sem `if (marketplace === "shopee")` inline — só `CANAIS`
 - [ ] Fallback ML preservado pra `marketplace` nulo/legado
 - [ ] Os 3 fluxos de reimpressão (Expedição/Pedidos/Histórico) validados sem regressão pra ML
-- [ ] `npm run build` limpo em todo o processo
+- [x] `npm run build` limpo em todo o processo
 - [ ] `CURRENT-STATE.md` e `SESSION-HANDOFF.md` atualizados ao final
