@@ -792,7 +792,7 @@ tunnel ingress rule` direto e inspeção de logs/status do systemd.
 
 **Files:** nenhum (build + deploy, a partir da worktree)
 
-- [ ] **Step 1: Rodar o gate de deploy geral do projeto (bloqueio documentado desde 08/08/2026)**
+- [x] **Step 1: Rodar o gate de deploy geral do projeto (bloqueio documentado desde 08/08/2026)**
 
   ```bash
   npm run build
@@ -804,7 +804,7 @@ tunnel ingress rule` direto e inspeção de logs/status do systemd.
   ```
   Esperado: `1` ou mais. Se não tiver, **parar** (Lições #24-26).
 
-- [ ] **Step 2: Validar a SPA em navegador real, servindo o build local**
+- [x] **Step 2: Validar a SPA em navegador real, servindo o build local**
 
   ```bash
   npx vite preview
@@ -1169,7 +1169,7 @@ tunnel ingress rule` direto e inspeção de logs/status do systemd.
 - [x] `Access to Sensitive Data` consta `Can access` após salvar o whitelist
 - [x] Live Partner ID/Key reais (não `1235356`) configurados como secrets
 - [x] `shopeeFetch()` usa `new Headers()` + `.set()`, não spread de objeto
-- [ ] Gate `VITE_SUPABASE_*` + validação em navegador real passou antes do deploy de produção
+- [x] Gate `VITE_SUPABASE_*` + validação em navegador real passou antes do deploy de produção
 - [ ] Deploy só depois de autorização explícita do Vinicius
 - [ ] Pedido Shopee real imprime etiqueta + DANFE em produção
 - [ ] `shopee_connections` mostra `is_sandbox: false` após autorização de produção
