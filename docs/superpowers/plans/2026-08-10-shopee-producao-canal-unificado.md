@@ -578,14 +578,20 @@ tunnel ingress rule` direto e inspeção de logs/status do systemd.
   não o path completo — Lição #21), Product Brief, screenshot, credencial de
   teste do EXPEDE pra revisão.
 
-- [ ] **Step 2: Aguardar aprovação** — sem prazo garantido. Não prosseguir
-  pra Task 9 antes da aprovação chegar (Live Partner ID/Key emitidos).
+- [x] **Step 2: Aguardar aprovação** — aprovada em 2026-08-12. App `Online`,
+  Live Partner ID `2036352` e Live API Partner Key emitidos (chave nunca
+  registrada no repositório ou em chat).
+
+  Antes da ativação em produção, confirmar no console por que `IP Address
+  Whitelist` ainda aparece como `Disabled`, apesar do IP `54.20.20.253` estar
+  cadastrado. Confirmar também se `Access to Sensitive Data: No access` atende
+  os endpoints de documento logístico usados pelo EXPEDE.
 
 ---
 
 ### Task 9: `shopeeFetch()` via gateway + correção de `is_sandbox` (código, na worktree)
 
-**BLOQUEADO até Task 8 (aprovação da Shopee com credenciais Live em mãos).**
+**DESBLOQUEADO em 2026-08-12 pela aprovação da Task 8.**
 
 **Files (dentro de `C:\Users\Vinicius\shopee-producao`):**
 - Modify: `src/lib/shopee.ts`
@@ -594,7 +600,7 @@ tunnel ingress rule` direto e inspeção de logs/status do systemd.
 - Consumes: nenhuma (self-contained neste arquivo)
 - Produces: `shopeeFetch(url: string, init?: RequestInit): Promise<Response>` — usado internamente por `buildShopeeUrl`-consumers em vez de `fetch()` cru, para chamadas server-to-server. `getShopeeAuthUrl()` continua sem usar `shopeeFetch` (exceção documentada — navegação de browser).
 
-- [ ] **Step 1: Confirmar que está na worktree, branch correta**
+- [x] **Step 1: Confirmar que está na worktree, branch correta**
 
   ```bash
   cd /c/Users/Vinicius/shopee-producao
@@ -602,7 +608,7 @@ tunnel ingress rule` direto e inspeção de logs/status do systemd.
   ```
   Esperado: `shopee-producao`.
 
-- [ ] **Step 2: Adicionar `shopeeFetch()` em `src/lib/shopee.ts`, logo após os imports (linha 3)**
+- [x] **Step 2: Adicionar `shopeeFetch()` em `src/lib/shopee.ts`, logo após os imports (linha 3)**
 
   ```ts
   const SHOPEE_GATEWAY_URL = "https://shopee-egress.bwbaby.com.br";
@@ -641,7 +647,7 @@ tunnel ingress rule` direto e inspeção de logs/status do systemd.
   }
   ```
 
-- [ ] **Step 3: Trocar os `fetch()` diretos por `shopeeFetch()` nas funções server-to-server**
+- [x] **Step 3: Trocar os `fetch()` diretos por `shopeeFetch()` nas funções server-to-server**
 
   Em `refreshShopeeTokenIfNeeded` (linha ~141), `exchangeShopeeCode` (linha
   ~205), e dentro de `buscarEtiquetaShopee` (linhas ~293, ~318 —
@@ -650,7 +656,7 @@ tunnel ingress rule` direto e inspeção de logs/status do systemd.
   tocar em `getShopeeAuthUrl()`** — continua montando a URL e devolvendo pro
   caller sem chamar `fetch`/`shopeeFetch` nenhum.
 
-- [ ] **Step 4: Corrigir `buscarEtiquetaShopee()` pra usar a conexão real em vez de `SHOPEE_TEST_SHOP_ID`**
+- [x] **Step 4: Corrigir `buscarEtiquetaShopee()` pra usar a conexão real em vez de `SHOPEE_TEST_SHOP_ID`**
 
   Código atual (linha 275-284):
   ```ts
@@ -696,7 +702,7 @@ tunnel ingress rule` direto e inspeção de logs/status do systemd.
   > como dependência) e já entrega o filtro `is_sandbox=false` pedido pro
   > cenário de produção.
 
-- [ ] **Step 5: Corrigir `getShopeeConnection()` pra filtrar pela mesma regra**
+- [x] **Step 5: Corrigir `getShopeeConnection()` pra filtrar pela mesma regra**
 
   Código atual (linha 350-362):
   ```ts
@@ -722,7 +728,7 @@ tunnel ingress rule` direto e inspeção de logs/status do systemd.
         .maybeSingle();
   ```
 
-- [ ] **Step 6: Verificar build**
+- [x] **Step 6: Verificar build**
 
   ```bash
   npm run build
@@ -1159,6 +1165,8 @@ tunnel ingress rule` direto e inspeção de logs/status do systemd.
 - [x] Segredos de teste do Service Token nunca literais em comando/argv — `read -s` pra captura, `curl -K -` (stdin) pro uso, `unset` depois
 - [x] IP de saída da Lightsail confirmado como `54.20.20.253` antes do envio do Go-Live
 - [x] Formulário Go-Live enviado com o IP correto e Live Redirect URL Domain correto (só domínio)
+- [ ] `IP Address Whitelist` consta habilitado no console Shopee (ainda aparecia `Disabled` em 2026-08-12)
+- [ ] `Access to Sensitive Data: No access` confirmado como suficiente para os endpoints logísticos usados
 - [ ] Live Partner ID/Key reais (não `1235356`) configurados como secrets
 - [ ] `shopeeFetch()` usa `new Headers()` + `.set()`, não spread de objeto
 - [ ] Gate `VITE_SUPABASE_*` + validação em navegador real passou antes do deploy de produção

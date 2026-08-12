@@ -2,6 +2,33 @@ import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 
+const SHOPEE_GATEWAY_URL = "https://shopee-egress.bwbaby.com.br";
+
+/**
+ * Chamadas server-to-server pra Shopee em produção passam pelo gateway de IP
+ * fixo, autenticado com o Service Token do Cloudflare Access. A URL de
+ * autorização continua direta porque é aberta pelo navegador do usuário.
+ */
+async function shopeeFetch(shopeeUrl: string, init?: RequestInit): Promise<Response> {
+  if (isShopeeSandbox()) {
+    return fetch(shopeeUrl, init);
+  }
+
+  const clientId = process.env.CF_ACCESS_CLIENT_ID;
+  const clientSecret = process.env.CF_ACCESS_CLIENT_SECRET;
+  if (!clientId || !clientSecret) {
+    throw new Error("[SHOPEE] CF_ACCESS_CLIENT_ID/SECRET não configurados — obrigatório em produção");
+  }
+
+  const url = new URL(shopeeUrl);
+  const gatewayUrl = `${SHOPEE_GATEWAY_URL}${url.pathname}${url.search}`;
+  const headers = new Headers(init?.headers);
+  headers.set("CF-Access-Client-Id", clientId);
+  headers.set("CF-Access-Client-Secret", clientSecret);
+
+  return fetch(gatewayUrl, { ...init, headers });
+}
+
 const SHOPEE_BASE_SANDBOX = "https://partner.test-stable.shopeemobile.com";
 const SHOPEE_BASE_PROD = "https://partner.shopeemobile.com";
 const SHOPEE_AUTH_PARTNER_PATH = "/api/v2/shop/auth_partner";
@@ -138,7 +165,7 @@ export async function refreshShopeeTokenIfNeeded(shopId: string | number): Promi
 
   try {
     const url = await buildShopeeUrl(path, {}, null, shopId);
-    const res = await fetch(url, {
+    const res = await shopeeFetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -202,7 +229,7 @@ export async function exchangeShopeeCode(code: string, shopId: string): Promise<
   const { partnerId } = getShopeePartnerCreds();
   const url = await buildShopeeUrl(SHOPEE_TOKEN_GET_PATH, {}, null, null);
 
-  const res = await fetch(url, {
+  const res = await shopeeFetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -255,7 +282,7 @@ async function pollShopeeShippingDocumentReady(
 
   for (let attempt = 0; attempt < 3; attempt++) {
     const url = await buildShopeeUrl(path, {}, accessToken, shopId);
-    const res = await fetch(url, {
+    const res = await shopeeFetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ order_list: [{ order_sn: orderSn }] }),
@@ -273,8 +300,18 @@ async function pollShopeeShippingDocumentReady(
 }
 
 export async function buscarEtiquetaShopee(orderSn: string): Promise<ShopeeEtiquetaResult> {
-  const shopId = process.env.SHOPEE_TEST_SHOP_ID;
-  if (!shopId) return { ok: false, error: "shopee_shop_id_not_configured" };
+  const { data: conn, error } = await supabaseAdmin
+    .from("shopee_connections")
+    .select("shop_id")
+    .eq("is_sandbox", isShopeeSandbox())
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) console.error("[SHOPEE] erro ao buscar conexão ativa:", error.message);
+  if (!conn) return { ok: false, error: "shopee_no_connection" };
+
+  const shopId = conn.shop_id;
 
   let accessToken: string;
   try {
@@ -290,7 +327,7 @@ export async function buscarEtiquetaShopee(orderSn: string): Promise<ShopeeEtiqu
       accessToken,
       shopId,
     );
-    const createRes = await fetch(createUrl, {
+    const createRes = await shopeeFetch(createUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -315,7 +352,7 @@ export async function buscarEtiquetaShopee(orderSn: string): Promise<ShopeeEtiqu
       accessToken,
       shopId,
     );
-    const downloadRes = await fetch(downloadUrl, {
+    const downloadRes = await shopeeFetch(downloadUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -353,6 +390,7 @@ export const getShopeeConnection = createServerFn({ method: "GET" })
     const { data } = await supabaseAdmin
       .from("shopee_connections")
       .select("shop_id, access_token_expires_at")
+      .eq("is_sandbox", isShopeeSandbox())
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
