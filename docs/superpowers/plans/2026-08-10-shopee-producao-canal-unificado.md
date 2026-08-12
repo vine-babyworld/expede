@@ -735,7 +735,7 @@ tunnel ingress rule` direto e inspeção de logs/status do systemd.
   ```
   Esperado: zero erros novos.
 
-- [ ] **Step 7: Commit (na worktree, sem merge em `main`)**
+- [x] **Step 7: Commit (na worktree, sem merge em `main`)**
 
   ```bash
   git add src/lib/shopee.ts
@@ -746,12 +746,12 @@ tunnel ingress rule` direto e inspeção de logs/status do systemd.
 
 ### Task 10: Secrets + flag de produção
 
-**BLOQUEADO — só depois da Task 9 e com autorização explícita do Vinicius pra mexer em secrets/config de produção.**
+**DESBLOQUEADO e autorizado pelo Vinicius em 2026-08-12.**
 
 **Files (na worktree):**
 - Modify: `wrangler.jsonc`
 
-- [ ] **Step 1: Configurar os secrets (Vinicius digita direto no prompt interativo, nunca colar em chat)**
+- [x] **Step 1: Configurar os secrets (Vinicius digita direto no prompt interativo, nunca colar em chat)**
 
   ```bash
   npx wrangler secret put SHOPEE_PARTNER_ID
@@ -760,7 +760,7 @@ tunnel ingress rule` direto e inspeção de logs/status do systemd.
   npx wrangler secret put CF_ACCESS_CLIENT_SECRET
   ```
 
-- [ ] **Step 2: Atualizar `wrangler.jsonc`**
+- [x] **Step 2: Atualizar `wrangler.jsonc`**
 
   Trocar:
   ```jsonc
@@ -777,7 +777,7 @@ tunnel ingress rule` direto e inspeção de logs/status do systemd.
   }
   ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
   ```bash
   git add wrangler.jsonc
@@ -1165,10 +1165,10 @@ tunnel ingress rule` direto e inspeção de logs/status do systemd.
 - [x] Segredos de teste do Service Token nunca literais em comando/argv — `read -s` pra captura, `curl -K -` (stdin) pro uso, `unset` depois
 - [x] IP de saída da Lightsail confirmado como `54.20.20.253` antes do envio do Go-Live
 - [x] Formulário Go-Live enviado com o IP correto e Live Redirect URL Domain correto (só domínio)
-- [ ] `IP Address Whitelist` consta habilitado no console Shopee (ainda aparecia `Disabled` em 2026-08-12)
-- [ ] `Access to Sensitive Data: No access` confirmado como suficiente para os endpoints logísticos usados
-- [ ] Live Partner ID/Key reais (não `1235356`) configurados como secrets
-- [ ] `shopeeFetch()` usa `new Headers()` + `.set()`, não spread de objeto
+- [x] `IP Address Whitelist` habilitado no console Shopee para `54.20.20.253` em 2026-08-12
+- [x] `Access to Sensitive Data` consta `Can access` após salvar o whitelist
+- [x] Live Partner ID/Key reais (não `1235356`) configurados como secrets
+- [x] `shopeeFetch()` usa `new Headers()` + `.set()`, não spread de objeto
 - [ ] Gate `VITE_SUPABASE_*` + validação em navegador real passou antes do deploy de produção
 - [ ] Deploy só depois de autorização explícita do Vinicius
 - [ ] Pedido Shopee real imprime etiqueta + DANFE em produção
