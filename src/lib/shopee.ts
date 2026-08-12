@@ -60,13 +60,46 @@ function isShopeeSandbox(): boolean {
   return process.env.SHOPEE_SANDBOX !== "false";
 }
 
+async function sha256FingerprintHex(value: string): Promise<string> {
+  const enc = new TextEncoder();
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", enc.encode(value));
+  return bytesToHex(new Uint8Array(digest));
+}
+
 function getShopeePartnerCreds(): { partnerId: string; partnerKey: string } {
   const sandbox = isShopeeSandbox();
-  const partnerId = sandbox ? process.env.SHOPEE_TEST_PARTNER_ID : process.env.SHOPEE_PARTNER_ID;
-  const partnerKey = sandbox ? process.env.SHOPEE_TEST_PARTNER_KEY : process.env.SHOPEE_PARTNER_KEY;
+  const rawPartnerId = sandbox ? process.env.SHOPEE_TEST_PARTNER_ID : process.env.SHOPEE_PARTNER_ID;
+  const rawPartnerKey = sandbox ? process.env.SHOPEE_TEST_PARTNER_KEY : process.env.SHOPEE_PARTNER_KEY;
 
-  if (!partnerId || !partnerKey) {
+  if (!rawPartnerId || !rawPartnerKey) {
     throw new Error("[SHOPEE] partner_id/partner_key não configurados no ambiente");
+  }
+
+  const partnerId = rawPartnerId.trim();
+  const partnerKey = rawPartnerKey.trim();
+
+  if (!/^\d+$/.test(partnerId)) {
+    throw new Error("[SHOPEE] partner_id inválido — precisa ser numérico (sem espaços/caracteres extras)");
+  }
+  if (rawPartnerKey !== partnerKey) {
+    throw new Error(
+      "[SHOPEE] partner_key contém espaço ou quebra de linha nas bordas — provável erro de cópia do secret",
+    );
+  }
+  if (partnerKey.length === 0) {
+    throw new Error("[SHOPEE] partner_key vazia");
+  }
+
+  // Diagnóstico opcional e controlado: nunca ativo por padrão, nunca registra o
+  // valor da chave — só comprimento e uma fingerprint SHA-256 abreviada, pra
+  // comparar contra o console da Shopee sem expor o segredo. Desligar depois
+  // de usar (não deixar SHOPEE_DEBUG_KEY_FINGERPRINT=true em produção).
+  if (process.env.SHOPEE_DEBUG_KEY_FINGERPRINT === "true") {
+    void sha256FingerprintHex(partnerKey).then((fp) => {
+      console.log(
+        `[SHOPEE][diag] partner_key length=${partnerKey.length} sha256_prefix=${fp.slice(0, 12)} sandbox=${sandbox}`,
+      );
+    });
   }
 
   return { partnerId, partnerKey };
