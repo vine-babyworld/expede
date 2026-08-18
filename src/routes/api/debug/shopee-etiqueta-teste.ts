@@ -7,7 +7,8 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
  * etiqueta Shopee sem nunca tocar em QZ Tray/impressora física. Espelha o
  * padrão de /api/debug/etiqueta-teste.ts (Bling). Usado pra achar/confirmar
  * a causa raiz do Erro #28 (ver 05 - Erros e Soluções.md) — mantido pra
- * diagnóstico futuro de qualquer novo problema na cadeia Shopee.
+ * diagnóstico futuro de qualquer novo problema na cadeia Shopee. `?raw=1`
+ * devolve o PDF bruto em vez do JSON de diagnóstico (só quando ok=true).
  */
 export const Route = createFileRoute("/api/debug/shopee-etiqueta-teste")({
   server: {
@@ -49,15 +50,29 @@ export const Route = createFileRoute("/api/debug/shopee-etiqueta-teste")({
           .maybeSingle();
 
         let etiquetaResult: unknown = null;
+        let pdfBytes: Uint8Array | null = null;
         if (refreshed) {
           try {
             const r = await buscarEtiquetaShopee(orderSn);
-            etiquetaResult = r.ok
-              ? { ok: true, tipo: "pdf_base64", bytes: Math.round((r.conteudo.length * 3) / 4) }
-              : r;
+            if (r.ok) {
+              etiquetaResult = { ok: true, tipo: "pdf_base64", bytes: Math.round((r.conteudo.length * 3) / 4) };
+              const binary = atob(r.conteudo);
+              const bytes = new Uint8Array(binary.length);
+              for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+              pdfBytes = bytes;
+            } else {
+              etiquetaResult = r;
+            }
           } catch (err) {
             etiquetaResult = { ok: false, error: "exception", detail: err instanceof Error ? err.message : String(err) };
           }
+        }
+
+        const wantsRaw = url.searchParams.get("raw") === "1";
+        if (wantsRaw && pdfBytes) {
+          return new Response(new Blob([pdfBytes.slice().buffer]), {
+            headers: { "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename="etiqueta-${orderSn}.pdf"` },
+          });
         }
 
         return Response.json({ orderSn, connBefore: conn, refresh: { refreshed, error: refreshError }, connAfter, etiquetaResult });

@@ -339,6 +339,31 @@ async function pollShopeeShippingDocumentReady(
   return false;
 }
 
+// Espelha o checarStatusEnvioML do Mercado Livre (ml.functions.ts): antes de
+// tentar gerar a etiqueta, confirma que a Shopee já processou a logística do
+// pacote. Documentação oficial (v2.logistics.get_shipping_parameter) exige
+// package_list[].logistics_status === LOGISTICS_READY (ou variantes de
+// retry) antes de create_shipping_document/ship_order funcionarem — chamar
+// antes disso falha com "tracking_number_invalid", sem indicar a causa real.
+// Erro #28 (continuação): a Shopee processa o pacote internamente de forma
+// assíncrona (ex: LOGISTICS_REQUEST_CREATED → LOGISTICS_READY); não há
+// nenhuma chamada de API que acelere essa transição.
+async function getShopeeLogisticsStatus(
+  orderSn: string,
+  accessToken: string,
+  shopId: string | number,
+): Promise<string | null> {
+  const url = await buildShopeeUrl(
+    "/api/v2/order/get_order_detail",
+    { order_sn_list: orderSn, response_optional_fields: "package_list" },
+    accessToken,
+    shopId,
+  );
+  const res = await shopeeFetch(url, { method: "GET" });
+  const json: any = await res.json().catch(() => null);
+  return json?.response?.order_list?.[0]?.package_list?.[0]?.logistics_status ?? null;
+}
+
 export async function buscarEtiquetaShopee(orderSn: string): Promise<ShopeeEtiquetaResult> {
   const { data: conn, error } = await supabaseAdmin
     .from("shopee_connections")
@@ -365,6 +390,11 @@ export async function buscarEtiquetaShopee(orderSn: string): Promise<ShopeeEtiqu
   }
 
   try {
+    const logisticsStatus = await getShopeeLogisticsStatus(orderSn, accessToken, shopId);
+    if (logisticsStatus !== "LOGISTICS_READY") {
+      return { ok: false, error: `shopee_logistics_not_ready: ${logisticsStatus ?? "desconhecido"}` };
+    }
+
     const createUrl = await buildShopeeUrl(
       "/api/v2/logistics/create_shipping_document",
       {},
