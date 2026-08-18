@@ -33,14 +33,17 @@ const SHOPEE_BASE_SANDBOX = "https://partner.test-stable.shopeemobile.com";
 const SHOPEE_BASE_PROD = "https://partner.shopeemobile.com";
 const SHOPEE_AUTH_PARTNER_PATH = "/api/v2/shop/auth_partner";
 const SHOPEE_TOKEN_GET_PATH = "/api/v2/auth/token/get";
+// "/api/v2/auth/refresh_access_token" (usado antes aqui) não existe na API da
+// Shopee — devolve 404 "error_not_found" sempre. O endpoint real de refresh é
+// este mesmo, com `refresh_token` no lugar de `code` no corpo da requisição.
+const SHOPEE_REFRESH_TOKEN_PATH = "/api/v2/auth/access_token/get";
 const SHOPEE_REDIRECT_URI = "https://babyworld.expede.workers.dev/api/shopee/callback";
 
 // Endpoints "públicos" da Shopee — assinados sem access_token/shop_id
-// (token/get e refresh_access_token usam o mesmo formato de assinatura).
+// (token/get e access_token/get usam o mesmo formato de assinatura).
 const SHOPEE_PUBLIC_PATHS = new Set([
   SHOPEE_TOKEN_GET_PATH,
-  "/api/v2/auth/access_token/get",
-  "/api/v2/auth/refresh_access_token",
+  SHOPEE_REFRESH_TOKEN_PATH,
   SHOPEE_AUTH_PARTNER_PATH,
 ]);
 
@@ -194,10 +197,14 @@ export async function refreshShopeeTokenIfNeeded(shopId: string | number): Promi
   }
 
   const { partnerId } = getShopeePartnerCreds();
-  const path = "/api/v2/auth/refresh_access_token";
+  const path = SHOPEE_REFRESH_TOKEN_PATH;
 
   try {
-    const url = await buildShopeeUrl(path, {}, null, shopId);
+    // shopId vai só no corpo, não na URL: como token/get, este é um endpoint
+    // "público" (sem contexto de loja pra Shopee) — colocar shop_id na
+    // querystring quebra a validação de sign (error_sign), mesmo com sign
+    // calculado certo pela fórmula pública (partnerId+path+timestamp).
+    const url = await buildShopeeUrl(path, {}, null, null);
     const res = await shopeeFetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -349,8 +356,12 @@ export async function buscarEtiquetaShopee(orderSn: string): Promise<ShopeeEtiqu
   let accessToken: string;
   try {
     accessToken = await refreshShopeeTokenIfNeeded(shopId);
-  } catch {
-    return { ok: false, error: "shopee_no_connection" };
+  } catch (err) {
+    // Antes retornava sempre "shopee_no_connection" (enganoso: mesmo com
+    // conexão presente, um erro real de refresh — ex: path errado, refresh
+    // token inválido — ficava indistinguível de "não conectado"). Erro #28.
+    const detail = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: `shopee_token_refresh_failed: ${detail}` };
   }
 
   try {
@@ -371,7 +382,14 @@ export async function buscarEtiquetaShopee(orderSn: string): Promise<ShopeeEtiqu
 
     if (!createRes.ok || !createJson || createJson.error) {
       console.error("[shopee] create_shipping_document falhou:", createRes.status, JSON.stringify(createJson));
-      return { ok: false, error: createJson?.error ?? "shopee_create_document_failed" };
+      // Em erro de lote (ex: "common.batch_api_all_failed"), a Shopee devolve o
+      // motivo real por pedido em response.result_list — sem isso, o erro
+      // top-level sozinho é genérico demais pra diagnosticar (ou pro operador
+      // entender) o que de fato aconteceu com ESTE pedido.
+      const itemFail = createJson?.response?.result_list?.[0];
+      const detail = itemFail?.fail_message ?? itemFail?.fail_error ?? createJson?.message ?? null;
+      const errorCode = itemFail?.fail_error ?? createJson?.error ?? "shopee_create_document_failed";
+      return { ok: false, error: detail ? `${errorCode}: ${detail}` : errorCode };
     }
 
     const ready = await pollShopeeShippingDocumentReady(orderSn, accessToken, shopId);

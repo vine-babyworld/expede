@@ -26,6 +26,7 @@ import { Route as ApiShopeeCallbackRouteImport } from './routes/api/shopee/callb
 import { Route as ApiShopeeAuthRouteImport } from './routes/api/shopee/auth'
 import { Route as ApiMlCallbackRouteImport } from './routes/api/ml/callback'
 import { Route as ApiMlAuthRouteImport } from './routes/api/ml/auth'
+import { Route as ApiDebugShopeeEtiquetaTesteRouteImport } from './routes/api/debug/shopee-etiqueta-teste'
 import { Route as ApiDebugEtiquetaTesteRouteImport } from './routes/api/debug/etiqueta-teste'
 import { Route as ApiDebugDanfeTesteRouteImport } from './routes/api/debug/danfe-teste'
 import { Route as ApiDebugBlingTokenRouteImport } from './routes/api/debug/bling-token'
@@ -124,6 +125,12 @@ const ApiMlAuthRoute = ApiMlAuthRouteImport.update({
   path: '/api/ml/auth',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiDebugShopeeEtiquetaTesteRoute =
+  ApiDebugShopeeEtiquetaTesteRouteImport.update({
+    id: '/api/debug/shopee-etiqueta-teste',
+    path: '/api/debug/shopee-etiqueta-teste',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiDebugEtiquetaTesteRoute = ApiDebugEtiquetaTesteRouteImport.update({
   id: '/api/debug/etiqueta-teste',
   path: '/api/debug/etiqueta-teste',
@@ -216,6 +223,7 @@ export interface FileRoutesByFullPath {
   '/api/debug/bling-token': typeof ApiDebugBlingTokenRoute
   '/api/debug/danfe-teste': typeof ApiDebugDanfeTesteRoute
   '/api/debug/etiqueta-teste': typeof ApiDebugEtiquetaTesteRoute
+  '/api/debug/shopee-etiqueta-teste': typeof ApiDebugShopeeEtiquetaTesteRoute
   '/api/ml/auth': typeof ApiMlAuthRoute
   '/api/ml/callback': typeof ApiMlCallbackRoute
   '/api/shopee/auth': typeof ApiShopeeAuthRoute
@@ -246,6 +254,7 @@ export interface FileRoutesByTo {
   '/api/debug/bling-token': typeof ApiDebugBlingTokenRoute
   '/api/debug/danfe-teste': typeof ApiDebugDanfeTesteRoute
   '/api/debug/etiqueta-teste': typeof ApiDebugEtiquetaTesteRoute
+  '/api/debug/shopee-etiqueta-teste': typeof ApiDebugShopeeEtiquetaTesteRoute
   '/api/ml/auth': typeof ApiMlAuthRoute
   '/api/ml/callback': typeof ApiMlCallbackRoute
   '/api/shopee/auth': typeof ApiShopeeAuthRoute
@@ -279,6 +288,7 @@ export interface FileRoutesById {
   '/api/debug/bling-token': typeof ApiDebugBlingTokenRoute
   '/api/debug/danfe-teste': typeof ApiDebugDanfeTesteRoute
   '/api/debug/etiqueta-teste': typeof ApiDebugEtiquetaTesteRoute
+  '/api/debug/shopee-etiqueta-teste': typeof ApiDebugShopeeEtiquetaTesteRoute
   '/api/ml/auth': typeof ApiMlAuthRoute
   '/api/ml/callback': typeof ApiMlCallbackRoute
   '/api/shopee/auth': typeof ApiShopeeAuthRoute
@@ -312,6 +322,7 @@ export interface FileRouteTypes {
     | '/api/debug/bling-token'
     | '/api/debug/danfe-teste'
     | '/api/debug/etiqueta-teste'
+    | '/api/debug/shopee-etiqueta-teste'
     | '/api/ml/auth'
     | '/api/ml/callback'
     | '/api/shopee/auth'
@@ -342,6 +353,7 @@ export interface FileRouteTypes {
     | '/api/debug/bling-token'
     | '/api/debug/danfe-teste'
     | '/api/debug/etiqueta-teste'
+    | '/api/debug/shopee-etiqueta-teste'
     | '/api/ml/auth'
     | '/api/ml/callback'
     | '/api/shopee/auth'
@@ -374,6 +386,7 @@ export interface FileRouteTypes {
     | '/api/debug/bling-token'
     | '/api/debug/danfe-teste'
     | '/api/debug/etiqueta-teste'
+    | '/api/debug/shopee-etiqueta-teste'
     | '/api/ml/auth'
     | '/api/ml/callback'
     | '/api/shopee/auth'
@@ -397,6 +410,7 @@ export interface RootRouteChildren {
   ApiDebugBlingTokenRoute: typeof ApiDebugBlingTokenRoute
   ApiDebugDanfeTesteRoute: typeof ApiDebugDanfeTesteRoute
   ApiDebugEtiquetaTesteRoute: typeof ApiDebugEtiquetaTesteRoute
+  ApiDebugShopeeEtiquetaTesteRoute: typeof ApiDebugShopeeEtiquetaTesteRoute
   ApiMlAuthRoute: typeof ApiMlAuthRoute
   ApiMlCallbackRoute: typeof ApiMlCallbackRoute
   ApiShopeeAuthRoute: typeof ApiShopeeAuthRoute
@@ -527,6 +541,13 @@ declare module '@tanstack/react-router' {
       path: '/api/ml/auth'
       fullPath: '/api/ml/auth'
       preLoaderRoute: typeof ApiMlAuthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/debug/shopee-etiqueta-teste': {
+      id: '/api/debug/shopee-etiqueta-teste'
+      path: '/api/debug/shopee-etiqueta-teste'
+      fullPath: '/api/debug/shopee-etiqueta-teste'
+      preLoaderRoute: typeof ApiDebugShopeeEtiquetaTesteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/debug/etiqueta-teste': {
@@ -673,6 +694,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiDebugBlingTokenRoute: ApiDebugBlingTokenRoute,
   ApiDebugDanfeTesteRoute: ApiDebugDanfeTesteRoute,
   ApiDebugEtiquetaTesteRoute: ApiDebugEtiquetaTesteRoute,
+  ApiDebugShopeeEtiquetaTesteRoute: ApiDebugShopeeEtiquetaTesteRoute,
   ApiMlAuthRoute: ApiMlAuthRoute,
   ApiMlCallbackRoute: ApiMlCallbackRoute,
   ApiShopeeAuthRoute: ApiShopeeAuthRoute,
@@ -688,3 +710,13 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
