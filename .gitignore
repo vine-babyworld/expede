@@ -20,6 +20,11 @@ dist-ssr
 .wrangler/
 .dev.vars
 
+# Ferramentas locais / artefatos de sessão
+.planning/
+.playwright-mcp/
+supabase/.temp/
+
 # Segredos locais
 .env
 .env.*

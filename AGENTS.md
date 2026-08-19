@@ -1,6 +1,6 @@
-# CLAUDE.md — EXPEDE
+# AGENTS.md — EXPEDE
 
-Sistema de gestão de expedição (Baby World). Este arquivo é uma **ponte curta** — a documentação real do projeto vive no Obsidian, fora deste repositório. Não duplique conteúdo aqui; edite lá.
+Sistema de gestão de expedição (Baby World). Este arquivo é uma **ponte curta** para o Codex — a documentação real do projeto vive no Obsidian, fora deste repositório. Não duplique conteúdo aqui; edite lá. Equivalente ao `CLAUDE.md` deste mesmo repositório (Claude Code) — mesmo conteúdo, mesma fonte.
 
 ## DOCUMENTATION ROOT
 
@@ -25,4 +25,4 @@ Atualizar `AGENT-CONTEXT/SESSION-HANDOFF.md` (obrigatório). Critério de "signi
 
 ---
 
-> **Nota (07/08/2026):** este arquivo esteve corrompido no repositório (UTF-16, conteúdo genérico de outro projeto, introduzido acidentalmente no commit `310bce7` de 13/06/2026) e foi reescrito do zero em UTF-8, curto e específico do EXPEDE, como parte da adoção do protocolo `AGENT-CONTEXT`. Conhecimento técnico recuperado de uma tentativa anterior de correção (commit `517a075`, não mesclado) foi redistribuído para `AGENT-CONTEXT/CURRENT-STATE.md` e `AGENT-CONTEXT/ARCHITECTURE-MAP.md` em vez de voltar a viver neste arquivo.
+> Criado em 07/08/2026 como parte da adoção do protocolo `AGENT-CONTEXT`, junto com a correção do `CLAUDE.md` (que estava corrompido). Mesma fonte, mesmo protocolo — o objetivo é que trabalho iniciado no Claude Code possa ser continuado pelo Codex, e vice-versa, sem depender do histórico de conversa de nenhum dos dois.

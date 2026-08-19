@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { getDecryptedAccessToken } from "@/lib/bling.functions";
+import { resolverProdutoDoItem } from "@/lib/pedidos.functions";
 
 const BLING_PEDIDOS_URL = "https://api.bling.com.br/Api/v3/pedidos/vendas";
 
@@ -106,17 +107,20 @@ export const Route = createFileRoute("/api/admin/importar-pedido")({
         const itens: any[] = d.itens ?? [];
         if (itens.length > 0) {
           await supabaseAdmin.from("pedido_itens").delete().eq("pedido_id", upserted.id);
-          const itensPrepared = itens.map((it: any) => ({
-            pedido_id:          upserted.id,
-            produto_id:         null,
-            bling_item_id:      it.id ?? null,
-            sku:                it.codigo ?? null,
-            ean:                it.gtin ?? null,
-            descricao:          it.descricao ?? "",
-            quantidade:         it.quantidade ?? 1,
-            valor_unitario:     it.valor ?? null,
-            deposito_id:        it.deposito?.id ?? null,
-            deposito_descricao: it.deposito?.descricao ?? null,
+          const itensPrepared = await Promise.all(itens.map(async (it: any) => {
+            const { produtoId, ean } = await resolverProdutoDoItem(it, conn.id);
+            return {
+              pedido_id:          upserted.id,
+              produto_id:         produtoId,
+              bling_item_id:      it.id ?? null,
+              sku:                it.codigo ?? null,
+              ean,
+              descricao:          it.descricao ?? "",
+              quantidade:         it.quantidade ?? 1,
+              valor_unitario:     it.valor ?? null,
+              deposito_id:        it.deposito?.id ?? null,
+              deposito_descricao: it.deposito?.descricao ?? null,
+            };
           }));
           await supabaseAdmin.from("pedido_itens").insert(itensPrepared);
         }
