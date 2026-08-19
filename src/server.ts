@@ -6,6 +6,7 @@ import { runSyncJob } from "./lib/produtos.functions";
 import { reconciliarPedidos, fetchNfSituacaoBling, NF_SITUACOES_AUTORIZADAS } from "./lib/pedidos.functions";
 import { checarStatusEnvioML } from "./lib/ml.functions";
 import { getDecryptedAccessToken } from "./lib/bling.functions";
+import { processarFilaEmissaoNfML } from "./lib/nf-emissao.functions";
 import { supabaseAdmin } from "./integrations/supabase/client.server";
 
 type ServerEntry = {
@@ -81,6 +82,9 @@ const MAX_CANDIDATOS_ML_STATUS = 4;
 let lastNfStatusAt = 0;
 const NF_STATUS_INTERVAL_MS = 2 * 60 * 1000; // 2 min — mais curto que o ML (bloqueia bipagem)
 const MAX_CANDIDATOS_NF_STATUS = 4;
+
+let lastNfEmissaoAt = 0;
+const NF_EMISSAO_INTERVAL_MS = 60 * 1000;
 
 // Situacao_ids Bling que indicam pedido já baixado/faturado pelo Bling
 const BLING_SITUACAO_FINALIZADA = new Set([9, 15]); // 9=Atendido, 15=Faturado
@@ -358,6 +362,49 @@ export async function cronNfStatus() {
   }
 }
 
+export async function cronNfEmissao() {
+  const now = Date.now();
+
+  try {
+    if (now - lastNfEmissaoAt < NF_EMISSAO_INTERVAL_MS) return;
+
+    const db = supabaseAdmin as any;
+    const { data: state, error: stateError } = await db
+      .from("cron_state")
+      .select("last_run_at")
+      .eq("job_name", "nf_emissao_ml")
+      .maybeSingle();
+
+    if (stateError) {
+      console.error("[cron-nf-emissao] select cron_state falhou:", stateError.message);
+      return;
+    }
+
+    const lastRun = state?.last_run_at ? new Date(state.last_run_at as string).getTime() : 0;
+    if (now - lastRun < NF_EMISSAO_INTERVAL_MS) return;
+
+    const { error: upsertError } = await db
+      .from("cron_state")
+      .upsert(
+        { job_name: "nf_emissao_ml", last_run_at: new Date(now).toISOString() },
+        { onConflict: "job_name" },
+      );
+
+    if (upsertError) {
+      console.error("[cron-nf-emissao] upsert cron_state falhou:", upsertError.message);
+      return;
+    }
+
+    lastNfEmissaoAt = now;
+    await processarFilaEmissaoNfML();
+  } catch (error) {
+    console.error("[cron-nf-emissao] exceção não tratada", {
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+  }
+}
+
 export async function cronReconciliar() {
   const now = Date.now();
   console.log("[cron] iniciando verificação de gate", { now: new Date(now).toISOString() });
@@ -465,6 +512,9 @@ export default {
     );
     ctx.waitUntil(
       cronReconciliar().catch((e) => console.error("[cron-reconciliar] erro:", e)),
+    );
+    ctx.waitUntil(
+      cronNfEmissao().catch((e) => console.error("[cron-nf-emissao] erro:", e)),
     );
   },
 };
