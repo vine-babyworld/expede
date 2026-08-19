@@ -313,55 +313,79 @@ export type ShopeeEtiquetaResult =
   | { ok: true; conteudo: string }
   | { ok: false; error: string };
 
+// Checa se a Shopee já tem um documento de envio pronto pra este pedido —
+// a Shopee gera o AWB automaticamente assim que o canal (ex: Shopee Xpress
+// dropoff) atribui o ponto de coleta, ANTES de qualquer logistics_status de
+// "pronto". Confirmado ao vivo: get_shipping_document_result + download
+// funcionam pra pedidos ainda em LOGISTICS_REQUEST_CREATED, mesmo quando
+// create_shipping_document falha com tracking_number_invalid pro mesmo
+// pedido — chamar create_shipping_document de novo num documento que já
+// existe é o erro, não falta de prontidão logística. Erro #28 (parte 3).
+async function getShopeeDocumentStatus(
+  orderSn: string,
+  accessToken: string,
+  shopId: string | number,
+): Promise<"READY" | "FAILED" | null> {
+  const url = await buildShopeeUrl(
+    "/api/v2/logistics/get_shipping_document_result",
+    {},
+    accessToken,
+    shopId,
+  );
+  const res = await shopeeFetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ order_list: [{ order_sn: orderSn }] }),
+  });
+  const json: any = await res.json().catch(() => null);
+  return json?.response?.result_list?.[0]?.status ?? null;
+}
+
 async function pollShopeeShippingDocumentReady(
   orderSn: string,
   accessToken: string,
   shopId: string,
 ): Promise<boolean> {
-  const path = "/api/v2/logistics/get_shipping_document_result";
-
   for (let attempt = 0; attempt < 3; attempt++) {
-    const url = await buildShopeeUrl(path, {}, accessToken, shopId);
-    const res = await shopeeFetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ order_list: [{ order_sn: orderSn }] }),
-    });
-    const json: any = await res.json().catch(() => null);
-    const status = json?.response?.result_list?.[0]?.status;
-
+    const status = await getShopeeDocumentStatus(orderSn, accessToken, shopId);
     if (status === "READY") return true;
     if (status === "FAILED") return false;
-
     await new Promise((resolve) => setTimeout(resolve, 1500));
   }
-
   return false;
 }
 
-// Espelha o checarStatusEnvioML do Mercado Livre (ml.functions.ts): antes de
-// tentar gerar a etiqueta, confirma que a Shopee já processou a logística do
-// pacote. Documentação oficial (v2.logistics.get_shipping_parameter) exige
-// package_list[].logistics_status === LOGISTICS_READY (ou variantes de
-// retry) antes de create_shipping_document/ship_order funcionarem — chamar
-// antes disso falha com "tracking_number_invalid", sem indicar a causa real.
-// Erro #28 (continuação): a Shopee processa o pacote internamente de forma
-// assíncrona (ex: LOGISTICS_REQUEST_CREATED → LOGISTICS_READY); não há
-// nenhuma chamada de API que acelere essa transição.
-async function getShopeeLogisticsStatus(
+async function downloadShopeeDocument(
   orderSn: string,
   accessToken: string,
   shopId: string | number,
-): Promise<string | null> {
-  const url = await buildShopeeUrl(
-    "/api/v2/order/get_order_detail",
-    { order_sn_list: orderSn, response_optional_fields: "package_list" },
+): Promise<ShopeeEtiquetaResult> {
+  const downloadUrl = await buildShopeeUrl(
+    "/api/v2/logistics/download_shipping_document",
+    {},
     accessToken,
     shopId,
   );
-  const res = await shopeeFetch(url, { method: "GET" });
-  const json: any = await res.json().catch(() => null);
-  return json?.response?.order_list?.[0]?.package_list?.[0]?.logistics_status ?? null;
+  const downloadRes = await shopeeFetch(downloadUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      order_list: [{ order_sn: orderSn, shipping_document_type: "THERMAL_AIR_WAYBILL" }],
+    }),
+  });
+
+  if (!downloadRes.ok || (downloadRes.headers.get("content-type") ?? "").includes("application/json")) {
+    const errJson: any = await downloadRes.json().catch(() => null);
+    console.error("[shopee] download_shipping_document falhou:", downloadRes.status, JSON.stringify(errJson));
+    return { ok: false, error: errJson?.error ?? "shopee_download_document_failed" };
+  }
+
+  const buffer = await downloadRes.arrayBuffer();
+  if (buffer.byteLength === 0) {
+    return { ok: false, error: "shopee_empty_document" };
+  }
+
+  return { ok: true, conteudo: bytesToBase64(new Uint8Array(buffer)) };
 }
 
 export async function buscarEtiquetaShopee(orderSn: string): Promise<ShopeeEtiquetaResult> {
@@ -390,11 +414,20 @@ export async function buscarEtiquetaShopee(orderSn: string): Promise<ShopeeEtiqu
   }
 
   try {
-    const logisticsStatus = await getShopeeLogisticsStatus(orderSn, accessToken, shopId);
-    if (logisticsStatus !== "LOGISTICS_READY") {
-      return { ok: false, error: `shopee_logistics_not_ready: ${logisticsStatus ?? "desconhecido"}` };
+    // 1. A Shopee costuma já ter o documento pronto (gerado automaticamente
+    // assim que o canal — ex: Shopee Xpress dropoff — atribui o ponto de
+    // coleta), independente do pedido ainda estar "em processamento". Baixar
+    // direto cobre tanto reimpressão (documento já gerado antes, por nós ou
+    // pela própria Shopee) quanto o caso feliz comum.
+    const existingStatus = await getShopeeDocumentStatus(orderSn, accessToken, shopId);
+    if (existingStatus === "READY") {
+      return await downloadShopeeDocument(orderSn, accessToken, shopId);
     }
 
+    // 2. Documento ainda não existe (ou falhou antes) — tenta criar um novo.
+    // Chamar create_shipping_document quando o documento JÁ existe é o que
+    // gera "tracking_number_invalid" — por isso a checagem acima vem antes,
+    // não depois. Erro #28 (parte 3).
     const createUrl = await buildShopeeUrl(
       "/api/v2/logistics/create_shipping_document",
       {},
@@ -427,32 +460,7 @@ export async function buscarEtiquetaShopee(orderSn: string): Promise<ShopeeEtiqu
       return { ok: false, error: "shopee_document_not_ready" };
     }
 
-    const downloadUrl = await buildShopeeUrl(
-      "/api/v2/logistics/download_shipping_document",
-      {},
-      accessToken,
-      shopId,
-    );
-    const downloadRes = await shopeeFetch(downloadUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        order_list: [{ order_sn: orderSn, shipping_document_type: "THERMAL_AIR_WAYBILL" }],
-      }),
-    });
-
-    if (!downloadRes.ok || (downloadRes.headers.get("content-type") ?? "").includes("application/json")) {
-      const errJson: any = await downloadRes.json().catch(() => null);
-      console.error("[shopee] download_shipping_document falhou:", downloadRes.status, JSON.stringify(errJson));
-      return { ok: false, error: errJson?.error ?? "shopee_download_document_failed" };
-    }
-
-    const buffer = await downloadRes.arrayBuffer();
-    if (buffer.byteLength === 0) {
-      return { ok: false, error: "shopee_empty_document" };
-    }
-
-    return { ok: true, conteudo: bytesToBase64(new Uint8Array(buffer)) };
+    return await downloadShopeeDocument(orderSn, accessToken, shopId);
   } catch (err) {
     console.error("[shopee] buscarEtiquetaShopee erro:", err);
     return { ok: false, error: "shopee_label_error" };
