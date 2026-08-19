@@ -34,6 +34,18 @@ export type QzTrayHook = {
   visualizarEtiqueta: (zpl: string) => Promise<void>;
 };
 
+// Etiqueta/DANFE são sempre ~10x15cm (mesmo tamanho usado em danfe-render.ts).
+// Sem isso, qz-tray manda o PDF pro driver com rasterize=false e size=null —
+// a página nativa do PDF (ex: A4 de um PDF de etiqueta gerado por marketplace)
+// é impressa "como está" na mídia física de 10x15cm, saindo minúscula com uma
+// área em branco enorme em vez de preencher a etiqueta.
+const LABEL_PAGE_CONFIG = {
+  size: { width: 100, height: 150 },
+  units: "mm" as const,
+  scaleContent: true,
+  rasterize: true,
+};
+
 export function useQzTray(): QzTrayHook {
   const [isConectado, setIsConectado] = useState(false);
   const [conectando, setConectando] = useState(false);
@@ -99,14 +111,15 @@ export function useQzTray(): QzTrayHook {
     async (zpl: string, impressora: string): Promise<void> => {
       const qz = await getQz();
       if (!qz.websocket.isActive()) await conectar();
-      const config = qz.configs.create(impressora);
 
       if (impressora.toUpperCase().includes("PDF")) {
         const pdfBase64 = await zplParaPdf(zpl);
+        const config = qz.configs.create(impressora, LABEL_PAGE_CONFIG);
         await qz.print(config, [{ type: "pixel", format: "pdf", flavor: "base64", data: pdfBase64 }]);
         return;
       }
 
+      const config = qz.configs.create(impressora);
       await qz.print(config, [{ type: "raw", format: "plain", data: zpl }]);
     },
     [getQz, conectar],
@@ -116,7 +129,7 @@ export function useQzTray(): QzTrayHook {
     async (base64: string, impressora: string): Promise<void> => {
       const qz = await getQz();
       if (!qz.websocket.isActive()) await conectar();
-      const config = qz.configs.create(impressora);
+      const config = qz.configs.create(impressora, LABEL_PAGE_CONFIG);
       await qz.print(config, [
         { type: "pixel", format: "pdf", flavor: "base64", data: base64 },
       ]);
