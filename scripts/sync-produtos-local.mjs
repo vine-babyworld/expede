@@ -1,13 +1,19 @@
 // sync-produtos-local.mjs
 // Roda no PC do dono (IP residencial) para contornar o bloqueio do Bling a datacenters.
-// Uso: node scripts/sync-produtos-local.mjs
-// Requer Node 18+ (fetch nativo).
+// Uso: node --env-file=.env scripts/sync-produtos-local.mjs
+// Requer Node 20.6+ (fetch nativo + --env-file). ADMIN_KEY vem do .env do projeto
+// (era hardcoded aqui antes e ficou dessincronizado do secret do Worker).
 
 // ─── CONFIGURAÇÃO — edite aqui antes de rodar ──────────────────────────────
 const WORKER_BASE         = "https://babyworld.expede.workers.dev";
-const ADMIN_KEY           = "B@by1262";
-const BLING_CONNECTION_ID = "63e9ad29-e252-420c-9f0e-9d2b9f9f6a03";
+const ADMIN_KEY           = process.env.ADMIN_KEY;
+const BLING_CONNECTION_ID = "eafcb2e7-89ce-4360-919d-98db2ebe8897";
 // ───────────────────────────────────────────────────────────────────────────
+
+if (!ADMIN_KEY) {
+  console.error("ERRO: ADMIN_KEY não encontrado. Rode com: node --env-file=.env scripts/sync-produtos-local.mjs");
+  process.exit(1);
+}
 
 const BLING_PRODUTOS_URL  = "https://api.bling.com.br/Api/v3/produtos";
 const PAGE_LIMIT          = 100;    // máximo da API Bling por página

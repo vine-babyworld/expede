@@ -262,12 +262,29 @@ export async function cronNfStatus() {
 
     lastNfStatusAt = now;
 
-    const { data: conn } = await supabaseAdmin
-      .from("bling_connections")
-      .select("id")
-      .order("created_at", { ascending: true })
-      .limit(1)
-      .maybeSingle();
+    // Prefere uma conexão "connected" (ver reconciliarPedidos em pedidos.functions.ts
+    // para o histórico do bug: com múltiplas contas, a mais antiga por created_at nem
+    // sempre é a saudável). Sem nenhuma "connected", cai para a mais antiga mesmo assim.
+    let conn: { id: string } | null = null;
+    {
+      const { data } = await supabaseAdmin
+        .from("bling_connections")
+        .select("id")
+        .eq("status", "connected")
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      conn = data;
+    }
+    if (!conn) {
+      const { data } = await supabaseAdmin
+        .from("bling_connections")
+        .select("id")
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      conn = data;
+    }
 
     if (!conn) {
       console.log("[cron-nf-status] nenhuma conexão Bling cadastrada");
@@ -457,14 +474,7 @@ export async function cronReconciliar() {
   }
 }
 
-// Desativado em 18/06/2026: Bling bloqueia IP de datacenter no endpoint /Api/v3/produtos.
-// Sync de produtos passou a ser manual via scripts/sync-produtos-local.mjs.
-// Reativar removendo o early return abaixo se o bloqueio for resolvido.
 export async function cronSyncPoll() {
-  console.log("[cron-sync] desativado — sync de produtos agora é manual via scripts/sync-produtos-local.mjs");
-  return;
-
-  // eslint-disable-next-line no-unreachable
   const now = new Date().toISOString();
   const { data: jobs } = await supabaseAdmin
     .from("sync_jobs")

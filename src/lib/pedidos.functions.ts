@@ -542,19 +542,38 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
     importadosNovos: [],
   };
 
-  // Não filtra por status="connected" aqui de propósito: getDecryptedAccessToken já
-  // decide sozinho se precisa renovar (checa expiração + status). Se filtrássemos aqui,
-  // uma única falha de renovação (ex: erro transitório na API do Bling) marca a conexão
-  // como "expired" e ela nunca mais seria selecionada por esta query — travando a
-  // sincronização inteira até alguém reconectar manualmente, mesmo com refresh_token
-  // ainda válido. Sem o filtro, toda execução (a cada 1 min) tenta renovar de novo,
+  // Prefere uma conexão com status="connected" (mais antiga entre as conectadas).
+  // Com múltiplas contas Bling cadastradas (uma por usuário), a mais antiga por
+  // created_at nem sempre é a que está saudável — ex: 2026-08-21, a conexão mais
+  // antiga ficou "expired" (invalid_grant, token não renovável) enquanto uma
+  // conexão mais nova estava "connected" e funcionando; escolher sempre a mais
+  // antiga travava toda a sincronização.
+  // Se NENHUMA estiver "connected" (ex: única conexão existente, temporariamente
+  // expirada), cai no fallback abaixo sem filtrar por status — getDecryptedAccessToken
+  // decide sozinho se precisa renovar, e toda execução (a cada 1 min) tenta de novo,
   // autocurando o problema assim que o Bling voltar a responder.
-  const { data: conn, error: errConn } = await supabaseAdmin
-    .from("bling_connections")
-    .select("id")
-    .order("created_at", { ascending: true })
-    .limit(1)
-    .maybeSingle();
+  let conn: { id: string } | null = null;
+  {
+    const { data } = await supabaseAdmin
+      .from("bling_connections")
+      .select("id")
+      .eq("status", "connected")
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    conn = data;
+  }
+  let errConn: { message: string } | undefined;
+  if (!conn) {
+    const { data, error } = await supabaseAdmin
+      .from("bling_connections")
+      .select("id")
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    conn = data;
+    errConn = error ?? undefined;
+  }
 
   console.log("[reconciliar] conn result:", JSON.stringify({ conn, error: errConn?.message }));
 
