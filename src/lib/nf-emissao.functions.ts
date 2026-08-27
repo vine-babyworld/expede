@@ -8,6 +8,8 @@ const BLING_NFE_URL = "https://api.bling.com.br/Api/v3/nfe";
 const CONFIG_KEY = "nf_emissao_ml_ativa";
 const MAX_POR_CICLO = 2;
 const RETRY_INTERVAL_MS = 5 * 60 * 1000;
+const RETRY_BACKOFF_MAX_MS = 6 * 60 * 60 * 1000;
+const MAX_ATTEMPTS = 12;
 const LEASE_MS = 5 * 60 * 1000;
 const BLING_THROTTLE_MS = 450;
 
@@ -20,13 +22,21 @@ type CandidatoEmissao = {
   bling_nota_fiscal_id: number | null;
   nf_emissao_status: FilaStatus;
   nf_emissao_attempts: number;
+  nf_emissao_error: string | null;
+  nf_situacao: number | null;
   nf_emissao_last_attempt_at: string | null;
   nf_emissao_locked_at: string | null;
 };
 
 type BlingResult<T> =
   | { ok: true; data: T }
-  | { ok: false; retryable: boolean; error: string; status: number | null };
+  | {
+    ok: false;
+    retryable: boolean;
+    error: string;
+    status: number | null;
+    retryAfterMs?: number | null;
+  };
 
 export type EmissaoNfReport = {
   ativo: boolean;
@@ -46,28 +56,72 @@ function sanitizeMessage(value: unknown): string {
   return String(value ?? "erro desconhecido")
     .replace(/[\r\n\t]+/g, " ")
     .replace(/\s+/g, " ")
+    // CPF/CNPJ podem vir no texto de erro por campo do Bling; nunca persistir.
+    .replace(/\d{11,}/g, "[redigido]")
     .trim()
     .slice(0, 500);
+}
+
+/**
+ * Achata `error.fields[]` da API v3 do Bling em `element:code:msg`, incluindo
+ * o indice de itens de colecao. E ai que mora o motivo real da recusa.
+ */
+function achatarCamposBling(fields: unknown): string[] {
+  if (!Array.isArray(fields)) return [];
+  const pedaco = (partes: unknown[]) =>
+    partes
+      .filter((parte) => parte != null && String(parte).trim() !== "")
+      .join(":");
+
+  return fields.flatMap((field: any) => {
+    // Campo só com `element` é contêiner (ex.: "itens"): o motivo está nos
+    // filhos, então não vira ruído na mensagem.
+    const detalhe = field?.msg ?? field?.message;
+    const base = field?.code == null && detalhe == null
+      ? ""
+      : pedaco([field?.element, field?.code, detalhe]);
+    const colecao = Array.isArray(field?.collection)
+      ? field.collection.map((item: any) =>
+        pedaco([
+          item?.index != null ? `[${item.index}]` : null,
+          item?.element,
+          item?.code,
+          item?.msg ?? item?.message,
+        ]),
+      )
+      : [];
+    return [base, ...colecao].filter((parte: string) => parte !== "");
+  });
 }
 
 async function blingError(response: Response): Promise<BlingResult<never>> {
   let message = `HTTP ${response.status}`;
   try {
     const body: any = await response.json();
-    message = body?.error?.message
-      ?? body?.message
-      ?? body?.error?.description
-      ?? body?.description
-      ?? message;
+    // `error.message` e generico por contrato ("Nao foi possivel emitir a nota
+    // fiscal"). O motivo util vive em type/description/fields[] — compor tudo.
+    const partes = [
+      body?.error?.type,
+      body?.error?.message ?? body?.message,
+      body?.error?.description ?? body?.description,
+      ...achatarCamposBling(body?.error?.fields),
+    ].filter((parte) => parte != null && String(parte).trim() !== "");
+    if (partes.length > 0) message = partes.join(" | ");
   } catch {
-    // O status HTTP já é suficiente; não persiste corpo bruto potencialmente sensível.
+    // O status HTTP ja e suficiente; nao persiste corpo bruto potencialmente sensivel.
   }
+
+  const retryAfterSeg = Number(response.headers?.get?.("retry-after"));
+  const retryAfterMs = Number.isFinite(retryAfterSeg) && retryAfterSeg > 0
+    ? Math.min(retryAfterSeg * 1000, RETRY_BACKOFF_MAX_MS)
+    : null;
 
   return {
     ok: false,
     retryable: response.status === 429 || response.status >= 500,
     error: sanitizeMessage(message),
     status: response.status,
+    retryAfterMs,
   };
 }
 
@@ -133,18 +187,29 @@ async function enviarNfBling(
 }
 
 async function atualizarFalha(
-  pedidoId: string,
+  candidato: Pick<CandidatoEmissao, "id" | "nf_emissao_attempts">,
   result: Extract<BlingResult<never>, { ok: false }>,
 ): Promise<"retry" | "blocked"> {
   const status = result.retryable ? "retry" : "blocked";
-  await (supabaseAdmin as any)
-    .from("pedidos")
-    .update({
-      nf_emissao_status: status,
-      nf_emissao_locked_at: null,
-      nf_emissao_error: `${result.status ?? "NETWORK"}:${result.error}`,
-    })
-    .eq("id", pedidoId);
+  const patch: Record<string, unknown> = {
+    nf_emissao_status: status,
+    nf_emissao_locked_at: null,
+    nf_emissao_error: `${result.status ?? "NETWORK"}:${result.error}`,
+  };
+
+  // 429 é limite de taxa, não tentativa de emissão: devolve o contador que o
+  // claim consumiu, senão o rate limit sozinho esgota MAX_ATTEMPTS.
+  if (result.status === 429) {
+    patch.nf_emissao_attempts = Math.max(0, (candidato.nf_emissao_attempts ?? 1) - 1);
+  }
+
+  // Respeita Retry-After empurrando a âncora do backoff pra frente: o próximo
+  // ciclo mede disponibilidade a partir de nf_emissao_last_attempt_at.
+  if (result.retryAfterMs != null) {
+    patch.nf_emissao_last_attempt_at = new Date(Date.now() + result.retryAfterMs).toISOString();
+  }
+
+  await (supabaseAdmin as any).from("pedidos").update(patch).eq("id", candidato.id);
   return status;
 }
 
@@ -162,12 +227,18 @@ async function controladorAtivo(): Promise<boolean> {
   return data?.value === true;
 }
 
+/** Backoff exponencial com teto: 5min, 10, 20, 40... até 6h. */
+function backoffMs(attempts: number): number {
+  const expoente = Math.max(0, (attempts ?? 0) - 1);
+  return Math.min(RETRY_INTERVAL_MS * 2 ** expoente, RETRY_BACKOFF_MAX_MS);
+}
+
 function candidatoDisponivel(candidato: CandidatoEmissao, now: number): boolean {
   if (candidato.nf_emissao_status === "retry") {
     const last = candidato.nf_emissao_last_attempt_at
       ? new Date(candidato.nf_emissao_last_attempt_at).getTime()
       : 0;
-    return now - last >= RETRY_INTERVAL_MS;
+    return now - last >= backoffMs(candidato.nf_emissao_attempts);
   }
   if (candidato.nf_emissao_status === "processing") {
     const locked = candidato.nf_emissao_locked_at
@@ -191,7 +262,8 @@ async function claimCandidato(
       nf_emissao_attempts: (candidato.nf_emissao_attempts ?? 0) + 1,
       nf_emissao_last_attempt_at: nowIso,
       nf_emissao_locked_at: nowIso,
-      nf_emissao_error: null,
+      // Não zera nf_emissao_error: apagar aqui escondeu 179 erros 429 seguidos
+      // e fez o pedido parecer preso num loop de 400.
     })
     .eq("id", candidato.id)
     .eq("nf_emissao_status", candidato.nf_emissao_status);
@@ -202,7 +274,7 @@ async function claimCandidato(
 
   const { data, error } = await query
     .select(
-      "id, bling_connection_id, bling_pedido_id, bling_nota_fiscal_id, nf_emissao_status, nf_emissao_attempts, nf_emissao_last_attempt_at, nf_emissao_locked_at",
+      "id, bling_connection_id, bling_pedido_id, bling_nota_fiscal_id, nf_emissao_status, nf_emissao_attempts, nf_emissao_last_attempt_at, nf_emissao_locked_at, nf_emissao_error, nf_situacao",
     )
     .maybeSingle();
 
@@ -213,13 +285,45 @@ async function claimCandidato(
   return data as CandidatoEmissao | null;
 }
 
+/**
+ * Guarda P0: nunca chamar POST /nfe/{id}/enviar sobre nota já autorizada.
+ * Prefere a coluna nf_situacao (mantida de graça pelo cronNfStatus) e só
+ * consulta o Bling quando ela ainda não afirma autorização.
+ */
+async function consultarAutorizacao(
+  situacaoConhecida: number | null,
+  notaFiscalId: number,
+  token: string,
+): Promise<{ autorizada: boolean; situacao: number | null }> {
+  if (situacaoConhecida != null && NF_SITUACOES_AUTORIZADAS.has(situacaoConhecida)) {
+    return { autorizada: true, situacao: situacaoConhecida };
+  }
+  await sleep(BLING_THROTTLE_MS);
+  const { situacao } = await fetchNfSituacaoBling(notaFiscalId, token);
+  return {
+    autorizada: situacao != null && NF_SITUACOES_AUTORIZADAS.has(situacao),
+    situacao,
+  };
+}
+
+async function marcarEnviada(pedidoId: string, situacao: number | null): Promise<"sent"> {
+  const patch: Record<string, unknown> = {
+    nf_emissao_status: "sent",
+    nf_emissao_locked_at: null,
+    nf_emissao_error: null,
+  };
+  if (situacao != null) patch.nf_situacao = situacao;
+  await (supabaseAdmin as any).from("pedidos").update(patch).eq("id", pedidoId);
+  return "sent";
+}
+
 async function processarCandidato(
   candidato: CandidatoEmissao,
   token: string,
 ): Promise<"sent" | "manual" | "blocked" | "retry"> {
   const db = supabaseAdmin as any;
   const pedidoResult = await buscarPedidoBling(candidato.bling_pedido_id, token);
-  if (!pedidoResult.ok) return atualizarFalha(candidato.id, pedidoResult);
+  if (!pedidoResult.ok) return atualizarFalha(candidato, pedidoResult);
 
   const detalhe = pedidoResult.data;
   const classificacao = classificarEmissaoNf(detalhe, "mercadolivre");
@@ -254,16 +358,13 @@ async function processarCandidato(
   }
 
   let notaFiscalId = candidato.bling_nota_fiscal_id;
+  let recemCriada = false;
   const notaExistenteNoBling = Number(detalhe?.notaFiscal?.id ?? 0) || null;
 
-  if (!notaFiscalId && notaExistenteNoBling) {
-    // Se já está autorizada, apenas sincroniza. Se ainda é rascunho/pendente,
-    // o EXPEDE assume o envio do pedido normal. Flex já retornou acima.
-    await sleep(BLING_THROTTLE_MS);
-    const situacaoExistente = await fetchNfSituacaoBling(notaExistenteNoBling, token);
-    const jaAutorizada = situacaoExistente.situacao != null
-      && NF_SITUACOES_AUTORIZADAS.has(situacaoExistente.situacao);
-
+  if (classificacao === "existing" && notaExistenteNoBling) {
+    // A nota já existe no Bling. Sincroniza identificação e deixa a guarda de
+    // autorização abaixo decidir entre "já autorizada" e "rascunho a enviar".
+    // Antes, "existing" não tinha ramo próprio e caía direto na emissão.
     await db
       .from("pedidos")
       .update({
@@ -271,14 +372,10 @@ async function processarCandidato(
         bling_nota_fiscal_numero: detalhe?.notaFiscal?.numero != null
           ? String(detalhe.notaFiscal.numero)
           : null,
-        nf_emissao_status: jaAutorizada ? "sent" : "created",
-        nf_emissao_locked_at: jaAutorizada ? null : candidato.nf_emissao_locked_at,
-        nf_emissao_error: null,
+        nf_emissao_status: "created",
         raw_json: detalhe,
       })
       .eq("id", candidato.id);
-
-    if (jaAutorizada) return "sent";
     notaFiscalId = notaExistenteNoBling;
   }
 
@@ -305,10 +402,11 @@ async function processarCandidato(
           .eq("id", candidato.id);
         notaFiscalId = idRecheck;
       } else {
-        return atualizarFalha(candidato.id, gerarResult);
+        return atualizarFalha(candidato, gerarResult);
       }
     } else {
       notaFiscalId = gerarResult.data;
+      recemCriada = true;
       const { error } = await db
         .from("pedidos")
         .update({
@@ -334,19 +432,24 @@ async function processarCandidato(
     }
   }
 
+  // P0: nota recém-criada nesta execução é rascunho por construção; qualquer
+  // outra pode já estar autorizada — reenviar produz o 400 que travava a fila.
+  if (!recemCriada) {
+    const antes = await consultarAutorizacao(candidato.nf_situacao, notaFiscalId, token);
+    if (antes.autorizada) return marcarEnviada(candidato.id, antes.situacao);
+  }
+
   await sleep(BLING_THROTTLE_MS);
   const enviarResult = await enviarNfBling(notaFiscalId, token);
-  if (!enviarResult.ok) return atualizarFalha(candidato.id, enviarResult);
+  if (!enviarResult.ok) {
+    // O Bling pode ter processado a emissão e falhado só na resposta (429).
+    // Reconsulta antes de classificar: 5/6 é sucesso, não bloqueio.
+    const depois = await consultarAutorizacao(null, notaFiscalId, token);
+    if (depois.autorizada) return marcarEnviada(candidato.id, depois.situacao);
+    return atualizarFalha(candidato, enviarResult);
+  }
 
-  await db
-    .from("pedidos")
-    .update({
-      nf_emissao_status: "sent",
-      nf_emissao_locked_at: null,
-      nf_emissao_error: null,
-    })
-    .eq("id", candidato.id);
-  return "sent";
+  return marcarEnviada(candidato.id, null);
 }
 
 export async function processarFilaEmissaoNfML(): Promise<EmissaoNfReport> {
@@ -374,7 +477,7 @@ export async function processarFilaEmissaoNfML(): Promise<EmissaoNfReport> {
   const { data, error } = await db
     .from("pedidos")
     .select(
-      "id, bling_connection_id, bling_pedido_id, bling_nota_fiscal_id, nf_emissao_status, nf_emissao_attempts, nf_emissao_last_attempt_at, nf_emissao_locked_at",
+      "id, bling_connection_id, bling_pedido_id, bling_nota_fiscal_id, nf_emissao_status, nf_emissao_attempts, nf_emissao_last_attempt_at, nf_emissao_locked_at, nf_emissao_error, nf_situacao",
     )
     .eq("marketplace", "mercadolivre")
     .eq("nf_emissao_modo", "automatic")
@@ -390,7 +493,34 @@ export async function processarFilaEmissaoNfML(): Promise<EmissaoNfReport> {
     return report;
   }
 
-  const candidatos = ((data ?? []) as CandidatoEmissao[])
+  const todos = (data ?? []) as CandidatoEmissao[];
+
+  // Teto de tentativas: aposenta a linha antes de qualquer chamada ao Bling e
+  // deixa rastro operacional, em vez de repetir para sempre em silêncio.
+  // Roda fora do backoff e do MAX_POR_CICLO — é só escrita local.
+  const esgotados = todos.filter((c) => (c.nf_emissao_attempts ?? 0) >= MAX_ATTEMPTS);
+  for (const candidato of esgotados) {
+    const ultimoErro = candidato.nf_emissao_error
+      ? ` | último erro: ${candidato.nf_emissao_error}`
+      : "";
+    await db
+      .from("pedidos")
+      .update({
+        nf_emissao_status: "blocked",
+        nf_emissao_locked_at: null,
+        nf_emissao_error: sanitizeMessage(
+          `MAX_ATTEMPTS_EXCEEDED (${candidato.nf_emissao_attempts} tentativas)${ultimoErro}`,
+        ),
+      })
+      .eq("id", candidato.id);
+    report.bloqueados++;
+    console.warn(
+      `[nf-emissao] pedido ${candidato.id} atingiu MAX_ATTEMPTS (${candidato.nf_emissao_attempts}); bloqueado para revisão manual`,
+    );
+  }
+
+  const candidatos = todos
+    .filter((candidato) => (candidato.nf_emissao_attempts ?? 0) < MAX_ATTEMPTS)
     .filter((candidato) => candidatoDisponivel(candidato, now))
     .slice(0, MAX_POR_CICLO);
   report.candidatos = candidatos.length;
@@ -408,7 +538,7 @@ export async function processarFilaEmissaoNfML(): Promise<EmissaoNfReport> {
         token = await getDecryptedAccessToken(claimed.bling_connection_id);
         tokens.set(claimed.bling_connection_id, token);
       } catch (error) {
-        await atualizarFalha(claimed.id, {
+        await atualizarFalha(claimed, {
           ok: false,
           retryable: true,
           error: sanitizeMessage(error),
@@ -419,11 +549,24 @@ export async function processarFilaEmissaoNfML(): Promise<EmissaoNfReport> {
       }
     }
 
-    const result = await processarCandidato(claimed, token);
-    if (result === "sent") report.enviados++;
-    if (result === "manual") report.manuais++;
-    if (result === "blocked") report.bloqueados++;
-    if (result === "retry") report.retries++;
+    try {
+      const result = await processarCandidato(claimed, token);
+      if (result === "sent") report.enviados++;
+      if (result === "manual") report.manuais++;
+      if (result === "blocked") report.bloqueados++;
+      if (result === "retry") report.retries++;
+    } catch (error) {
+      // Sem isto, uma exceção deixa a linha presa em "processing" até o lease
+      // vencer — mesmo sintoma de fila travada, por outro caminho.
+      console.error(`[nf-emissao] exceção ao processar pedido ${claimed.id}:`, error);
+      await atualizarFalha(claimed, {
+        ok: false,
+        retryable: true,
+        error: sanitizeMessage(error),
+        status: null,
+      });
+      report.retries++;
+    }
   }
 
   console.log("[nf-emissao] ciclo concluído", report);
