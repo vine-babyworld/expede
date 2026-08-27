@@ -4,7 +4,7 @@
 const LABELARY_URL = "https://api.labelary.com/v1/printers/8dpmm/labels/4x6/0/";
 
 // Converte Uint8Array para base64 em chunks para evitar stack overflow em PDFs grandes.
-function uint8ToBase64(bytes: Uint8Array): string {
+export function uint8ToBase64(bytes: Uint8Array): string {
   const chunkSize = 0x8000;
   let binary = "";
   for (let i = 0; i < bytes.length; i += chunkSize) {
@@ -12,6 +12,13 @@ function uint8ToBase64(bytes: Uint8Array): string {
     for (let j = i; j < end; j++) binary += String.fromCharCode(bytes[j]);
   }
   return btoa(binary);
+}
+
+export function base64ToUint8(base64: string): Uint8Array {
+  const raw = atob(base64);
+  const bytes = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+  return bytes;
 }
 
 // Retorna base64 do PDF renderizado.
@@ -49,10 +56,8 @@ export async function zplParaPdf(zpl: string): Promise<string> {
 // Abre o ZPL renderizado como PDF numa nova aba do browser.
 export async function abrirEtiquetaPDF(zpl: string): Promise<void> {
   const base64 = await zplParaPdf(zpl);
-  const raw = atob(base64);
-  const bytes = new Uint8Array(raw.length);
-  for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
-  const blob = new Blob([bytes], { type: "application/pdf" });
+  const bytes = base64ToUint8(base64);
+  const blob = new Blob([bytes as BlobPart], { type: "application/pdf" });
   const url = URL.createObjectURL(blob);
   const win = window.open(url, "_blank");
   if (win) setTimeout(() => URL.revokeObjectURL(url), 60_000);

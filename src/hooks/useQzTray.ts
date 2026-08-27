@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
+import { PDFDocument } from "pdf-lib";
 import { signQzRequest } from "@/lib/qztray.functions";
-import { zplParaPdf, abrirEtiquetaPDF } from "@/lib/zpl-to-pdf";
+import { zplParaPdf, abrirEtiquetaPDF, uint8ToBase64, base64ToUint8 } from "@/lib/zpl-to-pdf";
 
 // Certificado público — pode ser hardcoded no frontend
 const QZ_CERTIFICATE = `-----BEGIN CERTIFICATE-----
@@ -45,6 +46,35 @@ const LABEL_PAGE_CONFIG = {
   scaleContent: true,
   rasterize: true,
 };
+
+// Etiquetas da Shopee (download_shipping_document, THERMAL_AIR_WAYBILL) chegam como
+// PDF em página A4 inteira (595x842pt) com a etiqueta térmica de verdade ocupando só
+// uma região de ~105x148mm dentro dela — sem recortar essa região antes de imprimir,
+// o scaleContent acima encolhe a página A4 inteira pra caber nos 100x150mm físicos da
+// etiqueta, saindo pequena e cortada (é isso, não o LABEL_PAGE_CONFIG, que causava a
+// etiqueta "cortada pela metade, em escala menor" reportada 2026-08). Região confirmada
+// em pedidos reais (2026-08-24): x:[0,297] y:[423,842]pt. Só recorta se a página bater
+// com A4 — PDFs já corretos (DANFE, ZPL convertido via Labelary) não são afetados.
+const SHOPEE_A4_LABEL_CROP = { x: 0, y: 423, width: 297, height: 419 };
+
+async function recortarSePaginaA4(base64: string): Promise<string> {
+  try {
+    const pdf = await PDFDocument.load(base64ToUint8(base64));
+    if (pdf.getPageCount() !== 1) return base64;
+    const page = pdf.getPage(0);
+    const { width, height } = page.getSize();
+    const ehA4 = width > 580 && width < 610 && height > 830 && height < 850;
+    if (!ehA4) return base64;
+
+    const { x, y, width: w, height: h } = SHOPEE_A4_LABEL_CROP;
+    page.setMediaBox(x, y, w, h);
+    page.setCropBox(x, y, w, h);
+    return uint8ToBase64(await pdf.save());
+  } catch (err) {
+    console.error("[qztray] falha ao recortar etiqueta A4, imprimindo página inteira:", err);
+    return base64;
+  }
+}
 
 export function useQzTray(): QzTrayHook {
   const [isConectado, setIsConectado] = useState(false);
@@ -129,9 +159,10 @@ export function useQzTray(): QzTrayHook {
     async (base64: string, impressora: string): Promise<void> => {
       const qz = await getQz();
       if (!qz.websocket.isActive()) await conectar();
+      const base64Recortado = await recortarSePaginaA4(base64);
       const config = qz.configs.create(impressora, LABEL_PAGE_CONFIG);
       await qz.print(config, [
-        { type: "pixel", format: "pdf", flavor: "base64", data: base64 },
+        { type: "pixel", format: "pdf", flavor: "base64", data: base64Recortado },
       ]);
     },
     [getQz, conectar],
