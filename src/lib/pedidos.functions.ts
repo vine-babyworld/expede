@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { getDecryptedAccessToken } from "@/lib/bling.functions";
+import { lerFlagConfig, NF_CONFIG_FLEX } from "@/lib/nf-config.server";
 import {
   classificarEmissaoNf,
   isPedidoFlex,
@@ -190,7 +191,8 @@ export async function sincronizarPoliticaInicialEmissaoNf(
   marketplace: MarketplacePedido,
 ): Promise<void> {
   const db = supabaseAdmin as any;
-  const classificacao = classificarEmissaoNf(detalhe, marketplace);
+  const emitirFlex = await lerFlagConfig(NF_CONFIG_FLEX);
+  const classificacao = classificarEmissaoNf(detalhe, marketplace, { emitirFlex });
 
   if (classificacao === "out_of_scope") return;
 
@@ -200,12 +202,16 @@ export async function sincronizarPoliticaInicialEmissaoNf(
     await db
       .from("pedidos")
       .update({
+        nf_emissao_modo: "automatic",
         nf_emissao_status: "sent",
         nf_emissao_locked_at: null,
         nf_emissao_error: null,
       })
       .eq("id", pedidoDbId)
-      .eq("nf_emissao_modo", "automatic");
+      // Linha recem-ingerida tem modo NULL: o .eq("automatic") anterior nao casava
+      // nada e o pedido ficava invisivel pro controlador e pro relatorio diario.
+      // O OR mantem a intencao original de nunca sobrescrever um Flex ("manual").
+      .or("nf_emissao_modo.is.null,nf_emissao_modo.eq.automatic");
     return;
   }
 
