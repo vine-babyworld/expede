@@ -37,15 +37,29 @@ export function marketplacePelaLojaBling(detalhe: any): MarketplacePedido | null
   return null;
 }
 
+export type OpcoesEmissaoNf = {
+  /**
+   * `app_config.nf_emissao_flex_ativa`. Desligado (padrão), Flex fica como
+   * emissão manual do operador no Bling; ligado, Flex segue a mesma trilha do
+   * ML normal e o EXPEDE emite.
+   */
+  emitirFlex?: boolean;
+};
+
 export function classificarEmissaoNf(
   detalhe: any,
   marketplace: MarketplacePedido | null,
+  opcoes: OpcoesEmissaoNf = {},
 ): ClassificacaoEmissaoNf {
   if (marketplace !== "mercadolivre") return "out_of_scope";
 
-  // Flex prevalece até quando uma NF já existe: o EXPEDE pode sincronizar o ID,
-  // mas nunca deve enviar uma nota Flex criada manualmente pelo operador.
-  if (isPedidoFlex({ marketplace, raw_json: detalhe })) return "manual";
+  // Com o Flex desligado, "manual" prevalece até quando uma NF já existe: o
+  // EXPEDE pode sincronizar o ID, mas nunca deve enviar uma nota Flex criada
+  // manualmente pelo operador. Ligado, cai nas mesmas regras do ML normal —
+  // inclusive "existing", que sincroniza sem reemitir.
+  if (!opcoes.emitirFlex && isPedidoFlex({ marketplace, raw_json: detalhe })) {
+    return "manual";
+  }
   if (detalhe?.notaFiscal?.id) return "existing";
   if (Number(detalhe?.situacao?.id) === 12) return "cancelled";
 

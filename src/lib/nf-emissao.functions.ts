@@ -1,11 +1,15 @@
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { getDecryptedAccessToken } from "@/lib/bling.functions";
+import {
+  lerFlagConfig,
+  NF_CONFIG_CONTROLADOR_ML,
+  NF_CONFIG_FLEX,
+} from "@/lib/nf-config.server";
 import { classificarEmissaoNf } from "@/lib/nf-emissao.policy";
 import { fetchNfSituacaoBling, NF_SITUACOES_AUTORIZADAS } from "@/lib/pedidos.functions";
 
 const BLING_PEDIDOS_URL = "https://api.bling.com.br/Api/v3/pedidos/vendas";
 const BLING_NFE_URL = "https://api.bling.com.br/Api/v3/nfe";
-const CONFIG_KEY = "nf_emissao_ml_ativa";
 const MAX_POR_CICLO = 2;
 const RETRY_INTERVAL_MS = 5 * 60 * 1000;
 const RETRY_BACKOFF_MAX_MS = 6 * 60 * 60 * 1000;
@@ -213,20 +217,6 @@ async function atualizarFalha(
   return status;
 }
 
-async function controladorAtivo(): Promise<boolean> {
-  const { data, error } = await supabaseAdmin
-    .from("app_config")
-    .select("value")
-    .eq("key", CONFIG_KEY)
-    .maybeSingle();
-
-  if (error) {
-    console.error("[nf-emissao] falha ao ler chave de ativação:", error.message);
-    return false;
-  }
-  return data?.value === true;
-}
-
 /** Backoff exponencial com teto: 5min, 10, 20, 40... até 6h. */
 function backoffMs(attempts: number): number {
   const expoente = Math.max(0, (attempts ?? 0) - 1);
@@ -320,13 +310,14 @@ async function marcarEnviada(pedidoId: string, situacao: number | null): Promise
 async function processarCandidato(
   candidato: CandidatoEmissao,
   token: string,
+  emitirFlex: boolean,
 ): Promise<"sent" | "manual" | "blocked" | "retry"> {
   const db = supabaseAdmin as any;
   const pedidoResult = await buscarPedidoBling(candidato.bling_pedido_id, token);
   if (!pedidoResult.ok) return atualizarFalha(candidato, pedidoResult);
 
   const detalhe = pedidoResult.data;
-  const classificacao = classificarEmissaoNf(detalhe, "mercadolivre");
+  const classificacao = classificarEmissaoNf(detalhe, "mercadolivre", { emitirFlex });
 
   if (classificacao === "manual") {
     await db
@@ -463,11 +454,15 @@ export async function processarFilaEmissaoNfML(): Promise<EmissaoNfReport> {
     retries: 0,
   };
 
-  if (!(await controladorAtivo())) {
+  if (!(await lerFlagConfig(NF_CONFIG_CONTROLADOR_ML))) {
     console.log("[nf-emissao] controlador desarmado");
     return report;
   }
   report.ativo = true;
+
+  // Lido uma vez por ciclo: desligar no meio de um ciclo só vale no próximo,
+  // e o candidato Flex já em voo termina com a política com que entrou.
+  const emitirFlex = await lerFlagConfig(NF_CONFIG_FLEX);
 
   const now = Date.now();
   const nowIso = new Date(now).toISOString();
@@ -550,7 +545,7 @@ export async function processarFilaEmissaoNfML(): Promise<EmissaoNfReport> {
     }
 
     try {
-      const result = await processarCandidato(claimed, token);
+      const result = await processarCandidato(claimed, token, emitirFlex);
       if (result === "sent") report.enviados++;
       if (result === "manual") report.manuais++;
       if (result === "blocked") report.bloqueados++;

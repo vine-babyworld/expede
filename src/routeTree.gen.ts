@@ -34,6 +34,7 @@ import { Route as ApiDebugBlingCheckRouteImport } from './routes/api/debug/bling
 import { Route as ApiAdminReconciliarRouteImport } from './routes/api/admin/reconciliar'
 import { Route as ApiAdminImportarProdutosLoteRouteImport } from './routes/api/admin/importar-produtos-lote'
 import { Route as ApiAdminImportarPedidoRouteImport } from './routes/api/admin/importar-pedido'
+import { Route as AppConfiguracoesNotasFiscaisRouteImport } from './routes/_app/configuracoes.notas-fiscais'
 import { Route as AppConfiguracoesMarketplacesRouteImport } from './routes/_app/configuracoes.marketplaces'
 import { Route as AppConfiguracoesBlingRouteImport } from './routes/_app/configuracoes.bling'
 import { Route as ApiPublicHooksBlingSyncProductsRunRouteImport } from './routes/api/public/hooks/bling-sync-products-run'
@@ -167,6 +168,12 @@ const ApiAdminImportarPedidoRoute = ApiAdminImportarPedidoRouteImport.update({
   path: '/api/admin/importar-pedido',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppConfiguracoesNotasFiscaisRoute =
+  AppConfiguracoesNotasFiscaisRouteImport.update({
+    id: '/notas-fiscais',
+    path: '/notas-fiscais',
+    getParentRoute: () => AppConfiguracoesRoute,
+  } as any)
 const AppConfiguracoesMarketplacesRoute =
   AppConfiguracoesMarketplacesRouteImport.update({
     id: '/marketplaces',
@@ -216,6 +223,7 @@ export interface FileRoutesByFullPath {
   '/produtos': typeof AppProdutosRoute
   '/configuracoes/bling': typeof AppConfiguracoesBlingRoute
   '/configuracoes/marketplaces': typeof AppConfiguracoesMarketplacesRoute
+  '/configuracoes/notas-fiscais': typeof AppConfiguracoesNotasFiscaisRoute
   '/api/admin/importar-pedido': typeof ApiAdminImportarPedidoRoute
   '/api/admin/importar-produtos-lote': typeof ApiAdminImportarProdutosLoteRoute
   '/api/admin/reconciliar': typeof ApiAdminReconciliarRoute
@@ -247,6 +255,7 @@ export interface FileRoutesByTo {
   '/produtos': typeof AppProdutosRoute
   '/configuracoes/bling': typeof AppConfiguracoesBlingRoute
   '/configuracoes/marketplaces': typeof AppConfiguracoesMarketplacesRoute
+  '/configuracoes/notas-fiscais': typeof AppConfiguracoesNotasFiscaisRoute
   '/api/admin/importar-pedido': typeof ApiAdminImportarPedidoRoute
   '/api/admin/importar-produtos-lote': typeof ApiAdminImportarProdutosLoteRoute
   '/api/admin/reconciliar': typeof ApiAdminReconciliarRoute
@@ -281,6 +290,7 @@ export interface FileRoutesById {
   '/_app/produtos': typeof AppProdutosRoute
   '/_app/configuracoes/bling': typeof AppConfiguracoesBlingRoute
   '/_app/configuracoes/marketplaces': typeof AppConfiguracoesMarketplacesRoute
+  '/_app/configuracoes/notas-fiscais': typeof AppConfiguracoesNotasFiscaisRoute
   '/api/admin/importar-pedido': typeof ApiAdminImportarPedidoRoute
   '/api/admin/importar-produtos-lote': typeof ApiAdminImportarProdutosLoteRoute
   '/api/admin/reconciliar': typeof ApiAdminReconciliarRoute
@@ -315,6 +325,7 @@ export interface FileRouteTypes {
     | '/produtos'
     | '/configuracoes/bling'
     | '/configuracoes/marketplaces'
+    | '/configuracoes/notas-fiscais'
     | '/api/admin/importar-pedido'
     | '/api/admin/importar-produtos-lote'
     | '/api/admin/reconciliar'
@@ -346,6 +357,7 @@ export interface FileRouteTypes {
     | '/produtos'
     | '/configuracoes/bling'
     | '/configuracoes/marketplaces'
+    | '/configuracoes/notas-fiscais'
     | '/api/admin/importar-pedido'
     | '/api/admin/importar-produtos-lote'
     | '/api/admin/reconciliar'
@@ -379,6 +391,7 @@ export interface FileRouteTypes {
     | '/_app/produtos'
     | '/_app/configuracoes/bling'
     | '/_app/configuracoes/marketplaces'
+    | '/_app/configuracoes/notas-fiscais'
     | '/api/admin/importar-pedido'
     | '/api/admin/importar-produtos-lote'
     | '/api/admin/reconciliar'
@@ -599,6 +612,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAdminImportarPedidoRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_app/configuracoes/notas-fiscais': {
+      id: '/_app/configuracoes/notas-fiscais'
+      path: '/notas-fiscais'
+      fullPath: '/configuracoes/notas-fiscais'
+      preLoaderRoute: typeof AppConfiguracoesNotasFiscaisRouteImport
+      parentRoute: typeof AppConfiguracoesRoute
+    }
     '/_app/configuracoes/marketplaces': {
       id: '/_app/configuracoes/marketplaces'
       path: '/marketplaces'
@@ -647,12 +667,14 @@ declare module '@tanstack/react-router' {
 interface AppConfiguracoesRouteChildren {
   AppConfiguracoesBlingRoute: typeof AppConfiguracoesBlingRoute
   AppConfiguracoesMarketplacesRoute: typeof AppConfiguracoesMarketplacesRoute
+  AppConfiguracoesNotasFiscaisRoute: typeof AppConfiguracoesNotasFiscaisRoute
   AppConfiguracoesIndexRoute: typeof AppConfiguracoesIndexRoute
 }
 
 const AppConfiguracoesRouteChildren: AppConfiguracoesRouteChildren = {
   AppConfiguracoesBlingRoute: AppConfiguracoesBlingRoute,
   AppConfiguracoesMarketplacesRoute: AppConfiguracoesMarketplacesRoute,
+  AppConfiguracoesNotasFiscaisRoute: AppConfiguracoesNotasFiscaisRoute,
   AppConfiguracoesIndexRoute: AppConfiguracoesIndexRoute,
 }
 
