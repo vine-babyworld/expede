@@ -10,6 +10,15 @@ import {
   SHOPEE_BLING_LOJA_ID as SHOPEE_LOJA_ID,
   type MarketplacePedido,
 } from "@/lib/nf-emissao.policy";
+import { validarCandidatoAtendidoMl } from "@/lib/atendidos-ml";
+import {
+  agregarCandidatosReconciliacao,
+  construirUrlsConsultasMl,
+  janelaCivilBrt,
+  planejarInspecoesReconciliacao,
+  registrarErroConsulta,
+  type CandidatoReconciliacao,
+} from "@/lib/reconciliar-atendidos";
 
 export { isPedidoFlex } from "@/lib/nf-emissao.policy";
 
@@ -272,7 +281,11 @@ async function processarPedidoBling(
   blingPedidoId: number | string,
   connId: string,
   token: string,
-  opts: { permitirSemNf?: boolean; marketplace?: "mercadolivre" | "shopee" } = {},
+  opts: {
+    permitirSemNf?: boolean;
+    marketplace?: "mercadolivre" | "shopee";
+    atendidoMl?: { lojaId: string; dataInicio: string; dataFim: string };
+  } = {},
 ): Promise<{
   ok: boolean;
   skipped?: string;
@@ -295,6 +308,22 @@ async function processarPedidoBling(
   const json: any = await res.json();
   const d = json?.data;
   if (!d) return { ok: false, error: "empty_response", detalhe: "resposta vazia da API Bling" };
+
+  if (opts.atendidoMl) {
+    const validacao = validarCandidatoAtendidoMl(
+      d,
+      opts.atendidoMl.lojaId,
+      opts.atendidoMl.dataInicio,
+      opts.atendidoMl.dataFim,
+    );
+    if (!validacao.valido) {
+      return {
+        ok: true,
+        skipped: "invalid_atendido_ml",
+        detalhe: `candidato Atendido ML inválido — ${validacao.motivo}`,
+      };
+    }
+  }
 
   if (!d.notaFiscal?.id) {
     if (!opts.permitirSemNf) return { ok: true, skipped: "no_invoice", detalhe: "sem nota fiscal" };
@@ -604,35 +633,37 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
   // processamento abaixo reordena por data mais antiga — com MAX_CANDIDATOS_POR_EXECUCAO
   // limitando quantos rodam por execução, isso garante que a fila sempre avance
   // (pedidos antigos pendentes não ficam perpetuamente atrás de chegadas novas).
-  const dataInicio = new Date(Date.now() - 10 * 86_400_000).toISOString().substring(0, 10);
+  const { inicio: dataInicio, fim: dataFim } = janelaCivilBrt(new Date(), 10);
   // Shopee usa janela menor (7 dias) para nunca reimportar pedidos antigos que já foram
   // processados fora do EXPEDE e chegaram duplicados via sync sem filtro de data.
   const dataInicioShopee = new Date(Date.now() - 7 * 86_400_000).toISOString().substring(0, 10);
 
-  // Query 1: faturados (idSituacao=9) — últimos 10 dias, loja ML FLEX
-  // Query 2: loja ML FLEX (idLoja=203482894) — últimos 10 dias, inclui pedidos sem NF
-  // Query 3: atendidos (idSituacao=15) — últimos 10 dias, qualquer marketplace
+  // Query 1: faturados (idSituacao=9) — últimos 10 dias, loja ML
+  // Query 2: loja ML (idLoja=203482894) — últimos 10 dias, inclui pedidos sem NF
+  // Query 4: atendidos ML (idSituacao=15 + idLoja=203482894) — últimos 10 dias,
+  // validada de novo no detalhe porque a API pode ignorar filtros de lista.
   // Query 5: faturados (idSituacao=9) — últimos 7 dias, loja Shopee (sempre exige NF, sem variante "sem NF")
   const urlQ5 = `${BLING_PEDIDOS_URL}?idSituacao=9&idLoja=${SHOPEE_LOJA_ID}&limite=50&pagina=1&dataInicio=${dataInicioShopee}`;
+  const urlsMl = construirUrlsConsultasMl(BLING_PEDIDOS_URL, String(ML_LOJA_ID), dataInicio, dataFim);
   console.log(`[reconciliar] Q5 url=${urlQ5}`);
 
-  const [resFaturados, resLoja, resFaturadosShopee] = await Promise.allSettled([
-    fetch(`${BLING_PEDIDOS_URL}?idSituacao=9&idLoja=${ML_LOJA_ID}&limite=50&pagina=1&dataInicio=${dataInicio}`, { headers }),
-    fetch(`${BLING_PEDIDOS_URL}?idLoja=${ML_LOJA_ID}&limite=50&pagina=1&dataInicio=${dataInicio}`, { headers }),
+  const [resFaturados, resLoja, resAtendidosML, resFaturadosShopee] = await Promise.allSettled([
+    fetch(urlsMl.q1, { headers }),
+    fetch(urlsMl.q2, { headers }),
+    fetch(urlsMl.q4, { headers }),
     fetch(urlQ5, { headers }),
   ]);
   const resAtendidos: PromiseSettledResult<Response> = { status: "rejected", reason: "desativado" } as PromiseSettledResult<Response>;
-  const resAtendidosML: PromiseSettledResult<Response> = { status: "rejected", reason: "desativado" } as PromiseSettledResult<Response>;
 
   // Agrega candidatos das cinco listas; loja ML (Q2) sempre promove para permitirSemNf=true
-  const candidatos = new Map<number, { id: number; permitirSemNf: boolean; origem: "q1" | "q2" | "q3" | "q4" | "q5"; dataPedido: string | null }>();
+  const candidatosBrutos: CandidatoReconciliacao[] = [];
 
   if (resFaturados.status === "fulfilled" && resFaturados.value.ok) {
     const json: any = await resFaturados.value.json().catch(() => null);
     const lista = json?.data ?? [];
     report.query1.encontrados = lista.length;
     for (const p of lista) {
-      if (!candidatos.has(p.id)) candidatos.set(p.id, { id: p.id, permitirSemNf: false, origem: "q1", dataPedido: p.data ?? null });
+      candidatosBrutos.push({ id: p.id, permitirSemNf: false, origem: "q1", dataPedido: p.data ?? null });
     }
   } else {
     const motivo = resFaturados.status === "rejected" ? resFaturados.reason : (resFaturados.value as any)?.status;
@@ -645,7 +676,7 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
     const lista = json?.data ?? [];
     report.query3.encontrados = lista.length;
     for (const p of lista) {
-      if (!candidatos.has(p.id)) candidatos.set(p.id, { id: p.id, permitirSemNf: false, origem: "q3", dataPedido: p.data ?? null });
+      candidatosBrutos.push({ id: p.id, permitirSemNf: false, origem: "q3", dataPedido: p.data ?? null });
     }
   } else {
     const motivo = resAtendidos.status === "rejected" ? resAtendidos.reason : (resAtendidos.value as any)?.status;
@@ -658,12 +689,12 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
     const lista = json?.data ?? [];
     report.query4.encontrados = lista.length;
     for (const p of lista) {
-      if (!candidatos.has(p.id)) candidatos.set(p.id, { id: p.id, permitirSemNf: false, origem: "q4", dataPedido: p.data ?? null });
+      candidatosBrutos.push({ id: p.id, permitirSemNf: true, origem: "q4", dataPedido: p.data ?? null });
     }
   } else {
     const motivo = resAtendidosML.status === "rejected" ? resAtendidosML.reason : (resAtendidosML.value as any)?.status;
     console.error("[reconciliar] GET atendidos ML falhou:", motivo);
-    report.detalhes.push(`Q4 erro ao buscar lista: ${String(motivo)}`);
+    registrarErroConsulta(report.query4, report.detalhes, "Q4", motivo);
   }
 
   if (resLoja.status === "fulfilled" && resLoja.value.ok) {
@@ -671,8 +702,7 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
     const lista = json?.data ?? [];
     report.query2.encontrados = lista.length;
     for (const p of lista) {
-      // Se já estava como permitirSemNf=false (Q1), promove para true e re-atribui à Q2 (loja pode ser FLEX)
-      candidatos.set(p.id, { id: p.id, permitirSemNf: true, origem: "q2", dataPedido: p.data ?? null });
+      candidatosBrutos.push({ id: p.id, permitirSemNf: true, origem: "q2", dataPedido: p.data ?? null });
     }
   } else {
     const motivo = resLoja.status === "rejected" ? resLoja.reason : (resLoja.value as any)?.status;
@@ -694,7 +724,7 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
         console.warn(`[reconciliar] Q5 pedido ${p.id} data=${p.data} anterior à janela ${dataInicioShopee} — ignorado`);
         continue;
       }
-      if (!candidatos.has(p.id)) candidatos.set(p.id, { id: p.id, permitirSemNf: false, origem: "q5", dataPedido: p.data ?? null });
+      candidatosBrutos.push({ id: p.id, permitirSemNf: false, origem: "q5", dataPedido: p.data ?? null });
     }
     if (q5Pulados > 0) report.detalhes.push(`Q5 pulados por data anterior à janela: ${q5Pulados}`);
   } else {
@@ -703,13 +733,14 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
     report.detalhes.push(`Q5 erro ao buscar lista: ${String(motivo)}`);
   }
 
-  report.totalCandidatos = candidatos.size;
+  const candidatos = agregarCandidatosReconciliacao(candidatosBrutos);
+  report.totalCandidatos = candidatos.length;
 
-  if (candidatos.size === 0) {
+  if (candidatos.length === 0) {
     console.log("[reconciliar] nenhum candidato");
     report.detalhes.push("nenhum candidato encontrado");
   } else {
-    const allIds = [...candidatos.keys()];
+    const allIds = candidatos.map((c) => c.id);
     const { data: existentes } = await supabaseAdmin
       .from("pedidos")
       .select("bling_pedido_id, bling_nota_fiscal_id, bling_nota_fiscal_numero, arquivado, updated_at")
@@ -734,7 +765,7 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
       (existentes ?? []).map((e: any) => [e.bling_pedido_id, e.updated_at ?? null])
     );
 
-    console.log(`[reconciliar] ${candidatos.size} candidato(s), ${existentesComNfSet.size} já existem com NF no banco`);
+    console.log(`[reconciliar] ${candidatos.length} candidato(s), ${existentesComNfSet.size} já existem com NF no banco`);
 
     // "Nunca tentados" (candidatos que ainda não existem no banco sem NF) priorizam os mais
     // antigos primeiro (dataPedido ASC) — primeira checagem deve favorecer quem chegou antes.
@@ -757,29 +788,41 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
       if (!ub) return 1;
       return ua.localeCompare(ub);
     };
-    const nuncaTentados = [...candidatos.values()].filter((c) => !existentesSemNfSet.has(c.id)).sort(porData);
-    const tentadosSemNf = [...candidatos.values()].filter((c) => existentesSemNfSet.has(c.id)).sort(porUpdatedAt);
+    const nuncaTentados = candidatos.filter((c) => !existentesSemNfSet.has(c.id)).sort(porData);
+    const tentadosSemNf = candidatos.filter((c) => existentesSemNfSet.has(c.id)).sort(porUpdatedAt);
     const candidatosOrdenados = [...nuncaTentados, ...tentadosSemNf];
 
-    let processadosNestaExecucao = 0;
     for (const cand of candidatosOrdenados) {
+      const label = cand.origem === "q1" ? "Q1" : cand.origem === "q3" ? "Q3" : cand.origem === "q4" ? "Q4" : cand.origem === "q5" ? "Q5" : "Q2";
+      const bucket = cand.origem === "q1" ? report.query1 : cand.origem === "q3" ? report.query3 : cand.origem === "q4" ? report.query4 : cand.origem === "q5" ? report.query5 : report.query2;
+      if (existentesComNfSet.has(cand.id)) {
+        bucket.pulados++;
+        report.detalhes.push(`${label} skip: ${cand.id} — já existe com NF`);
+      }
+    }
+
+    const candidatosParaInspecionar = planejarInspecoesReconciliacao(
+      candidatosOrdenados.filter((cand) => !existentesComNfSet.has(cand.id)),
+      MAX_CANDIDATOS_POR_EXECUCAO,
+      Math.floor(Date.now() / 60_000),
+      Math.floor(Date.now() / 60_000),
+    );
+    if (candidatosParaInspecionar.length < candidatosOrdenados.filter((cand) => !existentesComNfSet.has(cand.id)).length) {
+      report.detalhes.push(`limite de ${MAX_CANDIDATOS_POR_EXECUCAO} inspeções atingido nesta execução — candidatos pendentes giram na próxima sincronização (1 min)`);
+    }
+
+    for (const cand of candidatosParaInspecionar) {
       const label = cand.origem === "q1" ? "Q1" : cand.origem === "q3" ? "Q3" : cand.origem === "q4" ? "Q4" : cand.origem === "q5" ? "Q5" : "Q2";
       const bucket = cand.origem === "q1" ? report.query1 : cand.origem === "q3" ? report.query3 : cand.origem === "q4" ? report.query4 : cand.origem === "q5" ? report.query5 : report.query2;
       const marketplace: "mercadolivre" | "shopee" = cand.origem === "q5" ? "shopee" : "mercadolivre";
 
-      if (existentesComNfSet.has(cand.id)) {
-        bucket.pulados++;
-        report.detalhes.push(`${label} skip: ${cand.id} — já existe com NF`);
-        continue;
-      }
-
-      if (processadosNestaExecucao >= MAX_CANDIDATOS_POR_EXECUCAO) {
-        report.detalhes.push(`limite de ${MAX_CANDIDATOS_POR_EXECUCAO} candidatos processados atingido nesta execução — restante será processado na próxima sincronização (1 min), priorizando os mais antigos`);
-        break;
-      }
-
-      processadosNestaExecucao++;
-      const result = await processarPedidoBling(cand.id, conn.id, token, { permitirSemNf: cand.permitirSemNf, marketplace });
+      const result = await processarPedidoBling(cand.id, conn.id, token, {
+        permitirSemNf: cand.permitirSemNf,
+        marketplace,
+        atendidoMl: cand.origem === "q4"
+          ? { lojaId: String(ML_LOJA_ID), dataInicio, dataFim }
+          : undefined,
+      });
       console.log(`[reconciliar] pedido ${cand.id} (permitirSemNf=${cand.permitirSemNf}):`, JSON.stringify(result));
 
       if (!result.ok) {

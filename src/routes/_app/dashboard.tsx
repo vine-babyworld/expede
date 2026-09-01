@@ -483,7 +483,7 @@ function DashboardPage() {
                       <QueryReportSection title="Query 3 — Atendidos (situação=15)" report={syncReport.query3} disabled />
                     )}
                     {syncReport.query4 && (
-                      <QueryReportSection title="Query 4 — Atendidos ML (situação=15+loja)" report={syncReport.query4} disabled />
+                      <QueryReportSection title="Query 4 — Atendidos ML (situação=15+loja)" report={syncReport.query4} />
                     )}
                   </div>
                   {syncReport.situacoes && (
