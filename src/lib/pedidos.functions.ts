@@ -14,6 +14,7 @@ import { validarCandidatoAtendidoMl } from "@/lib/atendidos-ml";
 import {
   agregarCandidatosReconciliacao,
   construirUrlsConsultasMl,
+  executarConsultasEmLotes,
   janelaCivilBrt,
   planejarInspecoesReconciliacao,
   registrarErroConsulta,
@@ -647,12 +648,12 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
   const urlsMl = construirUrlsConsultasMl(BLING_PEDIDOS_URL, String(ML_LOJA_ID), dataInicio, dataFim);
   console.log(`[reconciliar] Q5 url=${urlQ5}`);
 
-  const [resFaturados, resLoja, resAtendidosML, resFaturadosShopee] = await Promise.allSettled([
-    fetch(urlsMl.q1, { headers }),
-    fetch(urlsMl.q2, { headers }),
-    fetch(urlsMl.q4, { headers }),
-    fetch(urlQ5, { headers }),
-  ]);
+  const [resFaturados, resLoja, resAtendidosML, resFaturadosShopee] = await executarConsultasEmLotes([
+    () => fetch(urlsMl.q1, { headers }),
+    () => fetch(urlsMl.q2, { headers }),
+    () => fetch(urlsMl.q4, { headers }),
+    () => fetch(urlQ5, { headers }),
+  ], 3, 1_100);
   const resAtendidos: PromiseSettledResult<Response> = { status: "rejected", reason: "desativado" } as PromiseSettledResult<Response>;
 
   // Agrega candidatos das cinco listas; loja ML (Q2) sempre promove para permitirSemNf=true

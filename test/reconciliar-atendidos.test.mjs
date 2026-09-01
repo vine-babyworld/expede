@@ -27,6 +27,35 @@ test("URLs ML usam dataInicial/dataFinal e Q4 mantém a restrição Atendido da 
   assert.equal(new URL(urls.q4).searchParams.get("idSituacao"), "15");
 });
 
+test("consultas Bling são executadas em lotes de no máximo três por segundo", async () => {
+  const executarConsultasEmLotes = reconciliarAtendidos.executarConsultasEmLotes;
+  assert.equal(typeof executarConsultasEmLotes, "function");
+
+  let janela = 0;
+  const chamadas = [];
+  const tarefas = ["q1", "q2", "q4", "q5"].map((nome) => async () => {
+    chamadas.push({ nome, janela });
+    return nome;
+  });
+  const esperas = [];
+
+  const resultados = await executarConsultasEmLotes(tarefas, 3, 1_000, async (ms) => {
+    esperas.push(ms);
+    janela++;
+  });
+
+  assert.deepEqual(chamadas, [
+    { nome: "q1", janela: 0 },
+    { nome: "q2", janela: 0 },
+    { nome: "q4", janela: 0 },
+    { nome: "q5", janela: 1 },
+  ]);
+  assert.deepEqual(esperas, [1_000]);
+  assert.deepEqual(resultados.map((resultado) => resultado.status), [
+    "fulfilled", "fulfilled", "fulfilled", "fulfilled",
+  ]);
+});
+
 test("fontes específicas vencem Q4 e Q4 vence a lista ampla Q2", () => {
   const candidatos = agregarCandidatosReconciliacao([
     cand(1, "q4"), cand(1, "q5"),

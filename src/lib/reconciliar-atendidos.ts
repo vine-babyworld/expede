@@ -7,6 +7,25 @@ export type CandidatoReconciliacao = {
   dataPedido: string | null;
 };
 
+export async function executarConsultasEmLotes<T>(
+  tarefas: Array<() => Promise<T>>,
+  limitePorLote: number,
+  intervaloMs: number,
+  esperar: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+): Promise<Array<PromiseSettledResult<T>>> {
+  if (!Number.isInteger(limitePorLote) || limitePorLote <= 0) {
+    throw new Error("limitePorLote deve ser um inteiro positivo");
+  }
+
+  const resultados: Array<PromiseSettledResult<T>> = [];
+  for (let inicio = 0; inicio < tarefas.length; inicio += limitePorLote) {
+    if (inicio > 0) await esperar(intervaloMs);
+    const lote = tarefas.slice(inicio, inicio + limitePorLote);
+    resultados.push(...await Promise.allSettled(lote.map((tarefa) => tarefa())));
+  }
+  return resultados;
+}
+
 export function construirUrlsConsultasMl(
   baseUrl: string,
   lojaMlId: string,
