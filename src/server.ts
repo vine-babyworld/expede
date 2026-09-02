@@ -11,7 +11,7 @@ import { supabaseAdmin } from "./integrations/supabase/client.server";
 import {
   atualizarRepassePedido,
   selecionarCandidatosRepasse,
-} from "@/lib/repasse.functions";
+} from "./lib/repasse.functions";
 
 type ServerEntry = {
   fetch: (request: Request, env: unknown, ctx: unknown) => Promise<Response> | Response;
