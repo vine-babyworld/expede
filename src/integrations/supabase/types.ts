@@ -328,6 +328,14 @@ export type Database = {
           numero_loja: string | null
           printed_at: string | null
           raw_json: Json
+          repasse_checked_at: string | null
+          repasse_custo_envio: number | null
+          repasse_error: string | null
+          repasse_final: boolean
+          repasse_tarifa_percentual: number | null
+          repasse_tarifa_venda: number | null
+          repasse_valor_bruto: number | null
+          repasse_valor_liquido: number | null
           situacao_checked_at: string | null
           situacao_id: number | null
           situacao_valor: number | null
@@ -367,6 +375,14 @@ export type Database = {
           numero_loja?: string | null
           printed_at?: string | null
           raw_json: Json
+          repasse_checked_at?: string | null
+          repasse_custo_envio?: number | null
+          repasse_error?: string | null
+          repasse_final?: boolean
+          repasse_tarifa_percentual?: number | null
+          repasse_tarifa_venda?: number | null
+          repasse_valor_bruto?: number | null
+          repasse_valor_liquido?: number | null
           situacao_checked_at?: string | null
           situacao_id?: number | null
           situacao_valor?: number | null
@@ -406,6 +422,14 @@ export type Database = {
           numero_loja?: string | null
           printed_at?: string | null
           raw_json?: Json
+          repasse_checked_at?: string | null
+          repasse_custo_envio?: number | null
+          repasse_error?: string | null
+          repasse_final?: boolean
+          repasse_tarifa_percentual?: number | null
+          repasse_tarifa_venda?: number | null
+          repasse_valor_bruto?: number | null
+          repasse_valor_liquido?: number | null
           situacao_checked_at?: string | null
           situacao_id?: number | null
           situacao_valor?: number | null

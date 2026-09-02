@@ -102,9 +102,9 @@ export async function selecionarCandidatosRepasse(
   orcamento: number = MAX_CANDIDATOS_REPASSE,
 ): Promise<CandidatoRepasse[]> {
   const baseQuery = () =>
-    (supabaseAdmin
+    supabaseAdmin
       .from("pedidos")
-      .select("id, bling_pedido_id, numero_loja") as any)
+      .select("id, bling_pedido_id, numero_loja")
       .eq("marketplace", "mercadolivre")
       .eq("repasse_final", false)
       .neq("situacao_id", 12)
