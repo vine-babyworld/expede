@@ -8,6 +8,10 @@ import { checarStatusEnvioML } from "./lib/ml.functions";
 import { getDecryptedAccessToken } from "./lib/bling.functions";
 import { processarFilaEmissaoNfML } from "./lib/nf-emissao.functions";
 import { supabaseAdmin } from "./integrations/supabase/client.server";
+import {
+  atualizarRepassePedido,
+  selecionarCandidatosRepasse,
+} from "@/lib/repasse.functions";
 
 type ServerEntry = {
   fetch: (request: Request, env: unknown, ctx: unknown) => Promise<Response> | Response;
@@ -85,6 +89,9 @@ const MAX_CANDIDATOS_NF_STATUS = 4;
 
 let lastNfEmissaoAt = 0;
 const NF_EMISSAO_INTERVAL_MS = 60 * 1000;
+
+let lastRepasseAt = 0;
+const REPASSE_INTERVAL_MS = 5 * 60 * 1000; // 5 min — mesmo ritmo do cron de status ML
 
 // Situacao_ids Bling que indicam pedido já baixado/faturado pelo Bling
 const BLING_SITUACAO_FINALIZADA = new Set([9, 15]); // 9=Atendido, 15=Faturado
@@ -226,6 +233,63 @@ export async function cronMLStatus() {
     console.error("[cron-ml-status] exceção não tratada", {
       message: e instanceof Error ? e.message : String(e),
       stack: e instanceof Error ? e.stack : undefined,
+    });
+  }
+}
+
+// Busca o repasse financeiro (tarifa de venda, custo de envio) na API do ML.
+// O Bling não fornece esses valores — seu campo `taxas` chega zerado.
+// Gate de 5 min + orçamento de 4 pedidos por execução: com ~15 pedidos/dia isso
+// é folgado, e pedidos entregues saem da rotação (repasse_final), então o custo
+// não cresce com o histórico.
+export async function cronRepasseMl() {
+  const now = Date.now();
+
+  try {
+    if (now - lastRepasseAt < REPASSE_INTERVAL_MS) return;
+
+    const db = supabaseAdmin as any;
+    const { data: state } = await db
+      .from("cron_state")
+      .select("last_run_at")
+      .eq("job_name", "repasse_ml")
+      .maybeSingle();
+
+    const lastRun = state?.last_run_at ? new Date(state.last_run_at as string).getTime() : 0;
+    if (now - lastRun < REPASSE_INTERVAL_MS) return;
+
+    const { error: upsertError } = await db
+      .from("cron_state")
+      .upsert(
+        { job_name: "repasse_ml", last_run_at: new Date(now).toISOString() },
+        { onConflict: "job_name" },
+      );
+
+    if (upsertError) {
+      console.error("[cron-repasse] upsert cron_state falhou", { message: upsertError.message });
+      return;
+    }
+
+    lastRepasseAt = now;
+
+    const candidatos = await selecionarCandidatosRepasse();
+    console.log(`[cron-repasse] ${candidatos.length} candidato(s)`);
+
+    for (const pedido of candidatos) {
+      const res = await atualizarRepassePedido(pedido);
+      if (res.ok) {
+        console.log(
+          `[cron-repasse] pedido ${pedido.bling_pedido_id} liquido=${res.liquido} final=${res.final}`,
+        );
+      } else {
+        console.warn(`[cron-repasse] pedido ${pedido.bling_pedido_id} erro: ${res.error}`);
+      }
+    }
+
+    console.log("[cron-repasse] ciclo concluído");
+  } catch (e) {
+    console.error("[cron-repasse] exceção não tratada", {
+      message: e instanceof Error ? e.message : String(e),
     });
   }
 }
