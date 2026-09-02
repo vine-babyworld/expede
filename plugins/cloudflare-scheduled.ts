@@ -6,7 +6,7 @@ import { cronReconciliar, cronSyncPoll, cronMLStatus, cronNfStatus, cronNfEmissa
 // https://nitro.build/deploy/providers/cloudflare#runtime-hooks
 export default definePlugin((nitroApp) => {
   nitroApp.hooks.hook("cloudflare:scheduled", async ({ context }: any) => {
-    // Os cinco crons disputam o mesmo limite de 3 req/s do Bling. Disparados em
+    // Os seis crons disputam o mesmo limite de 3 req/s do Bling. Disparados em
     // paralelo (waitUntil sem await) eles amplificavam o 429 que travava a fila
     // de emissão de NF. Serializados, cada um continua isolado pelo próprio
     // catch: falha de um não impede os seguintes.
