@@ -114,6 +114,7 @@ declarado inclui somar isso depois:
 
 | Coluna | Tipo |
 |---|---|
+| `repasse_valor_bruto` | `NUMERIC(12,2)` |
 | `repasse_tarifa_venda` | `NUMERIC(12,2)` |
 | `repasse_tarifa_percentual` | `NUMERIC(5,2)` |
 | `repasse_custo_envio` | `NUMERIC(12,2)` |
@@ -126,16 +127,18 @@ declarado inclui somar isso depois:
 
 ### d) Cron `cronRepasseMl`
 
-Registrado no `scheduled` de `src/server.ts` ao lado de `cronSyncPoll`,
-`cronReconciliar` e `cronNfEmissao`.
+Registrado em `plugins/cloudflare-scheduled.ts`, ao lado dos cinco crons que já
+existem — o `scheduled` exportado em `src/server.ts` é código morto sob o preset
+Nitro cloudflare-module. Segue o gate de intervalo por `cron_state` usado por
+`cronMLStatus` (5 min), não uma execução a cada minuto.
 
 Rotação idêntica a `atualizarSituacoesExistentes`: orçamento próprio
 `MAX_CANDIDATOS_REPASSE = 4` por execução (não compartilhado com os demais),
 priorizando `repasse_checked_at IS NULL` e depois os mais antigos.
 
-Candidato é o pedido que: tem `numero_loja`, pertence à loja ML (constante
-`ML_BLING_LOJA_ID` de `nf-emissao.policy.ts`), não está cancelado
-(`situacao_valor <> 12`) e tem `repasse_final = false`.
+Candidato é o pedido que: tem `numero_loja`, tem `marketplace = 'mercadolivre'`
+(coluna que já existe na tabela), não está cancelado (`situacao_id <> 12`) e tem
+`repasse_final = false`.
 
 `repasse_checked_at` sempre avança, tenha mudado algo ou não — mesma razão
 documentada em `atualizarSituacoesExistentes`: senão um pedido problemático
@@ -150,7 +153,10 @@ apenas as colunas `repasse_*`. Isso exige acrescentar essas colunas ao `select`
 de `listarPedidos` e ao tipo `PedidoRow` — o modal não faz consulta própria.
 
 Layout espelhando o painel do ML: valor da venda → tarifa de venda total (com o
-percentual ao lado) → custo do envio → líquido em destaque. Rodapé discreto com
+percentual ao lado) → custo do envio → líquido em destaque. O "valor da venda"
+exibido é `repasse_valor_bruto` (soma dos itens do ML), não `total` (Bling): os dois
+podem divergir, e usar o bruto do ML é o que faz a conta fechar na tela.
+Rodapé discreto com
 "atualizado em ..." e, enquanto `repasse_final` for falso, aviso de que os valores
 ainda podem mudar.
 
@@ -164,7 +170,8 @@ Estados de exceção:
 
 Rota `src/routes/api/admin/backfill-repasse.ts`, no mesmo padrão de
 `importar-pedido.ts` e `reconciliar.ts`. Varre pedidos ML sem `repasse_checked_at`,
-em lotes, e preenche. ~466 chamadas para os 233 pedidos atuais. Idempotente:
+em lotes, e preenche. ~382 chamadas para os 191 pedidos ML atuais (os outros 42 sao
+Shopee). Idempotente:
 rodar de novo não reprocessa o que já tem dado.
 
 ## Erros
@@ -183,8 +190,10 @@ cobrindo `repasse.ts`:
 - pedido de carrinho (pack): tarifas somadas, frete contado uma vez
 - `tarifa_percentual` nulo quando o bruto é zero
 - arredondamento a 2 casas
-- seleção de candidatos: respeita o orçamento, prioriza nunca verificados,
-  exclui cancelados, não-ML e congelados
+- seleção de candidatos: respeita o orçamento e prioriza nunca verificados
+
+A exclusão de cancelados, não-ML e congelados vive na query do Supabase, não em
+lógica pura — é verificada por consulta ao banco na tarefa de verificação final.
 
 ## Fora de escopo
 
@@ -202,5 +211,5 @@ cobrindo `repasse.ts`:
 3. O modal abre sem chamada de rede ao ML.
 4. Pedido não-ML e pedido sem dado exibem seus estados próprios, sem erro.
 5. Pedido novo tem o repasse preenchido pelo cron sem intervenção manual.
-6. Após o backfill, os 233 pedidos existentes exibem repasse.
+6. Após o backfill, os 191 pedidos ML existentes exibem repasse.
 7. Falha na API do ML não interrompe os demais crons.
