@@ -52,6 +52,15 @@ export type PedidoRow = {
   ml_shipment_status: string | null;
   ml_shipment_substatus: string | null;
   bling_divergente: boolean;
+  marketplace: string | null;
+  repasse_valor_bruto: number | null;
+  repasse_tarifa_venda: number | null;
+  repasse_tarifa_percentual: number | null;
+  repasse_custo_envio: number | null;
+  repasse_valor_liquido: number | null;
+  repasse_checked_at: string | null;
+  repasse_final: boolean;
+  repasse_error: string | null;
 };
 
 export type ListarPedidosInput = {
@@ -79,7 +88,7 @@ export const listarPedidos = createServerFn({ method: "POST" })
     let query = supabaseAdmin
       .from("pedidos")
       .select(
-        "id, bling_pedido_id, numero, numero_loja, situacao_id, situacao_valor, data_pedido, total, cliente, bling_nota_fiscal_id, bling_nota_fiscal_numero, nf_emissao_modo, nf_emissao_status, nf_emissao_error, etiqueta_zpl, created_at, updated_at, ml_shipment_status, ml_shipment_substatus, bling_divergente, pedido_itens(count)",
+        "id, bling_pedido_id, numero, numero_loja, situacao_id, situacao_valor, data_pedido, total, cliente, bling_nota_fiscal_id, bling_nota_fiscal_numero, nf_emissao_modo, nf_emissao_status, nf_emissao_error, etiqueta_zpl, created_at, updated_at, ml_shipment_status, ml_shipment_substatus, bling_divergente, marketplace, repasse_valor_bruto, repasse_tarifa_venda, repasse_tarifa_percentual, repasse_custo_envio, repasse_valor_liquido, repasse_checked_at, repasse_final, repasse_error, pedido_itens(count)",
         { count: "exact" },
       );
 
