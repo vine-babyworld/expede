@@ -372,7 +372,13 @@ Verificacao: use o Playwright MCP e os criterios A a E da secao 7, em 390x844 e
 1440x900, para cada rota listada. Reporte os resultados de verdade: se um criterio
 falhar, diga qual e onde, nao arredonde.
 
-Commits atomicos, um por item da ordem de execucao, em branch propria a partir de main.
+Antes de codar, rode a skill superpowers:writing-plans para quebrar a ordem de
+execucao acima em tarefas pequenas e verificaveis, e me mostre o plano. O design
+ja esta fechado e aprovado — nao refaca o brainstorm.
+
+Trabalhe na branch feat/mobile-responsivo-admin, que ja existe, saiu de main em
+a51cef2 e contem este spec. Nao ramifique de main: o spec nao esta na main.
+Commits atomicos, um por item da ordem de execucao.
 ```
 
 ---
