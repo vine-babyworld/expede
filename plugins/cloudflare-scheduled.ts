@@ -1,5 +1,5 @@
 import { definePlugin } from "nitro";
-import { cronReconciliar, cronSyncPoll, cronMLStatus, cronNfStatus, cronNfEmissao } from "../src/server";
+import { cronReconciliar, cronSyncPoll, cronMLStatus, cronNfStatus, cronNfEmissao, cronRepasseMl } from "../src/server";
 
 // O preset Nitro cloudflare-module não usa o `scheduled` exportado em src/server.ts —
 // Cron Triggers do Cloudflare chegam aqui via hook "cloudflare:scheduled".
@@ -16,6 +16,7 @@ export default definePlugin((nitroApp) => {
       ["cron-ml-status", cronMLStatus],
       ["cron-nf-status", cronNfStatus],
       ["cron-nf-emissao", cronNfEmissao],
+      ["cron-repasse", cronRepasseMl],
     ];
 
     context.waitUntil(
