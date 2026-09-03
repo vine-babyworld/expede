@@ -1,6 +1,13 @@
+// Uma linha da quebra de tarifas. `chave` é o campo de origem na API do
+// marketplace — mantida para rastreabilidade quando um valor for contestado.
+export type LinhaRepasse = {
+  chave: string;
+  rotulo: string;
+  valor: number;
+};
+
 // Formato normalizado de repasse do marketplace. Único tipo que a UI e o banco
-// conhecem — a fase 2 (Shopee) adiciona um normalizarRepasseShopee que devolve
-// este mesmo tipo, sem tocar em cron nem UI.
+// conhecem. O ML devolve uma linha só; a Shopee devolve até seis.
 export type RepasseMarketplace = {
   marketplace: "mercado_livre" | "shopee";
   valor_bruto: number;
@@ -9,6 +16,14 @@ export type RepasseMarketplace = {
   custo_envio: number;
   valor_liquido: number;
   final: boolean;
+  linhas: LinhaRepasse[];
+  // Líquido informado pelo próprio marketplace. A Shopee fornece (escrow_amount);
+  // o ML não tem equivalente, então é null e o líquido é o que nós calculamos.
+  liquido_informado: number | null;
+  envio_coberto_pelo_marketplace: boolean;
+  // (bruto − tarifa − envio) − liquido_informado. Auto-conferência: diferente de
+  // zero significa que existe uma linha de taxa que não estamos somando.
+  divergencia: number | null;
 };
 
 export type ItemRepasseMl = {
@@ -50,6 +65,10 @@ export function normalizarRepasseMl(payload: PayloadRepasseMl): RepasseMarketpla
     custo_envio,
     valor_liquido,
     final: payload.shipment_status === "delivered",
+    linhas: [{ chave: "sale_fee", rotulo: "Tarifa de venda", valor: tarifa_venda }],
+    liquido_informado: null,
+    envio_coberto_pelo_marketplace: false,
+    divergencia: null,
   };
 }
 

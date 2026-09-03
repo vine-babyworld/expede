@@ -80,3 +80,17 @@ test("montarCandidatosRepasse prioriza nunca verificados e respeita o orcamento"
   assert.deepEqual(montarCandidatosRepasse([], retry, 2), [{ id: "c" }, { id: "d" }]);
   assert.deepEqual(montarCandidatosRepasse([], [], 4), []);
 });
+
+test("normalizarRepasseMl devolve uma linha unica e sem liquido informado", () => {
+  const r = normalizarRepasseMl({
+    order_items: [{ unit_price: 31.2, quantity: 1, sale_fee: 5.15 }],
+    custo_envio: 6.95,
+    shipment_status: "shipped",
+  });
+
+  assert.deepEqual(r.linhas, [{ chave: "sale_fee", rotulo: "Tarifa de venda", valor: 5.15 }]);
+  assert.equal(r.liquido_informado, null);
+  assert.equal(r.envio_coberto_pelo_marketplace, false);
+  assert.equal(r.divergencia, null);
+  assert.equal(r.valor_liquido, 19.1);
+});
