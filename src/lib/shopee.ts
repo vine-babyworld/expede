@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import type { OrderIncomeShopee } from "@/lib/repasse";
 
 const SHOPEE_GATEWAY_URL = "https://shopee-egress.bwbaby.com.br";
 
@@ -464,6 +465,74 @@ export async function buscarEtiquetaShopee(orderSn: string): Promise<ShopeeEtiqu
   } catch (err) {
     console.error("[shopee] buscarEtiquetaShopee erro:", err);
     return { ok: false, error: "shopee_label_error" };
+  }
+}
+
+// ── Repasse (Escrow API) ─────────────────────────────────────────────────────
+
+export type ShopeeRepasseResult =
+  | { ok: true; order_income: OrderIncomeShopee; order_status: string | null }
+  | { ok: false; error: string };
+
+// Vai direto do Worker pelo gateway de IP fixo — NÃO existe edge function aqui.
+// A restrição que motivou a edge function do ML (Worker não alcança
+// api.mercadolibre.com, erro 1016/530) não se aplica à Shopee: o ingress do
+// cloudflared libera `^/api/v2/.*` e o nginx faz `location /api/v2/`, então
+// payment/ e order/ passam pelo mesmo caminho que logistics/ já usa.
+export async function buscarRepasseShopee(orderSn: string): Promise<ShopeeRepasseResult> {
+  const { data: conn, error } = await supabaseAdmin
+    .from("shopee_connections")
+    .select("shop_id")
+    .eq("is_sandbox", isShopeeSandbox())
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) console.error("[shopee] erro ao buscar conexão ativa:", error.message);
+  if (!conn) return { ok: false, error: "shopee_no_connection" };
+
+  const shopId = (conn as { shop_id: number }).shop_id;
+
+  let accessToken: string;
+  try {
+    accessToken = await refreshShopeeTokenIfNeeded(shopId);
+  } catch (err) {
+    return { ok: false, error: `shopee_token: ${err instanceof Error ? err.message : String(err)}` };
+  }
+
+  try {
+    const escrowUrl = await buildShopeeUrl(
+      "/api/v2/payment/get_escrow_detail",
+      { order_sn: orderSn },
+      accessToken,
+      shopId,
+    );
+    const escrowRes = await shopeeFetch(escrowUrl, { method: "GET" });
+    const escrowJson: any = await escrowRes.json().catch(() => null);
+
+    if (!escrowRes.ok || escrowJson?.error || !escrowJson?.response?.order_income) {
+      return { ok: false, error: `shopee_escrow: ${escrowJson?.error ?? escrowRes.status}` };
+    }
+
+    // Segunda chamada só pelo order_status: é ele que define o congelamento
+    // (COMPLETED = escrow liberado). A Escrow API não devolve o status.
+    const orderUrl = await buildShopeeUrl(
+      "/api/v2/order/get_order_detail",
+      { order_sn_list: orderSn, response_optional_fields: "order_status" },
+      accessToken,
+      shopId,
+    );
+    const orderRes = await shopeeFetch(orderUrl, { method: "GET" });
+    const orderJson: any = await orderRes.json().catch(() => null);
+    const orderStatus: string | null = orderJson?.response?.order_list?.[0]?.order_status ?? null;
+
+    return {
+      ok: true,
+      order_income: escrowJson.response.order_income as OrderIncomeShopee,
+      order_status: orderStatus,
+    };
+  } catch (err) {
+    return { ok: false, error: `shopee_escrow_exception: ${err instanceof Error ? err.message : String(err)}` };
   }
 }
 
