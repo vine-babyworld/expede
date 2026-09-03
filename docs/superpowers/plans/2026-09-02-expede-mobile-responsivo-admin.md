@@ -1301,13 +1301,6 @@ const columns: ResponsiveColumn<Row>[] = [
     ),
   },
   {
-    id: "cliente",
-    header: "Cliente",
-    priority: "primary",
-    className: "max-w-[200px] truncate",
-    cell: (p) => p.cliente_nome,
-  },
-  {
     id: "marketplace",
     header: "Marketplace",
     priority: "secondary",
@@ -1326,6 +1319,13 @@ const columns: ResponsiveColumn<Row>[] = [
         </div>
       );
     },
+  },
+  {
+    id: "cliente",
+    header: "Cliente",
+    priority: "primary",
+    className: "max-w-[200px] truncate",
+    cell: (p) => p.cliente_nome,
   },
   {
     id: "valor",
@@ -1455,7 +1455,6 @@ Container `p-6` → `p-4 md:p-6`; cabeçalho `flex items-center justify-between`
 ```tsx
 const columns: ResponsiveColumn<(typeof rows)[number]>[] = [
   { id: "numero", header: "Nº Pedido", priority: "primary", className: "font-mono", cell: (p) => p.numero_loja },
-  { id: "cliente", header: "Cliente", priority: "primary", className: "max-w-[220px] truncate", cell: (p) => p.cliente_nome },
   {
     id: "marketplace", header: "Marketplace", priority: "secondary",
     cell: (p) => {
@@ -1467,6 +1466,7 @@ const columns: ResponsiveColumn<(typeof rows)[number]>[] = [
       );
     },
   },
+  { id: "cliente", header: "Cliente", priority: "primary", className: "max-w-[220px] truncate", cell: (p) => p.cliente_nome },
   { id: "valor", header: "Valor", priority: "secondary", align: "right", className: "tabular-nums", cell: (p) => formatBRL(p.valor_total) },
   { id: "horario", header: "Horário", priority: "secondary", className: "text-muted-foreground", cell: (p) => formatTime(p.printed_at) },
 ];
