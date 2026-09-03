@@ -456,6 +456,7 @@ export function ExpedicaoPage() {
               variant="outline"
               size="icon"
               onClick={() => setShowPrinterConfig(true)}
+              aria-label="Configurar impressora"
               title="Configurar impressora"
               className="h-12 w-12"
             >

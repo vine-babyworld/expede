@@ -330,8 +330,8 @@ function DashboardPage() {
       )}
 
       {/* SEÇÃO 1.5 — Funil de expedição (últimos 30 dias) */}
-      <div className="bg-card border rounded-xl shadow-sm p-6">
-        <div className="flex items-center justify-between mb-4">
+      <div className="bg-card border rounded-xl shadow-sm p-4 md:p-6">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-1 md:gap-0 mb-4">
           <h2 className="text-base font-semibold">Situação dos pedidos</h2>
           <span className="text-xs text-muted-foreground">últimos 30 dias · exclui cancelados</span>
         </div>
