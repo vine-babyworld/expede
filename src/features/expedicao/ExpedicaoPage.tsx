@@ -728,18 +728,21 @@ function PedidoCard({
             </span>
           )}
         </div>
-        <div className="grid grid-cols-3 gap-x-6 gap-y-1 text-xs">
+        {/* break-all nos campos longos: SKU, EAN e numero do pedido sao strings sem
+            espaco, e sem ponto de quebra eles transbordam para a coluna vizinha em
+            telas estreitas (visto num Galaxy Z Fold 6 de tela fechada, ~344px). */}
+        <div className="grid grid-cols-3 gap-x-3 md:gap-x-6 gap-y-1 text-xs">
           <span className="text-muted-foreground">SKU</span>
           <span className="text-muted-foreground">EAN</span>
           <span className="text-muted-foreground">Qtd</span>
-          <span className="font-mono font-medium">{item?.sku ?? "—"}</span>
-          <span className="font-mono">{ean}</span>
+          <span className="font-mono font-medium break-all">{item?.sku ?? "—"}</span>
+          <span className="font-mono break-all">{ean}</span>
           <span className="font-semibold text-sm">{item?.quantidade ?? "—"}</span>
 
           <span className="text-muted-foreground">Pedido</span>
           <span className="text-muted-foreground">Data</span>
           <span className="text-muted-foreground">Logística</span>
-          <span className="font-mono">
+          <span className="font-mono break-all">
             <span>{numeroPrincipal}</span>
             {numeroSecundario && (
               <span className="block text-muted-foreground font-normal">
@@ -750,7 +753,7 @@ function PedidoCard({
           <span>{formatDateTime(pedido.data_pedido)}</span>
           <span>
             {logistica ? (
-              <span className="inline-block bg-muted text-muted-foreground text-[10px] px-1.5 py-0.5 rounded font-medium truncate max-w-[120px]">
+              <span className="inline-block bg-muted text-muted-foreground text-xs md:text-[10px] px-1.5 py-0.5 rounded font-medium truncate max-w-full md:max-w-[120px]">
                 {logistica}
               </span>
             ) : (
