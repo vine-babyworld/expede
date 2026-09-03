@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { CheckCircle2, ShoppingCart, Plug } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { MobileHidden } from "@/components/MobileHidden";
 import { getMLConnection } from "@/lib/ml.functions";
 import { getShopeeConnection } from "@/lib/shopee";
 import { getDashboardExpedicao } from "@/lib/dashboard.functions";
@@ -32,8 +33,8 @@ function MarketplacesPage() {
   return (
     <div className="space-y-4">
       {/* Mercado Livre */}
-      <div className="bg-card border rounded-xl shadow-sm p-6">
-        <div className="flex items-start justify-between gap-4">
+      <div className="bg-card border rounded-xl shadow-sm p-4 md:p-6">
+        <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
           <div className="flex items-center gap-3">
             <ShoppingCart className="h-6 w-6 text-yellow-500" />
             <div>
@@ -43,14 +44,16 @@ function MarketplacesPage() {
               </p>
             </div>
           </div>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => { window.location.href = "/api/ml/auth"; }}
-          >
-            <Plug className="h-4 w-4 mr-2" />
-            Reconectar
-          </Button>
+          <MobileHidden>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => { window.location.href = "/api/ml/auth"; }}
+            >
+              <Plug className="h-4 w-4 mr-2" />
+              Reconectar
+            </Button>
+          </MobileHidden>
         </div>
 
         <div className="mt-4 flex flex-wrap items-center gap-3">
@@ -78,8 +81,8 @@ function MarketplacesPage() {
       </div>
 
       {/* Shopee */}
-      <div className="bg-card border rounded-xl shadow-sm p-6">
-        <div className="flex items-start justify-between gap-4">
+      <div className="bg-card border rounded-xl shadow-sm p-4 md:p-6">
+        <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
           <div className="flex items-center gap-3">
             <div className="h-6 w-6 rounded bg-orange-200 flex items-center justify-center text-orange-700 text-xs font-bold shrink-0">
               S
@@ -91,14 +94,16 @@ function MarketplacesPage() {
               </p>
             </div>
           </div>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => { window.location.href = "/api/shopee/auth"; }}
-          >
-            <Plug className="h-4 w-4 mr-2" />
-            {shopeeQ.data?.connected ? "Reconectar" : "Conectar"}
-          </Button>
+          <MobileHidden>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => { window.location.href = "/api/shopee/auth"; }}
+            >
+              <Plug className="h-4 w-4 mr-2" />
+              {shopeeQ.data?.connected ? "Reconectar" : "Conectar"}
+            </Button>
+          </MobileHidden>
         </div>
 
         <div className="mt-4 flex flex-wrap items-center gap-3">
@@ -121,8 +126,8 @@ function MarketplacesPage() {
       </div>
 
       {/* Amazon placeholder */}
-      <div className="bg-card border rounded-xl shadow-sm p-6 opacity-60">
-        <div className="flex items-start justify-between gap-4">
+      <div className="bg-card border rounded-xl shadow-sm p-4 md:p-6 opacity-60">
+        <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
           <div className="flex items-center gap-3">
             <div className="h-6 w-6 rounded bg-amber-200 flex items-center justify-center text-amber-700 text-xs font-bold shrink-0">
               A
@@ -138,9 +143,11 @@ function MarketplacesPage() {
             <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-500 border border-gray-200">
               Em breve
             </span>
-            <Button size="sm" disabled>
-              <Plug className="h-4 w-4 mr-2" /> Conectar
-            </Button>
+            <MobileHidden>
+              <Button size="sm" disabled>
+                <Plug className="h-4 w-4 mr-2" /> Conectar
+              </Button>
+            </MobileHidden>
           </div>
         </div>
       </div>

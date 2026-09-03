@@ -17,6 +17,7 @@ import {
   setBlingConnectionName, getProdutoCountByConnection,
 } from "@/lib/bling.functions";
 import { getMLConnection, disconnectML } from "@/lib/ml.functions";
+import { MobileHidden } from "@/components/MobileHidden";
 
 
 
@@ -161,10 +162,12 @@ function BlingPage() {
           Autorize o EXPEDE a ler pedidos e produtos da sua conta Bling. Os tokens
           ficam criptografados e renovados automaticamente.
         </p>
-        <Button size="lg" disabled={startMut.isPending} onClick={() => startMut.mutate()}>
-          {startMut.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Plug className="h-4 w-4 mr-2" />}
-          Conectar com Bling
-        </Button>
+        <MobileHidden>
+          <Button size="lg" disabled={startMut.isPending} onClick={() => startMut.mutate()}>
+            {startMut.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Plug className="h-4 w-4 mr-2" />}
+            Conectar com Bling
+          </Button>
+        </MobileHidden>
       </div>
     );
   }
@@ -184,7 +187,7 @@ function BlingPage() {
     <>
     {/* ── Mercado Livre ───────────────────────────────────────────────────── */}
     <div className="bg-card border rounded-xl shadow-sm overflow-hidden mb-6">
-      <div className="p-6 flex items-center justify-between gap-4">
+      <div className="p-4 md:p-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div className="flex items-center gap-3">
           <ShoppingCart className="h-6 w-6 text-yellow-500" />
           <div>
@@ -204,33 +207,37 @@ function BlingPage() {
                 Conectado · user {mlConn.ml_user_id}
               </span>
               <span className="text-xs text-muted-foreground">expira {fmtDate(mlConn.expires_at)}</span>
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button variant="outline" size="sm" className="text-rose-600 hover:text-rose-700">
-                    <Trash2 className="h-4 w-4 mr-2" /> Desconectar
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Desconectar Mercado Livre?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      O fallback de etiquetas ML ficará indisponível até reconectar.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                    <AlertDialogAction onClick={() => disconnectMLMut.mutate()}>
-                      Desconectar
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
+              <MobileHidden>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button variant="outline" size="sm" className="text-rose-600 hover:text-rose-700">
+                      <Trash2 className="h-4 w-4 mr-2" /> Desconectar
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Desconectar Mercado Livre?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        O fallback de etiquetas ML ficará indisponível até reconectar.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                      <AlertDialogAction onClick={() => disconnectMLMut.mutate()}>
+                        Desconectar
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </MobileHidden>
             </>
           ) : (
-            <Button size="sm" onClick={() => { window.location.href = "/api/ml/auth"; }}>
-              <Plug className="h-4 w-4 mr-2" />
-              Conectar Mercado Livre
-            </Button>
+            <MobileHidden>
+              <Button size="sm" onClick={() => { window.location.href = "/api/ml/auth"; }}>
+                <Plug className="h-4 w-4 mr-2" />
+                Conectar Mercado Livre
+              </Button>
+            </MobileHidden>
           )}
         </div>
       </div>
@@ -238,7 +245,7 @@ function BlingPage() {
 
     <div className="bg-card border rounded-xl shadow-sm overflow-hidden">
 
-      <div className="p-6 border-b flex items-start justify-between gap-4">
+      <div className="p-4 md:p-6 border-b flex flex-col md:flex-row md:items-start md:justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 mb-2">
             <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border ${statusBadge.cls}`}>
@@ -247,7 +254,7 @@ function BlingPage() {
             </span>
           </div>
           {isEditingName ? (
-            <div className="flex items-center gap-2">
+            <MobileHidden className="hidden md:flex items-center gap-2">
               <Input
                 value={nameInput}
                 onChange={(e) => setNameInput(e.target.value)}
@@ -278,21 +285,28 @@ function BlingPage() {
               >
                 Cancelar
               </Button>
-            </div>
+            </MobileHidden>
           ) : (
-            <button
-              type="button"
-              onClick={() => {
-                setNameInput(conn.bling_account_name ?? "Conta Bling");
-                setIsEditingName(true);
-              }}
-              className="group flex items-center gap-2 text-left"
-            >
-              <span className="text-xl font-semibold">
+            <>
+              <span className="md:hidden text-xl font-semibold">
                 {conn.bling_account_name ?? "Conta Bling"}
               </span>
-              <Pencil className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
-            </button>
+              <MobileHidden>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNameInput(conn.bling_account_name ?? "Conta Bling");
+                    setIsEditingName(true);
+                  }}
+                  className="group flex items-center gap-2 text-left"
+                >
+                  <span className="text-xl font-semibold">
+                    {conn.bling_account_name ?? "Conta Bling"}
+                  </span>
+                  <Pencil className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+                </button>
+              </MobileHidden>
+            </>
           )}
           <p className="text-xs text-muted-foreground mt-1">
             Apelido da conta Bling. Útil quando você tiver múltiplas contas conectadas.
@@ -302,7 +316,7 @@ function BlingPage() {
           )}
 
         </div>
-        <div className="flex gap-2 shrink-0">
+        <MobileHidden className="hidden md:flex gap-2 shrink-0">
           <Button
             variant="outline"
             size="sm"
@@ -349,10 +363,10 @@ function BlingPage() {
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
-        </div>
+        </MobileHidden>
       </div>
 
-      <div className="p-6 grid grid-cols-2 gap-x-8 gap-y-4 text-sm">
+      <div className="p-4 md:p-6 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4 text-sm">
         <Field label="Última renovação" value={fmt(conn.last_refresh_at)} />
         <Field label="Access token expira em" value={fmt(conn.access_expires_at)} />
         <Field label="Refresh token expira em" value={fmt(conn.refresh_expires_at)} />

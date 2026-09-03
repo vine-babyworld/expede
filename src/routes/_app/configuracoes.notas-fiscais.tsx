@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Switch } from "@/components/ui/switch";
 import { getNfConfig, setNfFlexAtiva } from "@/lib/nf-config.functions";
+import { MobileHidden } from "@/components/MobileHidden";
 
 export const Route = createFileRoute("/_app/configuracoes/notas-fiscais")({
   component: NotasFiscaisPage,
@@ -56,7 +57,7 @@ function NotasFiscaisPage() {
 
   return (
     <div className="space-y-4">
-      <div className="bg-card border rounded-xl shadow-sm p-6">
+      <div className="bg-card border rounded-xl shadow-sm p-4 md:p-6">
         <div className="flex items-start justify-between gap-6">
           <div className="flex items-start gap-3">
             <FileText className="h-6 w-6 text-blue-500 shrink-0 mt-0.5" />
@@ -82,12 +83,17 @@ function NotasFiscaisPage() {
             {(isLoading || salvar.isPending) && (
               <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
             )}
-            <Switch
-              checked={flexAtiva}
-              disabled={isLoading || salvar.isPending}
-              onCheckedChange={handleToggle}
-              aria-label="Emitir NF automaticamente para pedidos ML Flex"
-            />
+            <MobileHidden>
+              <Switch
+                checked={flexAtiva}
+                disabled={isLoading || salvar.isPending}
+                onCheckedChange={handleToggle}
+                aria-label="Emitir NF automaticamente para pedidos ML Flex"
+              />
+            </MobileHidden>
+            <span className="md:hidden text-sm text-muted-foreground">
+              {flexAtiva ? "Ativada" : "Desativada"}
+            </span>
           </div>
         </div>
 
@@ -113,25 +119,27 @@ function NotasFiscaisPage() {
         </p>
       </div>
 
-      <AlertDialog open={confirmarAtivacao} onOpenChange={setConfirmarAtivacao}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Ligar emissão de NF para o Flex?</AlertDialogTitle>
-            <AlertDialogDescription>
-              A partir de agora o EXPEDE vai gerar e enviar nota fiscal para cada
-              pedido ML Flex que entrar. Nota fiscal emitida é documento fiscal
-              real — desligar depois não desfaz o que já saiu. Os pedidos Flex que
-              já estão na base continuam manuais.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={() => salvar.mutate(true)}>
-              Ligar emissão automática
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <MobileHidden>
+        <AlertDialog open={confirmarAtivacao} onOpenChange={setConfirmarAtivacao}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Ligar emissão de NF para o Flex?</AlertDialogTitle>
+              <AlertDialogDescription>
+                A partir de agora o EXPEDE vai gerar e enviar nota fiscal para cada
+                pedido ML Flex que entrar. Nota fiscal emitida é documento fiscal
+                real — desligar depois não desfaz o que já saiu. Os pedidos Flex que
+                já estão na base continuam manuais.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction onClick={() => salvar.mutate(true)}>
+                Ligar emissão automática
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </MobileHidden>
     </div>
   );
 }
