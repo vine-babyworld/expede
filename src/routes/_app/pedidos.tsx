@@ -6,12 +6,13 @@ import { Loader2, Search, ClipboardList, Printer, RefreshCw, Eye } from "lucide-
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { listarPedidos, buscarNumeroNF } from "@/lib/pedidos.functions";
+import { listarPedidos, buscarNumeroNF, type PedidoRow } from "@/lib/pedidos.functions";
 import { buscarEtiquetaBling } from "@/lib/etiqueta.functions";
 import { gerarDanfeCustom } from "@/lib/danfe.functions";
 import { abrirEtiquetaPDF } from "@/lib/zpl-to-pdf";
 import { useQzTray } from "@/hooks/useQzTray";
 import { PrinterConfig } from "@/components/PrinterConfig";
+import { RepasseDialog } from "@/components/RepasseDialog";
 
 const IMPRESSORA_KEY = "qztray_impressora_padrao";
 const PAGE_SIZE = 50;
@@ -82,6 +83,7 @@ function PedidosPage() {
   const [showPrinterConfig, setShowPrinterConfig] = useState(false);
   const [reimprimindo, setReimprimindo] = useState<string | null>(null);
   const [visualizando, setVisualizando] = useState<string | null>(null);
+  const [repassePedido, setRepassePedido] = useState<PedidoRow | null>(null);
 
   const qzTray = useQzTray();
   const qc = useQueryClient();
@@ -304,7 +306,14 @@ function PedidosPage() {
                     }`}
                   >
                     <td className="px-4 py-3 font-mono">
-                      {row.numero}
+                      <button
+                        type="button"
+                        onClick={() => setRepassePedido(row)}
+                        className="hover:underline underline-offset-2 text-left"
+                        title="Ver repasse do marketplace"
+                      >
+                        {row.numero}
+                      </button>
                       {row.numero_loja && row.numero_loja !== row.numero && (
                         <span className="ml-2 text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
                           {row.numero_loja}
@@ -413,6 +422,8 @@ function PedidosPage() {
           </div>
         </div>
       )}
+
+      <RepasseDialog pedido={repassePedido} onClose={() => setRepassePedido(null)} />
 
       <PrinterConfig
         open={showPrinterConfig}
