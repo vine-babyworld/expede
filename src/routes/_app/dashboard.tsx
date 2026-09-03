@@ -5,7 +5,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import {
   Package, CheckCircle2, TrendingUp, ShoppingCart, Zap, RefreshCw,
-  Download, ScanLine, Printer, FileCheck2,
+  Download, ScanLine, Printer, FileCheck2, XCircle,
 } from "lucide-react";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -23,6 +23,7 @@ import { getDashboardExpedicao, getDashboardVendas, getFunilExpedicao, triggerRe
 import { getMLConnection } from "@/lib/ml.functions";
 import { getBlingConnection } from "@/lib/bling.functions";
 import { getProdutosOverview } from "@/lib/produtos.functions";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 export const Route = createFileRoute("/_app/dashboard")({
   component: DashboardPage,
@@ -61,13 +62,11 @@ function StatCard({
   bg: string;
   onClick?: () => void;
 }) {
-  return (
-    <div
-      className={`rounded-xl p-6 flex items-center gap-4 ${bg} text-white shadow-sm ${
-        onClick ? "cursor-pointer transition-opacity hover:opacity-90" : ""
-      }`}
-      onClick={onClick}
-    >
+  const classes = `w-full text-left rounded-xl p-6 flex items-center gap-4 ${bg} text-white shadow-sm ${
+    onClick ? "cursor-pointer transition-opacity hover:opacity-90" : ""
+  }`;
+  const conteudo = (
+    <>
       <Icon className="h-10 w-10 opacity-80 shrink-0" />
       <div>
         <p className="text-sm font-medium opacity-80">{title}</p>
@@ -77,7 +76,14 @@ function StatCard({
           <p className="text-3xl font-bold tracking-tight">{value}</p>
         )}
       </div>
-    </div>
+    </>
+  );
+  return onClick ? (
+    <button type="button" onClick={onClick} className={classes}>
+      {conteudo}
+    </button>
+  ) : (
+    <div className={classes}>{conteudo}</div>
   );
 }
 
@@ -230,6 +236,7 @@ function FunilExpedicao({ loading, data }: { loading: boolean; data: FunilData }
 function DashboardPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const isMobile = useIsMobile();
   const [syncReport, setSyncReport] = useState<any>(null);
   const [showTecnico, setShowTecnico] = useState(false);
   const closeSyncModal = () => {
@@ -269,15 +276,15 @@ function DashboardPage() {
   const vendas = vendasQ.data ?? [];
 
   return (
-    <div className="p-6 max-w-6xl space-y-8">
-      <div className="flex items-center justify-between">
+    <div className="p-4 md:p-6 max-w-6xl flex flex-col gap-6 md:gap-8">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold">Dashboard</h1>
         <Button
           variant="outline"
           size="sm"
           onClick={() => syncMutation.mutate()}
           disabled={syncMutation.isPending}
-          className="gap-2"
+          className="gap-2 h-11 md:h-8"
         >
           <RefreshCw className={`h-4 w-4 ${syncMutation.isPending ? "animate-spin" : ""}`} />
           {syncMutation.isPending ? "Sincronizando..." : "Sincronizar pedidos"}
@@ -285,7 +292,7 @@ function DashboardPage() {
       </div>
 
       {/* SEÇÃO 1 — Cards de expedição hoje */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <StatCard
           title="A expedir"
           value={exp?.pendentes ?? 0}
@@ -323,8 +330,8 @@ function DashboardPage() {
       )}
 
       {/* SEÇÃO 1.5 — Funil de expedição (últimos 30 dias) */}
-      <div className="bg-card border rounded-xl shadow-sm p-6">
-        <div className="flex items-center justify-between mb-4">
+      <div className="bg-card border rounded-xl shadow-sm p-4 md:p-6">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-1 md:gap-0 mb-4">
           <h2 className="text-base font-semibold">Situação dos pedidos</h2>
           <span className="text-xs text-muted-foreground">últimos 30 dias · exclui cancelados</span>
         </div>
@@ -347,7 +354,7 @@ function DashboardPage() {
           </div>
         ) : (
           <ResponsiveContainer width="100%" height={256}>
-            <LineChart data={vendas} margin={{ top: 5, right: 40, left: 10, bottom: 5 }}>
+            <LineChart data={vendas} margin={{ top: 5, right: isMobile ? 8 : 40, left: isMobile ? -16 : 10, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
               <XAxis
                 dataKey="dia"
@@ -361,7 +368,7 @@ function DashboardPage() {
                   v >= 1000 ? `R$${(v / 1000).toFixed(0)}k` : `R$${v}`
                 }
               />
-              <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11 }} />
+              <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11 }} hide={isMobile} />
               <Tooltip content={<ChartTooltip />} />
               <Line
                 yAxisId="left"
@@ -387,7 +394,7 @@ function DashboardPage() {
       </div>
 
       {/* SEÇÃO 3 — Conexões */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="order-first md:order-none grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Mercado Livre */}
         <div className="bg-card border rounded-xl shadow-sm p-5">
           <div className="flex items-center gap-2 mb-3">
@@ -405,7 +412,7 @@ function DashboardPage() {
             </div>
           ) : (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700 border border-red-200">
-              Desconectado
+              <XCircle className="h-3 w-3" /> Desconectado
             </span>
           )}
         </div>
@@ -429,7 +436,7 @@ function DashboardPage() {
             </div>
           ) : (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700 border border-red-200">
-              Desconectado
+              <XCircle className="h-3 w-3" /> Desconectado
             </span>
           )}
         </div>
@@ -476,7 +483,7 @@ function DashboardPage() {
 
               {showTecnico && (
                 <div className="space-y-4 pt-2 border-t">
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <QueryReportSection title="Query 1 — Faturados (situação=9)" report={syncReport.query1} />
                     <QueryReportSection title="Query 2 — Loja ML / FLEX" report={syncReport.query2} />
                     {syncReport.query3 && (

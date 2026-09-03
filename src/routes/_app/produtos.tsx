@@ -14,6 +14,8 @@ import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { useAuth } from "@/hooks/useAuth";
+import { ResponsiveTable, type ResponsiveColumn } from "@/components/ResponsiveTable";
+import { MobileHidden } from "@/components/MobileHidden";
 import {
   listProdutos, listBlingConnectionsForFilter, getActiveSyncJobs,
   getProdutosOverview, syncProductsStart, atualizarProduto, sincronizarProduto,
@@ -278,20 +280,61 @@ function ProdutosPage() {
   const pageSize = listQ.data?.pageSize ?? 50;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
+  const columns: ResponsiveColumn<any>[] = [
+    {
+      id: "imagem", header: "", priority: "desktop-only", className: "w-14",
+      cell: (p) => p.imagem_url
+        ? <img src={p.imagem_url} alt="" width={40} height={40} className="h-10 w-10 rounded object-cover" />
+        : <div className="h-10 w-10 rounded bg-muted flex items-center justify-center"><Package className="h-4 w-4 text-muted-foreground" /></div>,
+    },
+    {
+      id: "nome", header: "Nome", priority: "primary",
+      cell: (p) => (
+        <div className="font-medium flex items-center gap-2">
+          <span className="line-clamp-1">{p.nome}</span>
+          {!p.ativo && (
+            <span className="text-xs md:text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">Inativo</span>
+          )}
+        </div>
+      ),
+    },
+    { id: "sku", header: "SKU", priority: "primary", className: "font-mono text-xs", cell: (p) => p.sku },
+    { id: "ean", header: "EAN", priority: "secondary", className: "font-mono text-xs", cell: (p) => p.gtin ?? "—" },
+    { id: "estoque", header: "Estoque", priority: "secondary", align: "right", cell: (p) => p.estoque ?? "—" },
+    {
+      id: "tipo", header: "Tipo", priority: "secondary",
+      cell: (p) => (
+        <span className="text-xs md:text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary capitalize">{p.tipo}</span>
+      ),
+    },
+    ...(connectionId === "__all"
+      ? [{
+          id: "conta", header: "Conta", priority: "secondary" as const,
+          className: "text-xs text-muted-foreground",
+          cell: (p: any) => connName(p.bling_connection_id),
+        }]
+      : []),
+    { id: "sincronizado", header: "Sincronizado", priority: "secondary", className: "text-xs text-muted-foreground", cell: (p) => fmtRel(p.synced_at) },
+  ];
+
   return (
-    <div className="p-8 max-w-7xl">
-      <div className="flex items-start justify-between mb-6 gap-4">
+    <div className="p-4 md:p-8 max-w-7xl">
+      <div className="flex flex-col md:flex-row md:items-start md:justify-between mb-6 gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Produtos</h1>
+          <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Produtos</h1>
           <p className="text-sm text-muted-foreground mt-1">
             {ov.data?.totalProdutos ?? 0} produtos · última sincronização {fmtRel(ov.data?.lastSyncedAt)}
           </p>
         </div>
         {isAdmin && (
-          <Button onClick={handleSync} disabled={syncMut.isPending || !!activeJob}>
-            {syncMut.isPending || activeJob ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
-            Sincronizar agora
-          </Button>
+          <MobileHidden>
+            <Button onClick={handleSync} disabled={syncMut.isPending || !!activeJob}>
+              {syncMut.isPending || activeJob
+                ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                : <RefreshCw className="h-4 w-4 mr-2" />}
+              Sincronizar agora
+            </Button>
+          </MobileHidden>
         )}
       </div>
 
@@ -315,15 +358,17 @@ function ProdutosPage() {
         );
       })()}
 
-      <div className="flex flex-wrap gap-3 mb-4">
+      <div className="flex flex-col md:flex-row md:flex-wrap gap-3 mb-4">
+        <label htmlFor="busca-produtos" className="sr-only">Buscar por nome, SKU ou EAN</label>
         <Input
+          id="busca-produtos"
           placeholder="Buscar por nome, SKU ou EAN…"
           value={search}
           onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-          className="max-w-sm"
+          className="w-full md:max-w-sm h-11 md:h-9"
         />
         <Select value={connectionId} onValueChange={(v) => { setConnectionId(v); setPage(1); }}>
-          <SelectTrigger className="w-52"><SelectValue placeholder="Conta Bling" /></SelectTrigger>
+          <SelectTrigger className="w-full md:w-52 h-11 md:h-9" aria-label="Filtrar por conta Bling"><SelectValue placeholder="Conta Bling" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="__all">Todas as contas</SelectItem>
             {(connsQ.data ?? []).map((c: any) => (
@@ -332,7 +377,7 @@ function ProdutosPage() {
           </SelectContent>
         </Select>
         <Select value={status} onValueChange={(v: any) => { setStatus(v); setPage(1); }}>
-          <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+          <SelectTrigger className="w-full md:w-36 h-11 md:h-9" aria-label="Filtrar por status"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="ativos">Ativos</SelectItem>
             <SelectItem value="inativos">Inativos</SelectItem>
@@ -340,7 +385,7 @@ function ProdutosPage() {
           </SelectContent>
         </Select>
         <Select value={tipo} onValueChange={(v: any) => { setTipo(v); setPage(1); }}>
-          <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+          <SelectTrigger className="w-full md:w-36 h-11 md:h-9" aria-label="Filtrar por tipo"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="todos">Todos os tipos</SelectItem>
             <SelectItem value="simples">Simples</SelectItem>
@@ -350,118 +395,72 @@ function ProdutosPage() {
         </Select>
       </div>
 
-      <div className="bg-card border rounded-xl shadow-sm overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-muted/50 text-left">
-            <tr>
-              <th className="px-3 py-3 w-14"></th>
-              <th className="px-3 py-3 font-medium">Nome</th>
-              <th className="px-3 py-3 font-medium">SKU</th>
-              <th className="px-3 py-3 font-medium">EAN</th>
-              <th className="px-3 py-3 font-medium text-right">Estoque</th>
-              <th className="px-3 py-3 font-medium">Tipo</th>
-              {connectionId === "__all" && <th className="px-3 py-3 font-medium">Conta</th>}
-              <th className="px-3 py-3 font-medium">Sincronizado</th>
-              <th className="px-3 py-3 w-10"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {listQ.isLoading ? (
-              <tr><td colSpan={9} className="px-3 py-12 text-center text-muted-foreground">
-                <Loader2 className="h-5 w-5 animate-spin inline" />
-              </td></tr>
-            ) : (listQ.data?.rows ?? []).length === 0 ? (
-              <tr><td colSpan={9} className="px-3 py-16 text-center">
-                <Package className="h-10 w-10 mx-auto mb-3 text-muted-foreground/50" />
-                <p className="text-muted-foreground">
-                  {debounced || status !== "ativos" || tipo !== "todos" || connectionId !== "__all"
-                    ? "Nenhum produto encontrado com esses filtros."
-                    : "Nenhum produto importado ainda."}
+      <div className="md:bg-card md:border md:rounded-xl md:shadow-sm md:overflow-hidden">
+        <ResponsiveTable
+          columns={columns}
+          rows={listQ.data?.rows ?? []}
+          rowKey={(p) => p.id}
+          loading={listQ.isLoading}
+          empty={
+            <>
+              <Package className="h-10 w-10 mx-auto mb-3 text-muted-foreground/50" />
+              <p className="text-muted-foreground">
+                {debounced || status !== "ativos" || tipo !== "todos" || connectionId !== "__all"
+                  ? "Nenhum produto encontrado com esses filtros."
+                  : "Nenhum produto importado ainda."}
+              </p>
+              {isAdmin && !debounced && (
+                <p className="hidden md:block text-xs text-muted-foreground mt-1">
+                  Clique em <strong>Sincronizar agora</strong> para começar.
                 </p>
-                {isAdmin && !debounced && (
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Clique em <strong>Sincronizar agora</strong> para começar.
-                  </p>
-                )}
-              </td></tr>
-            ) : (listQ.data?.rows ?? []).map((p: any) => (
-              <tr key={p.id} className="border-t">
-                <td className="px-3 py-2">
-                  {p.imagem_url ? (
-                    <img src={p.imagem_url} alt="" className="h-10 w-10 rounded object-cover" />
-                  ) : (
-                    <div className="h-10 w-10 rounded bg-muted flex items-center justify-center">
-                      <Package className="h-4 w-4 text-muted-foreground" />
-                    </div>
-                  )}
-                </td>
-                <td className="px-3 py-2">
-                  <div className="font-medium flex items-center gap-2">
-                    <span className="line-clamp-1">{p.nome}</span>
-                    {!p.ativo && <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">Inativo</span>}
-                  </div>
-                </td>
-                <td className="px-3 py-2 font-mono text-xs">{p.sku}</td>
-                <td className="px-3 py-2 font-mono text-xs">{p.gtin ?? "—"}</td>
-                <td className="px-3 py-2 text-right">{p.estoque ?? "—"}</td>
-                <td className="px-3 py-2">
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary capitalize">{p.tipo}</span>
-                </td>
-                {connectionId === "__all" && (
-                  <td className="px-3 py-2 text-xs text-muted-foreground">{connName(p.bling_connection_id)}</td>
-                )}
-                <td className="px-3 py-2 text-xs text-muted-foreground">{fmtRel(p.synced_at)}</td>
-                <td className="px-3 py-2">
-                  <div className="flex items-center gap-1">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7"
-                      disabled={!p.bling_product_id || sincronizando.has(p.bling_product_id)}
-                      onClick={() => handleSyncProduto(p)}
-                      title="Sincronizar produto"
-                    >
-                      <RefreshCw className={`h-3.5 w-3.5 ${sincronizando.has(p.bling_product_id) ? "animate-spin" : ""}`} />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7"
-                      onClick={() => setEditingProduto(p)}
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+              )}
+            </>
+          }
+          rowActions={(p) => (
+            <>
+              <Button
+                variant="ghost" size="icon" className="h-7 w-7"
+                disabled={!p.bling_product_id || sincronizando.has(p.bling_product_id)}
+                onClick={() => handleSyncProduto(p)}
+                aria-label="Sincronizar produto" title="Sincronizar produto"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${sincronizando.has(p.bling_product_id) ? "animate-spin" : ""}`} />
+              </Button>
+              <Button
+                variant="ghost" size="icon" className="h-7 w-7"
+                onClick={() => setEditingProduto(p)}
+                aria-label="Editar produto" title="Editar produto"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </Button>
+            </>
+          )}
+        />
 
         {total > pageSize && (
-          <div className="px-4 py-3 border-t flex items-center justify-between text-sm">
-            <span className="text-muted-foreground">
-              Página {page} de {totalPages} · {total} produtos
-            </span>
+          <div className="px-4 py-3 md:border-t flex flex-col md:flex-row md:items-center md:justify-between gap-3 text-sm">
+            <span className="text-muted-foreground">Página {page} de {totalPages} · {total} produtos</span>
             <div className="flex gap-2">
-              <Button variant="outline" size="sm" disabled={page <= 1}
-                onClick={() => setPage((p) => Math.max(1, p - 1))}>Anterior</Button>
-              <Button variant="outline" size="sm" disabled={page >= totalPages}
-                onClick={() => setPage((p) => p + 1)}>Próxima</Button>
+              <Button variant="outline" size="sm" className="flex-1 md:flex-none h-11 md:h-8"
+                disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>Anterior</Button>
+              <Button variant="outline" size="sm" className="flex-1 md:flex-none h-11 md:h-8"
+                disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>Próxima</Button>
             </div>
           </div>
         )}
       </div>
 
       {editingProduto && (
-        <EditProdutoModal
-          produto={editingProduto}
-          onClose={() => setEditingProduto(null)}
-          onSaved={() => {
-            setEditingProduto(null);
-            qc.invalidateQueries({ queryKey: ["produtos"] });
-          }}
-        />
+        <MobileHidden>
+          <EditProdutoModal
+            produto={editingProduto}
+            onClose={() => setEditingProduto(null)}
+            onSaved={() => {
+              setEditingProduto(null);
+              qc.invalidateQueries({ queryKey: ["produtos"] });
+            }}
+          />
+        </MobileHidden>
       )}
     </div>
   );

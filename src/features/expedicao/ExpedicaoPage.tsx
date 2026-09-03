@@ -39,6 +39,8 @@ import { gerarDanfeCustom } from "@/lib/danfe.functions";
 import { isPedidoFlex, marcarPedidoImpresso, nfNaoAutorizada, nfSituacaoLabel } from "@/lib/pedidos.functions";
 import { useQzTray } from "@/hooks/useQzTray";
 import { PrinterConfig } from "@/components/PrinterConfig";
+import { MobileHidden } from "@/components/MobileHidden";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 const IMPRESSORA_KEY = "qztray_impressora_padrao";
 
@@ -210,6 +212,7 @@ export function ExpedicaoPage() {
   const queryClient = useQueryClient();
   const qzTray = useQzTray();
   const marcarImpresso = useServerFn(marcarPedidoImpresso);
+  const isMobile = useIsMobile();
 
   const { data: pedidos = [], isLoading } = useQuery({
     queryKey: ["expedicao-pedidos"],
@@ -275,6 +278,7 @@ export function ExpedicaoPage() {
 
   const handleBiparPedido = useCallback(
     (pedido: PedidoExpedicao) => {
+      if (isMobile) return; // spec seção 4: bipagem é bloqueada no celular
       const semNf = !pedido.bling_nota_fiscal_id;
       if (!isPedidoFlex(pedido) && semNf) {
         toast.info("Este pedido ainda não tem NF emitida no Bling — aguarde o próximo sync");
@@ -287,7 +291,7 @@ export function ExpedicaoPage() {
       const fresh = pedidos.find((p) => p.id === pedido.id) ?? pedido;
       setPedidoAtivo(fresh);
     },
-    [pedidos],
+    [pedidos, isMobile],
   );
 
   const handleImpressaoAutomatica = useCallback(
@@ -429,11 +433,11 @@ export function ExpedicaoPage() {
   );
 
   return (
-    <div className="p-8 max-w-[1400px] mx-auto">
+    <div className="p-4 md:p-8 max-w-[1400px] mx-auto">
       {/* Header */}
-      <div className="flex items-start justify-between gap-6 mb-6">
+      <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4 md:gap-6 mb-6">
         <div>
-          <h1 className="text-4xl font-bold tracking-tight text-foreground">
+          <h1 className="text-2xl md:text-4xl font-bold tracking-tight text-foreground">
             Checkout por Produto
           </h1>
           <p className="text-sm text-muted-foreground mt-2">
@@ -441,27 +445,30 @@ export function ExpedicaoPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <div className="rounded-xl bg-primary text-primary-foreground px-6 py-4 text-center shadow-md min-w-[160px]">
+          <div className="rounded-xl bg-primary text-primary-foreground px-6 py-4 text-center shadow-md min-w-[160px] flex-1 md:flex-none">
             <div className="text-4xl font-bold leading-none">{filtrados.length}</div>
             <div className="text-xs uppercase tracking-wider opacity-80 mt-1">
               pedidos pendentes
             </div>
           </div>
-          <Button
-            variant="outline"
-            size="icon"
-            onClick={() => setShowPrinterConfig(true)}
-            title="Configurar impressora"
-            className="h-12 w-12"
-          >
-            <Settings className="h-5 w-5" />
-          </Button>
+          <MobileHidden>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => setShowPrinterConfig(true)}
+              aria-label="Configurar impressora"
+              title="Configurar impressora"
+              className="h-12 w-12"
+            >
+              <Settings className="h-5 w-5" />
+            </Button>
+          </MobileHidden>
         </div>
       </div>
 
       {/* Filtro */}
       <div className="bg-card rounded-xl border p-4 mb-6 shadow-sm space-y-3">
-        <div className="relative max-w-sm">
+        <div className="relative w-full md:max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder="Buscar por número, loja ou cliente..."
@@ -475,7 +482,7 @@ export function ExpedicaoPage() {
           <Button
             variant={marketplaceFiltro === "todos" ? "default" : "outline"}
             size="sm"
-            className="rounded-full"
+            className="rounded-full h-11 md:h-8"
             onClick={() => setMarketplaceFiltro("todos")}
           >
             Todos ({pendentes.length})
@@ -485,7 +492,7 @@ export function ExpedicaoPage() {
               key={f.id}
               variant={marketplaceFiltro === f.id ? "default" : "outline"}
               size="sm"
-              className="rounded-full"
+              className="rounded-full h-11 md:h-8"
               onClick={() => setMarketplaceFiltro(f.id)}
             >
               {f.label} ({marketplaceCounts[f.id]})
@@ -497,7 +504,7 @@ export function ExpedicaoPage() {
           <Button
             variant={dataFiltro === "todas" ? "default" : "outline"}
             size="sm"
-            className="rounded-full"
+            className="rounded-full h-11 md:h-8"
             onClick={() => setDataFiltro("todas")}
           >
             Todas as datas
@@ -507,7 +514,7 @@ export function ExpedicaoPage() {
               key={f.id}
               variant={dataFiltro === f.id ? "default" : "outline"}
               size="sm"
-              className="rounded-full"
+              className="rounded-full h-11 md:h-8"
               onClick={() => setDataFiltro(f.id)}
             >
               {f.label} ({dataCounts[f.id]})
@@ -541,28 +548,34 @@ export function ExpedicaoPage() {
       )}
 
       {/* Modal de bipagem */}
-      <BipagemModal
-        pedido={pedidoAtivo}
-        onClose={() => setPedidoAtivo(null)}
-        onConcluido={(pedido) => {
-          queryClient.invalidateQueries({ queryKey: ["expedicao-pedidos"] });
-          setPedidoAtivo(null);
-          handleImpressaoAutomatica(pedido);
-        }}
-        onRegistered={() =>
-          queryClient.invalidateQueries({ queryKey: ["expedicao-pedidos"] })
-        }
-      />
+      <MobileHidden>
+        <BipagemModal
+          pedido={pedidoAtivo}
+          onClose={() => setPedidoAtivo(null)}
+          onConcluido={(pedido) => {
+            queryClient.invalidateQueries({ queryKey: ["expedicao-pedidos"] });
+            setPedidoAtivo(null);
+            handleImpressaoAutomatica(pedido);
+          }}
+          onRegistered={() =>
+            queryClient.invalidateQueries({ queryKey: ["expedicao-pedidos"] })
+          }
+        />
+      </MobileHidden>
 
       {/* Aviso de NF não autorizada */}
-      <NfNaoAutorizadaDialog pedido={pedidoNfBloqueada} onClose={() => setPedidoNfBloqueada(null)} />
+      <MobileHidden>
+        <NfNaoAutorizadaDialog pedido={pedidoNfBloqueada} onClose={() => setPedidoNfBloqueada(null)} />
+      </MobileHidden>
 
       {/* Config de impressora */}
-      <PrinterConfig
-        open={showPrinterConfig}
-        onClose={() => setShowPrinterConfig(false)}
-        qzTray={qzTray}
-      />
+      <MobileHidden>
+        <PrinterConfig
+          open={showPrinterConfig}
+          onClose={() => setShowPrinterConfig(false)}
+          qzTray={qzTray}
+        />
+      </MobileHidden>
     </div>
   );
 }
@@ -636,12 +649,12 @@ function PedidoCard({
 
   return (
     <div
-      className={`bg-card border rounded-xl shadow-sm p-4 flex items-center gap-4 transition-shadow hover:shadow-md ${
+      className={`bg-card border rounded-xl shadow-sm p-4 flex flex-col md:flex-row md:items-center gap-4 transition-shadow hover:shadow-md ${
         done ? "opacity-60" : ""
       }`}
     >
       {/* Imagem do produto */}
-      <div className="shrink-0 w-[150px] h-[150px] rounded-lg bg-muted flex flex-col items-center justify-center overflow-hidden border">
+      <div className="shrink-0 w-full h-40 md:w-[150px] md:h-[150px] rounded-lg bg-muted flex flex-col items-center justify-center overflow-hidden border">
         {imageUrl ? (
           <img
             src={imageUrl}
@@ -715,18 +728,21 @@ function PedidoCard({
             </span>
           )}
         </div>
-        <div className="grid grid-cols-3 gap-x-6 gap-y-1 text-xs">
+        {/* break-all nos campos longos: SKU, EAN e numero do pedido sao strings sem
+            espaco, e sem ponto de quebra eles transbordam para a coluna vizinha em
+            telas estreitas (visto num Galaxy Z Fold 6 de tela fechada, ~344px). */}
+        <div className="grid grid-cols-3 gap-x-3 md:gap-x-6 gap-y-1 text-xs">
           <span className="text-muted-foreground">SKU</span>
           <span className="text-muted-foreground">EAN</span>
           <span className="text-muted-foreground">Qtd</span>
-          <span className="font-mono font-medium">{item?.sku ?? "—"}</span>
-          <span className="font-mono">{ean}</span>
+          <span className="font-mono font-medium break-all">{item?.sku ?? "—"}</span>
+          <span className="font-mono break-all">{ean}</span>
           <span className="font-semibold text-sm">{item?.quantidade ?? "—"}</span>
 
           <span className="text-muted-foreground">Pedido</span>
           <span className="text-muted-foreground">Data</span>
           <span className="text-muted-foreground">Logística</span>
-          <span className="font-mono">
+          <span className="font-mono break-all">
             <span>{numeroPrincipal}</span>
             {numeroSecundario && (
               <span className="block text-muted-foreground font-normal">
@@ -737,7 +753,7 @@ function PedidoCard({
           <span>{formatDateTime(pedido.data_pedido)}</span>
           <span>
             {logistica ? (
-              <span className="inline-block bg-muted text-muted-foreground text-[10px] px-1.5 py-0.5 rounded font-medium truncate max-w-[120px]">
+              <span className="inline-block bg-muted text-muted-foreground text-xs md:text-[10px] px-1.5 py-0.5 rounded font-medium truncate max-w-full md:max-w-[120px]">
                 {logistica}
               </span>
             ) : (
@@ -748,7 +764,7 @@ function PedidoCard({
       </div>
 
       {/* Ações */}
-      <div className="flex gap-2 shrink-0">
+      <MobileHidden className="hidden md:flex gap-2 shrink-0">
         {done && (
           <Button variant="outline" size="sm" onClick={onReimprimir} className="gap-1.5">
             <Printer className="h-4 w-4" />
@@ -768,7 +784,7 @@ function PedidoCard({
             BIPAR
           </Button>
         ) : null}
-      </div>
+      </MobileHidden>
     </div>
   );
 }

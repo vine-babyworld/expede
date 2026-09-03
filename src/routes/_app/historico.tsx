@@ -5,7 +5,6 @@ import { useServerFn } from "@tanstack/react-start";
 import {
   ChevronLeft,
   ChevronRight,
-  Loader2,
   PackageCheck,
   Printer,
   Search,
@@ -26,6 +25,7 @@ import { isPedidoFlex, nfNaoAutorizada, nfSituacaoLabel } from "@/lib/pedidos.fu
 import { buscarEtiquetaBling } from "@/lib/etiqueta.functions";
 import { gerarDanfeCustom } from "@/lib/danfe.functions";
 import { useQzTray } from "@/hooks/useQzTray";
+import { ResponsiveTable, type ResponsiveColumn } from "@/components/ResponsiveTable";
 
 export const Route = createFileRoute("/_app/historico")({
   component: HistoricoPage,
@@ -197,15 +197,72 @@ function HistoricoPage() {
     [qzTray],
   );
 
+  type Row = HistoricoRow;
+
+  const columns: ResponsiveColumn<Row>[] = [
+    {
+      id: "numero",
+      header: "Nº Pedido",
+      priority: "primary",
+      cell: (p) => (
+        <>
+          <span className="font-mono text-xs md:text-xs">{p.numero_loja ?? p.numero}</span>
+          {p.numero_loja && (
+            <span className="block text-xs md:text-[11px] text-muted-foreground">Bling #{p.numero}</span>
+          )}
+        </>
+      ),
+    },
+    {
+      id: "marketplace",
+      header: "Marketplace",
+      priority: "secondary",
+      cell: (p) => {
+        const badge = marketplaceBadge(p.marketplace);
+        return (
+          <div className="flex flex-wrap gap-1.5">
+            <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${badge.cor}`}>
+              {badge.nome}
+            </span>
+            {isPedidoFlex(p) && (
+              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border bg-yellow-100 text-yellow-800 border-yellow-300">
+                FLEX
+              </span>
+            )}
+          </div>
+        );
+      },
+    },
+    {
+      id: "cliente",
+      header: "Cliente",
+      priority: "primary",
+      className: "max-w-[200px] truncate",
+      cell: (p) => p.cliente_nome,
+    },
+    {
+      id: "valor",
+      header: "Valor",
+      priority: "secondary",
+      align: "right",
+      className: "tabular-nums",
+      cell: (p) => formatBRL(p.valor_total),
+    },
+    {
+      id: "expedido",
+      header: "Expedido em",
+      priority: "secondary",
+      className: "text-muted-foreground",
+      cell: (p) => formatDateTime(p.printed_at),
+    },
+  ];
+
   return (
-    <div className="p-6 space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+    <div className="p-4 md:p-6 space-y-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">Histórico de Expedição</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Pedidos expedidos nos últimos 30 dias
-          </p>
+          <p className="text-sm text-muted-foreground mt-0.5">Pedidos expedidos nos últimos 30 dias</p>
         </div>
         <span className="text-sm text-muted-foreground">
           {total} pedido{total !== 1 ? "s" : ""}
@@ -213,19 +270,21 @@ function HistoricoPage() {
       </div>
 
       {/* Filtros */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-        <div className="relative w-full sm:max-w-sm">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center">
+        <div className="relative w-full md:max-w-sm">
+          <label htmlFor="busca-historico" className="sr-only">Buscar por número, nº da loja ou cliente</label>
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
           <Input
+            id="busca-historico"
             placeholder="Buscar por número, nº da loja ou cliente..."
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
-            className="pl-9 pr-9"
+            className="pl-9 pr-9 h-11 md:h-9"
           />
           {busca && (
             <button
               onClick={() => setBusca("")}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              className="absolute right-1 top-1/2 -translate-y-1/2 flex h-11 w-11 md:h-8 md:w-8 items-center justify-center text-muted-foreground hover:text-foreground"
               aria-label="Limpar busca"
             >
               <X className="h-4 w-4" />
@@ -233,19 +292,13 @@ function HistoricoPage() {
           )}
         </div>
 
-        <Select
-          value={marketplace}
-          onValueChange={(value) => {
-            setMarketplace(value);
-            setPage(1);
-          }}
-        >
-          <SelectTrigger className="w-full sm:w-[220px]" aria-label="Filtrar por marketplace">
+        <Select value={marketplace} onValueChange={(value) => { setMarketplace(value); setPage(1); }}>
+          <SelectTrigger className="w-full md:w-[220px] h-11 md:h-9" aria-label="Filtrar por marketplace">
             <SelectValue placeholder="Marketplace" />
           </SelectTrigger>
           <SelectContent>
             {MARKETPLACE_OPTIONS.map((option) => (
-              <SelectItem key={option.value} value={option.value}>
+              <SelectItem key={option.value} value={option.value} className="min-h-11 md:min-h-0">
                 {option.label}
               </SelectItem>
             ))}
@@ -254,104 +307,40 @@ function HistoricoPage() {
       </div>
 
       {/* Tabela */}
-      <div className="border rounded-lg overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-muted/50 text-muted-foreground">
-            <tr>
-              <th className="text-left px-4 py-3 font-medium">Nº Pedido</th>
-              <th className="text-left px-4 py-3 font-medium">Marketplace</th>
-              <th className="text-left px-4 py-3 font-medium">Cliente</th>
-              <th className="text-right px-4 py-3 font-medium">Valor</th>
-              <th className="text-left px-4 py-3 font-medium">Expedido em</th>
-              <th className="text-right px-4 py-3 font-medium"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {isLoading ? (
-              <tr>
-                <td colSpan={6} className="text-center py-12 text-muted-foreground">
-                  <Loader2 className="h-5 w-5 animate-spin mx-auto" />
-                </td>
-              </tr>
-            ) : rows.length === 0 ? (
-              <tr>
-                <td colSpan={6} className="text-center py-12 text-muted-foreground">
-                  <PackageCheck className="h-10 w-10 mx-auto mb-2 opacity-30" />
-                  <p>
-                    {buscaDebounced || marketplace !== "todos"
-                      ? "Nenhum pedido encontrado com esses filtros"
-                      : "Nenhum pedido expedido nos últimos 30 dias"}
-                  </p>
-                </td>
-              </tr>
-            ) : (
-              rows.map((p) => {
-                const badge = marketplaceBadge(p.marketplace);
-                const flex = isPedidoFlex(p);
-                return (
-                  <tr key={p.id} className="border-t hover:bg-muted/30 transition-colors">
-                    <td className="px-4 py-3">
-                      <span className="font-mono text-xs">{p.numero_loja ?? p.numero}</span>
-                      {p.numero_loja && (
-                        <span className="block text-[11px] text-muted-foreground">
-                          Bling #{p.numero}
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-wrap gap-1.5">
-                        <span
-                          className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${badge.cor}`}
-                        >
-                          {badge.nome}
-                        </span>
-                        {flex && (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border bg-yellow-100 text-yellow-800 border-yellow-300">
-                            FLEX
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td
-                      className="px-4 py-3 max-w-[200px] truncate"
-                      title={p.cliente_nome}
-                    >
-                      {p.cliente_nome}
-                    </td>
-                    <td className="px-4 py-3 text-right tabular-nums">
-                      {formatBRL(p.valor_total)}
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      {formatDateTime(p.printed_at)}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleReimprimir(p)}
-                        className="gap-1.5"
-                      >
-                        <Printer className="h-3.5 w-3.5" />
-                        Reimprimir
-                      </Button>
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
+      <div className="md:border md:rounded-lg md:overflow-hidden">
+        <ResponsiveTable
+          columns={columns}
+          rows={rows}
+          rowKey={(p) => p.id}
+          loading={isLoading}
+          empty={
+            <>
+              <PackageCheck className="h-10 w-10 mx-auto mb-2 opacity-30" />
+              <p>
+                {buscaDebounced || marketplace !== "todos"
+                  ? "Nenhum pedido encontrado com esses filtros"
+                  : "Nenhum pedido expedido nos últimos 30 dias"}
+              </p>
+            </>
+          }
+          rowActions={(p) => (
+            <Button variant="outline" size="sm" onClick={() => handleReimprimir(p)} className="gap-1.5">
+              <Printer className="h-3.5 w-3.5" />
+              Reimprimir
+            </Button>
+          )}
+        />
       </div>
 
       {/* Paginação */}
       {totalPages > 1 && (
-        <div className="flex items-center justify-between pt-1">
+        <div className="flex items-center justify-between gap-2 pt-1">
           <Button
             variant="outline"
             size="sm"
             onClick={() => setPage((p) => Math.max(1, p - 1))}
             disabled={page <= 1 || isLoading}
-            className="gap-1.5"
+            className="gap-1.5 h-11 md:h-8"
           >
             <ChevronLeft className="h-4 w-4" />
             Anterior
@@ -364,7 +353,7 @@ function HistoricoPage() {
             size="sm"
             onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
             disabled={page >= totalPages || isLoading}
-            className="gap-1.5"
+            className="gap-1.5 h-11 md:h-8"
           >
             Próxima
             <ChevronRight className="h-4 w-4" />

@@ -16,6 +16,8 @@ import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/hooks/useAuth";
 import { listUsers, createUser, setUserAtivo } from "@/lib/users.functions";
 import { UserPlus, Loader2 } from "lucide-react";
+import { ResponsiveTable, type ResponsiveColumn } from "@/components/ResponsiveTable";
+import { MobileHidden } from "@/components/MobileHidden";
 
 export const Route = createFileRoute("/_app/configuracoes/")({
   component: UsuariosPage,
@@ -43,54 +45,51 @@ function UsuariosPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const columns: ResponsiveColumn<(typeof users)[number]>[] = [
+    { id: "nome", header: "Nome", priority: "primary", className: "font-medium", cell: (u) => u.nome },
+    { id: "email", header: "E-mail", priority: "primary", className: "text-muted-foreground", cell: (u) => u.email },
+    {
+      id: "papel", header: "Papel", priority: "secondary",
+      cell: (u) => (
+        <span className="inline-block px-2 py-0.5 rounded text-xs font-semibold bg-primary/10 text-primary">
+          {u.roles[0] ?? "—"}
+        </span>
+      ),
+    },
+    { id: "ativo-texto", header: "Ativo", priority: "secondary", className: "hidden", cell: (u) => (u.ativo ? "Sim" : "Não") },
+    {
+      id: "ativo-switch", header: "Ativo", priority: "desktop-only",
+      cell: (u) => (
+        <MobileHidden>
+          <Switch
+            checked={u.ativo}
+            onCheckedChange={(v) => toggleMut.mutate({ id: u.id, ativo: v })}
+          />
+        </MobileHidden>
+      ),
+    },
+  ];
+
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <p className="text-sm text-muted-foreground">Usuários do sistema</p>
-        <NovoUsuarioDialog
-          onCreated={() => qc.invalidateQueries({ queryKey: ["users-admin"] })}
-          createFn={create}
-        />
+        <MobileHidden>
+          <NovoUsuarioDialog
+            onCreated={() => qc.invalidateQueries({ queryKey: ["users-admin"] })}
+            createFn={create}
+          />
+        </MobileHidden>
       </div>
 
-      <div className="bg-card border rounded-xl shadow-sm overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-muted/50 text-left">
-            <tr>
-              <th className="px-4 py-3 font-medium">Nome</th>
-              <th className="px-4 py-3 font-medium">E-mail</th>
-              <th className="px-4 py-3 font-medium">Papel</th>
-              <th className="px-4 py-3 font-medium">Ativo</th>
-            </tr>
-          </thead>
-          <tbody>
-            {isLoading ? (
-              <tr><td colSpan={4} className="px-4 py-8 text-center text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin inline" />
-              </td></tr>
-            ) : users.length === 0 ? (
-              <tr><td colSpan={4} className="px-4 py-8 text-center text-muted-foreground">
-                Nenhum usuário.
-              </td></tr>
-            ) : users.map((u) => (
-              <tr key={u.id} className="border-t">
-                <td className="px-4 py-3 font-medium">{u.nome}</td>
-                <td className="px-4 py-3 text-muted-foreground">{u.email}</td>
-                <td className="px-4 py-3">
-                  <span className="inline-block px-2 py-0.5 rounded text-xs font-semibold bg-primary/10 text-primary">
-                    {u.roles[0] ?? "—"}
-                  </span>
-                </td>
-                <td className="px-4 py-3">
-                  <Switch
-                    checked={u.ativo}
-                    onCheckedChange={(v) => toggleMut.mutate({ id: u.id, ativo: v })}
-                  />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="md:bg-card md:border md:rounded-xl md:shadow-sm md:overflow-hidden">
+        <ResponsiveTable
+          columns={columns}
+          rows={users}
+          rowKey={(u) => u.id}
+          loading={isLoading}
+          empty={<>Nenhum usuário.</>}
+        />
       </div>
     </div>
   );

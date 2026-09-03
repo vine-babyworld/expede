@@ -2,10 +2,11 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Loader2, Search, ClipboardList } from "lucide-react";
+import { Search, ClipboardList } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { getPedidosAExpedir, type PedidoAExpedir } from "@/lib/dashboard.functions";
 import { isPedidoFlex } from "@/lib/pedidos.functions";
+import { ResponsiveTable, type ResponsiveColumn } from "@/components/ResponsiveTable";
 
 export const Route = createFileRoute("/_app/a-expedir")({
   component: AExpedirPage,
@@ -68,93 +69,85 @@ function AExpedirPage() {
   const term = search.trim().toLowerCase();
   const filtered = term ? rows.filter((p) => matchesSearch(p, term)) : rows;
 
+  const columns: ResponsiveColumn<PedidoAExpedir>[] = [
+    {
+      id: "numero", header: "Número", priority: "primary", className: "font-mono",
+      cell: (p) => (
+        <>
+          {p.numero_loja ?? p.numero}
+          {p.numero_loja && p.numero_loja !== p.numero && (
+            <div className="text-xs text-muted-foreground">{p.numero}</div>
+          )}
+        </>
+      ),
+    },
+    {
+      id: "cliente", header: "Cliente", priority: "primary", className: "max-w-[180px] truncate",
+      cell: (p) => p.cliente?.nome ?? p.cliente?.razaoSocial ?? "—",
+    },
+    {
+      id: "marketplace", header: "Marketplace", priority: "secondary",
+      cell: (p) => {
+        const marketplace = detectarMarketplace(p.numero_loja);
+        return (
+          <div className="flex flex-wrap items-center gap-1.5">
+            {marketplace && (
+              <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${marketplace.cor}`}>
+                {marketplace.nome}
+              </span>
+            )}
+            {isPedidoFlex(p) && (
+              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border bg-yellow-100 text-yellow-800 border-yellow-300">
+                FLEX
+              </span>
+            )}
+          </div>
+        );
+      },
+    },
+    { id: "situacao", header: "Situação", priority: "secondary", cell: (p) => <SituacaoBadge situacaoId={p.situacao_id} /> },
+    {
+      id: "logistica", header: "Logística", priority: "secondary", className: "text-muted-foreground",
+      cell: (p) => (p.raw_json as any)?.transporte?.volumes?.[0]?.servico ?? "—",
+    },
+    { id: "data", header: "Data", priority: "secondary", className: "text-muted-foreground", cell: (p) => formatDateTime(p.data_pedido) },
+    { id: "total", header: "Total", priority: "secondary", align: "right", className: "tabular-nums", cell: (p) => formatBRL(p.total) },
+  ];
+
   return (
-    <div className="p-6 space-y-4">
-      <div className="flex items-center justify-between">
+    <div className="p-4 md:p-6 space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold">A expedir</h1>
         <span className="text-sm text-muted-foreground">
           {total} pedido{total !== 1 ? "s" : ""}
         </span>
       </div>
 
-      <div className="relative w-64">
+      <div className="relative w-full md:w-64">
+        <label htmlFor="busca-a-expedir" className="sr-only">Buscar por número ou cliente</label>
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input
+          id="busca-a-expedir"
           placeholder="Buscar por número ou cliente..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="pl-9"
+          className="pl-9 h-11 md:h-9"
         />
       </div>
 
-      <div className="border rounded-lg overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-muted/50 text-muted-foreground">
-            <tr>
-              <th className="text-left px-4 py-3 font-medium">Número</th>
-              <th className="text-left px-4 py-3 font-medium">Cliente</th>
-              <th className="text-left px-4 py-3 font-medium">Marketplace</th>
-              <th className="text-left px-4 py-3 font-medium">Situação</th>
-              <th className="text-left px-4 py-3 font-medium">Logística</th>
-              <th className="text-left px-4 py-3 font-medium">Data</th>
-              <th className="text-right px-4 py-3 font-medium">Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            {q.isLoading ? (
-              <tr>
-                <td colSpan={7} className="text-center py-12 text-muted-foreground">
-                  <Loader2 className="h-5 w-5 animate-spin mx-auto" />
-                </td>
-              </tr>
-            ) : filtered.length === 0 ? (
-              <tr>
-                <td colSpan={7} className="text-center py-12 text-muted-foreground">
-                  <ClipboardList className="h-10 w-10 mx-auto mb-2 opacity-30" />
-                  <p>Nenhum pedido encontrado</p>
-                </td>
-              </tr>
-            ) : (
-              filtered.map((p) => {
-                const nomeCliente = p.cliente?.nome ?? p.cliente?.razaoSocial ?? "—";
-                const marketplace = detectarMarketplace(p.numero_loja);
-                const flex = isPedidoFlex(p);
-                const logistica = (p.raw_json as any)?.transporte?.volumes?.[0]?.servico ?? "—";
-                return (
-                  <tr key={p.id} className="border-t hover:bg-muted/30 transition-colors">
-                    <td className="px-4 py-3 font-mono">
-                      {p.numero_loja ?? p.numero}
-                      {p.numero_loja && p.numero_loja !== p.numero && (
-                        <div className="text-xs text-muted-foreground">{p.numero}</div>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 max-w-[180px] truncate" title={nomeCliente}>
-                      {nomeCliente}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-1.5">
-                        {marketplace && (
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${marketplace.cor}`}>
-                            {marketplace.nome}
-                          </span>
-                        )}
-                        {flex && (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border bg-yellow-100 text-yellow-800 border-yellow-300">
-                            FLEX
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3"><SituacaoBadge situacaoId={p.situacao_id} /></td>
-                    <td className="px-4 py-3 text-muted-foreground">{logistica}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{formatDateTime(p.data_pedido)}</td>
-                    <td className="px-4 py-3 text-right tabular-nums">{formatBRL(p.total)}</td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
+      <div className="md:border md:rounded-lg md:overflow-hidden">
+        <ResponsiveTable
+          columns={columns}
+          rows={filtered}
+          rowKey={(p) => p.id}
+          loading={q.isLoading}
+          empty={
+            <>
+              <ClipboardList className="h-10 w-10 mx-auto mb-2 opacity-30" />
+              <p>Nenhum pedido encontrado</p>
+            </>
+          }
+        />
       </div>
     </div>
   );

@@ -38,6 +38,8 @@ function LoginPage() {
           <img
             src="/expede-logo-light.png"
             alt="EXPEDE"
+            width={1500}
+            height={390}
             className="mx-auto h-16 w-auto"
           />
           <p className="text-sm text-white/60 mt-2">Gestão de Expedição</p>
@@ -71,7 +73,7 @@ function LoginPage() {
             />
           </div>
           {error && (
-            <div className="text-sm text-destructive bg-destructive/10 rounded-md px-3 py-2">
+            <div role="alert" className="text-sm text-destructive bg-destructive/10 rounded-md px-3 py-2">
               {error}
             </div>
           )}
