@@ -34,6 +34,7 @@ import { Route as ApiDebugBlingCheckRouteImport } from './routes/api/debug/bling
 import { Route as ApiAdminReconciliarRouteImport } from './routes/api/admin/reconciliar'
 import { Route as ApiAdminImportarProdutosLoteRouteImport } from './routes/api/admin/importar-produtos-lote'
 import { Route as ApiAdminImportarPedidoRouteImport } from './routes/api/admin/importar-pedido'
+import { Route as ApiAdminBackfillRepasseRouteImport } from './routes/api/admin/backfill-repasse'
 import { Route as AppConfiguracoesNotasFiscaisRouteImport } from './routes/_app/configuracoes.notas-fiscais'
 import { Route as AppConfiguracoesMarketplacesRouteImport } from './routes/_app/configuracoes.marketplaces'
 import { Route as AppConfiguracoesBlingRouteImport } from './routes/_app/configuracoes.bling'
@@ -168,6 +169,11 @@ const ApiAdminImportarPedidoRoute = ApiAdminImportarPedidoRouteImport.update({
   path: '/api/admin/importar-pedido',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiAdminBackfillRepasseRoute = ApiAdminBackfillRepasseRouteImport.update({
+  id: '/api/admin/backfill-repasse',
+  path: '/api/admin/backfill-repasse',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AppConfiguracoesNotasFiscaisRoute =
   AppConfiguracoesNotasFiscaisRouteImport.update({
     id: '/notas-fiscais',
@@ -224,6 +230,7 @@ export interface FileRoutesByFullPath {
   '/configuracoes/bling': typeof AppConfiguracoesBlingRoute
   '/configuracoes/marketplaces': typeof AppConfiguracoesMarketplacesRoute
   '/configuracoes/notas-fiscais': typeof AppConfiguracoesNotasFiscaisRoute
+  '/api/admin/backfill-repasse': typeof ApiAdminBackfillRepasseRoute
   '/api/admin/importar-pedido': typeof ApiAdminImportarPedidoRoute
   '/api/admin/importar-produtos-lote': typeof ApiAdminImportarProdutosLoteRoute
   '/api/admin/reconciliar': typeof ApiAdminReconciliarRoute
@@ -256,6 +263,7 @@ export interface FileRoutesByTo {
   '/configuracoes/bling': typeof AppConfiguracoesBlingRoute
   '/configuracoes/marketplaces': typeof AppConfiguracoesMarketplacesRoute
   '/configuracoes/notas-fiscais': typeof AppConfiguracoesNotasFiscaisRoute
+  '/api/admin/backfill-repasse': typeof ApiAdminBackfillRepasseRoute
   '/api/admin/importar-pedido': typeof ApiAdminImportarPedidoRoute
   '/api/admin/importar-produtos-lote': typeof ApiAdminImportarProdutosLoteRoute
   '/api/admin/reconciliar': typeof ApiAdminReconciliarRoute
@@ -291,6 +299,7 @@ export interface FileRoutesById {
   '/_app/configuracoes/bling': typeof AppConfiguracoesBlingRoute
   '/_app/configuracoes/marketplaces': typeof AppConfiguracoesMarketplacesRoute
   '/_app/configuracoes/notas-fiscais': typeof AppConfiguracoesNotasFiscaisRoute
+  '/api/admin/backfill-repasse': typeof ApiAdminBackfillRepasseRoute
   '/api/admin/importar-pedido': typeof ApiAdminImportarPedidoRoute
   '/api/admin/importar-produtos-lote': typeof ApiAdminImportarProdutosLoteRoute
   '/api/admin/reconciliar': typeof ApiAdminReconciliarRoute
@@ -326,6 +335,7 @@ export interface FileRouteTypes {
     | '/configuracoes/bling'
     | '/configuracoes/marketplaces'
     | '/configuracoes/notas-fiscais'
+    | '/api/admin/backfill-repasse'
     | '/api/admin/importar-pedido'
     | '/api/admin/importar-produtos-lote'
     | '/api/admin/reconciliar'
@@ -358,6 +368,7 @@ export interface FileRouteTypes {
     | '/configuracoes/bling'
     | '/configuracoes/marketplaces'
     | '/configuracoes/notas-fiscais'
+    | '/api/admin/backfill-repasse'
     | '/api/admin/importar-pedido'
     | '/api/admin/importar-produtos-lote'
     | '/api/admin/reconciliar'
@@ -392,6 +403,7 @@ export interface FileRouteTypes {
     | '/_app/configuracoes/bling'
     | '/_app/configuracoes/marketplaces'
     | '/_app/configuracoes/notas-fiscais'
+    | '/api/admin/backfill-repasse'
     | '/api/admin/importar-pedido'
     | '/api/admin/importar-produtos-lote'
     | '/api/admin/reconciliar'
@@ -416,6 +428,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AppRoute: typeof AppRouteWithChildren
   LoginRoute: typeof LoginRoute
+  ApiAdminBackfillRepasseRoute: typeof ApiAdminBackfillRepasseRoute
   ApiAdminImportarPedidoRoute: typeof ApiAdminImportarPedidoRoute
   ApiAdminImportarProdutosLoteRoute: typeof ApiAdminImportarProdutosLoteRoute
   ApiAdminReconciliarRoute: typeof ApiAdminReconciliarRoute
@@ -612,6 +625,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAdminImportarPedidoRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/admin/backfill-repasse': {
+      id: '/api/admin/backfill-repasse'
+      path: '/api/admin/backfill-repasse'
+      fullPath: '/api/admin/backfill-repasse'
+      preLoaderRoute: typeof ApiAdminBackfillRepasseRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_app/configuracoes/notas-fiscais': {
       id: '/_app/configuracoes/notas-fiscais'
       path: '/notas-fiscais'
@@ -709,6 +729,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AppRoute: AppRouteWithChildren,
   LoginRoute: LoginRoute,
+  ApiAdminBackfillRepasseRoute: ApiAdminBackfillRepasseRoute,
   ApiAdminImportarPedidoRoute: ApiAdminImportarPedidoRoute,
   ApiAdminImportarProdutosLoteRoute: ApiAdminImportarProdutosLoteRoute,
   ApiAdminReconciliarRoute: ApiAdminReconciliarRoute,
