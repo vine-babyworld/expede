@@ -1,9 +1,10 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { ArrowLeft, Loader2, PackageCheck } from "lucide-react";
+import { ArrowLeft, PackageCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getExpedidosHoje } from "@/lib/dashboard.functions";
+import { ResponsiveTable, type ResponsiveColumn } from "@/components/ResponsiveTable";
 
 export const Route = createFileRoute("/_app/expedidos-hoje")({
   component: ExpedidosHojePage,
@@ -42,11 +43,29 @@ function ExpedidosHojePage() {
   const rows = q.data?.rows ?? [];
   const total = q.data?.total ?? 0;
 
+  const columns: ResponsiveColumn<(typeof rows)[number]>[] = [
+    { id: "numero", header: "Nº Pedido", priority: "primary", className: "font-mono", cell: (p) => p.numero_loja },
+    {
+      id: "marketplace", header: "Marketplace", priority: "secondary",
+      cell: (p) => {
+        const m = marketplaceBadge(p.marketplace);
+        return (
+          <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${m.cor}`}>
+            {m.nome}
+          </span>
+        );
+      },
+    },
+    { id: "cliente", header: "Cliente", priority: "primary", className: "max-w-[220px] truncate", cell: (p) => p.cliente_nome },
+    { id: "valor", header: "Valor", priority: "secondary", align: "right", className: "tabular-nums", cell: (p) => formatBRL(p.valor_total) },
+    { id: "horario", header: "Horário", priority: "secondary", className: "text-muted-foreground", cell: (p) => formatTime(p.printed_at) },
+  ];
+
   return (
-    <div className="p-6 space-y-4">
-      <div className="flex items-center justify-between">
+    <div className="p-4 md:p-6 space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <Button variant="outline" size="sm" onClick={() => navigate({ to: "/dashboard" })} className="gap-2">
+          <Button variant="outline" size="sm" onClick={() => navigate({ to: "/dashboard" })} className="gap-2 h-11 md:h-8">
             <ArrowLeft className="h-4 w-4" />
             Voltar
           </Button>
@@ -57,53 +76,19 @@ function ExpedidosHojePage() {
         </span>
       </div>
 
-      <div className="border rounded-lg overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-muted/50 text-muted-foreground">
-            <tr>
-              <th className="text-left px-4 py-3 font-medium">Nº Pedido</th>
-              <th className="text-left px-4 py-3 font-medium">Marketplace</th>
-              <th className="text-left px-4 py-3 font-medium">Cliente</th>
-              <th className="text-right px-4 py-3 font-medium">Valor</th>
-              <th className="text-left px-4 py-3 font-medium">Horário</th>
-            </tr>
-          </thead>
-          <tbody>
-            {q.isLoading ? (
-              <tr>
-                <td colSpan={5} className="text-center py-12 text-muted-foreground">
-                  <Loader2 className="h-5 w-5 animate-spin mx-auto" />
-                </td>
-              </tr>
-            ) : rows.length === 0 ? (
-              <tr>
-                <td colSpan={5} className="text-center py-12 text-muted-foreground">
-                  <PackageCheck className="h-10 w-10 mx-auto mb-2 opacity-30" />
-                  <p>Nenhum pedido expedido hoje</p>
-                </td>
-              </tr>
-            ) : (
-              rows.map((p) => {
-                const marketplace = marketplaceBadge(p.marketplace);
-                return (
-                  <tr key={p.id} className="border-t hover:bg-muted/30 transition-colors">
-                    <td className="px-4 py-3 font-mono">{p.numero_loja}</td>
-                    <td className="px-4 py-3">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${marketplace.cor}`}>
-                        {marketplace.nome}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 max-w-[220px] truncate" title={p.cliente_nome}>
-                      {p.cliente_nome}
-                    </td>
-                    <td className="px-4 py-3 text-right tabular-nums">{formatBRL(p.valor_total)}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{formatTime(p.printed_at)}</td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
+      <div className="md:border md:rounded-lg md:overflow-hidden">
+        <ResponsiveTable
+          columns={columns}
+          rows={rows}
+          rowKey={(p) => p.id}
+          loading={q.isLoading}
+          empty={
+            <>
+              <PackageCheck className="h-10 w-10 mx-auto mb-2 opacity-30" />
+              <p>Nenhum pedido expedido hoje</p>
+            </>
+          }
+        />
       </div>
     </div>
   );
