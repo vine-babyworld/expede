@@ -230,7 +230,7 @@ function PedidosPage() {
           <button
             type="button"
             onClick={() => setRepassePedido(row)}
-            className="hover:underline underline-offset-2 text-left"
+            className="hover:underline underline-offset-2 text-left inline-flex items-center min-h-11 min-w-11 md:inline md:min-h-0 md:min-w-0"
             title="Ver repasse do marketplace"
           >
             {row.numero}
