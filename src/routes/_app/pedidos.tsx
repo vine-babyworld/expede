@@ -12,6 +12,8 @@ import { gerarDanfeCustom } from "@/lib/danfe.functions";
 import { abrirEtiquetaPDF } from "@/lib/zpl-to-pdf";
 import { useQzTray } from "@/hooks/useQzTray";
 import { PrinterConfig } from "@/components/PrinterConfig";
+import { ResponsiveTable, type ResponsiveColumn } from "@/components/ResponsiveTable";
+import { MobileHidden } from "@/components/MobileHidden";
 
 const IMPRESSORA_KEY = "qztray_impressora_padrao";
 const PAGE_SIZE = 50;
@@ -215,40 +217,118 @@ function PedidosPage() {
     }
   }
 
+  type PedidoRow = (typeof rows)[number];
+
+  const columns: ResponsiveColumn<PedidoRow>[] = [
+    {
+      id: "numero",
+      header: "Número",
+      priority: "primary",
+      className: "font-mono",
+      cell: (row) => (
+        <>
+          {row.numero}
+          {row.numero_loja && row.numero_loja !== row.numero && (
+            <span className="ml-2 text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+              {row.numero_loja}
+            </span>
+          )}
+        </>
+      ),
+    },
+    {
+      id: "data",
+      header: "Data",
+      priority: "secondary",
+      className: "text-muted-foreground",
+      cell: (row) => formatDateTime(row.data_pedido),
+    },
+    {
+      id: "cliente",
+      header: "Cliente",
+      priority: "primary",
+      className: "max-w-[180px] truncate",
+      cell: (row) =>
+        (row.cliente as any)?.nome ?? (row.cliente as any)?.razaoSocial ?? "—",
+    },
+    {
+      id: "total",
+      header: "Total",
+      priority: "secondary",
+      align: "right",
+      className: "tabular-nums",
+      cell: (row) => formatBRL(row.total),
+    },
+    {
+      id: "nf",
+      header: "NF",
+      priority: "secondary",
+      className: "font-mono text-xs",
+      cell: (row) => row.bling_nota_fiscal_numero ?? "—",
+    },
+    {
+      id: "emissao",
+      header: "Emissão NF",
+      priority: "secondary",
+      cell: (row) => <EmissaoNfBadge status={row.nf_emissao_status} error={row.nf_emissao_error} />,
+    },
+    {
+      id: "situacao",
+      header: "Situação",
+      priority: "secondary",
+      cell: (row) => (
+        <SituacaoBadge situacaoId={row.situacao_id} mlShipmentStatus={row.ml_shipment_status} />
+      ),
+    },
+    {
+      id: "itens",
+      header: "Itens",
+      priority: "secondary",
+      align: "right",
+      className: "text-muted-foreground",
+      cell: (row) => row.items_count,
+    },
+  ];
+
   return (
-    <div className="p-6 space-y-4">
-      <div className="flex items-center justify-between">
+    <div className="p-4 md:p-6 space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold">Pedidos</h1>
         <div className="flex items-center gap-2">
           <span className="text-sm text-muted-foreground">
             {total} pedido{total !== 1 ? "s" : ""}
           </span>
-          <Button
-            variant="outline"
-            size="icon"
-            onClick={() => setShowPrinterConfig(true)}
-            title="Configurar impressora"
-          >
-            <Printer className="h-4 w-4" />
-          </Button>
+          <MobileHidden>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => setShowPrinterConfig(true)}
+              aria-label="Configurar impressora"
+              title="Configurar impressora"
+            >
+              <Printer className="h-4 w-4" />
+            </Button>
+          </MobileHidden>
         </div>
       </div>
 
       {/* Filtros */}
-      <div className="flex items-center gap-4">
-        <div className="relative w-64">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+      <div className="flex flex-col md:flex-row md:items-center gap-3 md:gap-4">
+        <div className="relative w-full md:w-64">
+          <label htmlFor="busca-pedidos" className="sr-only">Buscar pedido por número</label>
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
           <Input
+            id="busca-pedidos"
             placeholder="Buscar por número..."
             value={search}
             onChange={(e) => handleSearch(e.target.value)}
-            className="pl-9"
+            className="pl-9 h-11 md:h-9"
           />
         </div>
-        <label className="flex items-center gap-2 cursor-pointer select-none text-sm font-medium">
+        <label className="flex items-center gap-2 cursor-pointer select-none text-sm font-medium min-h-11 md:min-h-0">
           <input
             type="checkbox"
-            className="h-4 w-4 rounded border-gray-300"
+            className="h-5 w-5 md:h-4 md:w-4 rounded border-gray-300"
             checked={hidecanceled}
             onChange={(e) => handleToggle(e.target.checked)}
           />
@@ -257,168 +337,96 @@ function PedidosPage() {
       </div>
 
       {/* Tabela */}
-      <div className="border rounded-lg overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-muted/50 text-muted-foreground">
-            <tr>
-              <th className="text-left px-4 py-3 font-medium">Número</th>
-              <th className="text-left px-4 py-3 font-medium">Data</th>
-              <th className="text-left px-4 py-3 font-medium">Cliente</th>
-              <th className="text-right px-4 py-3 font-medium">Total</th>
-              <th className="text-left px-4 py-3 font-medium">NF</th>
-              <th className="text-left px-4 py-3 font-medium">Emissão NF</th>
-              <th className="text-left px-4 py-3 font-medium">Situação</th>
-              <th className="text-right px-4 py-3 font-medium">Itens</th>
-              <th className="px-4 py-3" />
-            </tr>
-          </thead>
-          <tbody>
-            {q.isLoading ? (
-              <tr>
-                <td colSpan={9} className="text-center py-12 text-muted-foreground">
-                  <Loader2 className="h-5 w-5 animate-spin mx-auto" />
-                </td>
-              </tr>
-            ) : rows.length === 0 ? (
-              <tr>
-                <td colSpan={9} className="text-center py-12 text-muted-foreground">
-                  <ClipboardList className="h-10 w-10 mx-auto mb-2 opacity-30" />
-                  <p>Nenhum pedido encontrado</p>
-                </td>
-              </tr>
-            ) : (
-              rows.map((row) => {
-                const nomeCliente =
-                  (row.cliente as any)?.nome ??
-                  (row.cliente as any)?.razaoSocial ??
-                  "—";
-                const isCanceled = row.situacao_id === 12;
-                const isLoading = reimprimindo === row.id;
-                const isVisualizando = visualizando === row.id;
-                const jaImpresso = Boolean(row.etiqueta_zpl);
-                return (
-                  <tr
-                    key={row.id}
-                    className={`border-t transition-colors ${
-                      isCanceled ? "opacity-50" : "hover:bg-muted/30"
-                    }`}
-                  >
-                    <td className="px-4 py-3 font-mono">
-                      {row.numero}
-                      {row.numero_loja && row.numero_loja !== row.numero && (
-                        <span className="ml-2 text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
-                          {row.numero_loja}
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      {formatDateTime(row.data_pedido)}
-                    </td>
-                    <td
-                      className="px-4 py-3 max-w-[180px] truncate"
-                      title={nomeCliente}
-                    >
-                      {nomeCliente}
-                    </td>
-                    <td className="px-4 py-3 text-right tabular-nums">
-                      {formatBRL(row.total)}
-                    </td>
-                    <td className="px-4 py-3 font-mono text-xs">
-                      {row.bling_nota_fiscal_numero ?? "—"}
-                    </td>
-                    <td className="px-4 py-3">
-                      <EmissaoNfBadge status={row.nf_emissao_status} error={row.nf_emissao_error} />
-                    </td>
-                    <td className="px-4 py-3"><SituacaoBadge situacaoId={row.situacao_id} mlShipmentStatus={row.ml_shipment_status} /></td>
-                    <td className="px-4 py-3 text-right text-muted-foreground">
-                      {row.items_count}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          disabled={isVisualizando || isCanceled}
-                          onClick={() =>
-                            handleVisualizar({
-                              id: row.id,
-                              bling_pedido_id: row.bling_pedido_id,
-                              etiqueta_zpl: row.etiqueta_zpl,
-                              bling_nota_fiscal_id: row.bling_nota_fiscal_id,
-                              bling_nota_fiscal_numero: row.bling_nota_fiscal_numero,
-                            })
-                          }
-                          title="Visualizar etiqueta como PDF"
-                          className="gap-1.5 text-muted-foreground hover:text-foreground"
-                        >
-                          {isVisualizando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eye className="h-4 w-4" />}
-                          Visualizar
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          disabled={isLoading}
-                          onClick={() =>
-                            handleReimprimir({
-                              id: row.id,
-                              bling_pedido_id: row.bling_pedido_id,
-                              bling_nota_fiscal_id: row.bling_nota_fiscal_id,
-                              bling_nota_fiscal_numero: row.bling_nota_fiscal_numero,
-                            })
-                          }
-                          className="gap-1.5 text-muted-foreground hover:text-foreground"
-                        >
-                          {isLoading ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : jaImpresso ? (
-                            <RefreshCw className="h-4 w-4" />
-                          ) : (
-                            <Printer className="h-4 w-4" />
-                          )}
-                          {jaImpresso ? "Reimprimir" : "Imprimir"}
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
+      <div className="md:border md:rounded-lg md:overflow-hidden">
+        <ResponsiveTable
+          columns={columns}
+          rows={rows}
+          rowKey={(row) => row.id}
+          loading={q.isLoading}
+          rowClassName={(row) => (row.situacao_id === 12 ? "opacity-50" : "")}
+          empty={
+            <>
+              <ClipboardList className="h-10 w-10 mx-auto mb-2 opacity-30" />
+              <p>Nenhum pedido encontrado</p>
+            </>
+          }
+          rowActions={(row) => {
+            const isCanceled = row.situacao_id === 12;
+            const isLoading = reimprimindo === row.id;
+            const isVisualizando = visualizando === row.id;
+            const jaImpresso = Boolean(row.etiqueta_zpl);
+            return (
+              <>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={isVisualizando || isCanceled}
+                  onClick={() =>
+                    handleVisualizar({
+                      id: row.id,
+                      bling_pedido_id: row.bling_pedido_id,
+                      etiqueta_zpl: row.etiqueta_zpl,
+                      bling_nota_fiscal_id: row.bling_nota_fiscal_id,
+                      bling_nota_fiscal_numero: row.bling_nota_fiscal_numero,
+                    })
+                  }
+                  title="Visualizar etiqueta como PDF"
+                  className="gap-1.5 text-muted-foreground hover:text-foreground"
+                >
+                  {isVisualizando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eye className="h-4 w-4" />}
+                  Visualizar
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={isLoading}
+                  onClick={() =>
+                    handleReimprimir({
+                      id: row.id,
+                      bling_pedido_id: row.bling_pedido_id,
+                      bling_nota_fiscal_id: row.bling_nota_fiscal_id,
+                      bling_nota_fiscal_numero: row.bling_nota_fiscal_numero,
+                    })
+                  }
+                  className="gap-1.5 text-muted-foreground hover:text-foreground"
+                >
+                  {isLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : jaImpresso ? (
+                    <RefreshCw className="h-4 w-4" />
+                  ) : (
+                    <Printer className="h-4 w-4" />
+                  )}
+                  {jaImpresso ? "Reimprimir" : "Imprimir"}
+                </Button>
+              </>
+            );
+          }}
+        />
       </div>
 
       {/* Paginação */}
       {totalPages > 1 && (
-        <div className="flex items-center justify-between text-sm text-muted-foreground">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 text-sm text-muted-foreground">
           <span>
             Página {page} de {totalPages} — {total} pedido{total !== 1 ? "s" : ""}
           </span>
           <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={page <= 1 || q.isLoading}
-              onClick={() => setPage((p) => p - 1)}
-            >
+            <Button variant="outline" size="sm" className="flex-1 md:flex-none h-11 md:h-8"
+              disabled={page <= 1 || q.isLoading} onClick={() => setPage((p) => p - 1)}>
               Anterior
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={page >= totalPages || q.isLoading}
-              onClick={() => setPage((p) => p + 1)}
-            >
+            <Button variant="outline" size="sm" className="flex-1 md:flex-none h-11 md:h-8"
+              disabled={page >= totalPages || q.isLoading} onClick={() => setPage((p) => p + 1)}>
               Próxima
             </Button>
           </div>
         </div>
       )}
 
-      <PrinterConfig
-        open={showPrinterConfig}
-        onClose={() => setShowPrinterConfig(false)}
-        qzTray={qzTray}
-      />
+      <MobileHidden>
+        <PrinterConfig open={showPrinterConfig} onClose={() => setShowPrinterConfig(false)} qzTray={qzTray} />
+      </MobileHidden>
     </div>
   );
 }
