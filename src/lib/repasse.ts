@@ -32,12 +32,8 @@ function arredondar(valor: number): number {
 export function normalizarRepasseMl(payload: PayloadRepasseMl): RepasseMarketplace {
   const itens = payload.order_items ?? [];
 
-  const valor_bruto = arredondar(
-    itens.reduce((acc, i) => acc + i.unit_price * i.quantity, 0),
-  );
-  const tarifa_venda = arredondar(
-    itens.reduce((acc, i) => acc + i.sale_fee * i.quantity, 0),
-  );
+  const valor_bruto = arredondar(itens.reduce((acc, i) => acc + i.unit_price * i.quantity, 0));
+  const tarifa_venda = arredondar(itens.reduce((acc, i) => acc + i.sale_fee * i.quantity, 0));
   const custo_envio = arredondar(payload.custo_envio ?? 0);
   const valor_liquido = arredondar(valor_bruto - tarifa_venda - custo_envio);
 

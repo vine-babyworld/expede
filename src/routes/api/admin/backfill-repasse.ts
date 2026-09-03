@@ -13,9 +13,8 @@ export const Route = createFileRoute("/api/admin/backfill-repasse")({
 
         const url = new URL(request.url);
         const limiteParam = Number(url.searchParams.get("limite") ?? "40");
-        const limite = Number.isFinite(limiteParam) && limiteParam > 0
-          ? Math.min(limiteParam, 100)
-          : 40;
+        const limite =
+          Number.isFinite(limiteParam) && limiteParam > 0 ? Math.min(limiteParam, 100) : 40;
 
         try {
           const resultado = await backfillRepasseMl(limite);
