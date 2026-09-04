@@ -1,10 +1,39 @@
-export type OrigemCandidatoReconciliacao = "q1" | "q2" | "q3" | "q4" | "q5";
+export type OrigemCandidatoReconciliacao = "q1" | "q2" | "q3" | "q4" | "q5" | "q6";
 
 export type CandidatoReconciliacao = {
   id: number;
   permitirSemNf: boolean;
   origem: OrigemCandidatoReconciliacao;
   dataPedido: string | null;
+};
+
+// A consulta que trouxe o pedido é o que define o canal: cada loja do Bling tem
+// a sua. Um mapa em vez de ternários encadeados — acrescentar um marketplace é
+// uma linha aqui, e não uma releitura da cadeia inteira em três lugares.
+//
+// Os valores precisam ser atribuíveis a `MarketplacePedido`
+// (`src/lib/nf-emissao.policy.ts`). Este módulo é mantido sem imports de
+// propósito, para continuar carregável direto pelo runner de testes do Node;
+// quem garante a sincronia é o `tsc` no ponto de uso, em `pedidos.functions.ts`.
+export const MARKETPLACE_POR_ORIGEM: Record<
+  OrigemCandidatoReconciliacao,
+  "mercadolivre" | "shopee" | "magalu"
+> = {
+  q1: "mercadolivre",
+  q2: "mercadolivre",
+  q3: "mercadolivre",
+  q4: "mercadolivre",
+  q5: "shopee",
+  q6: "magalu",
+};
+
+export const LABEL_POR_ORIGEM: Record<OrigemCandidatoReconciliacao, string> = {
+  q1: "Q1",
+  q2: "Q2",
+  q3: "Q3",
+  q4: "Q4",
+  q5: "Q5",
+  q6: "Q6",
 };
 
 export async function executarConsultasEmLotes<T>(
@@ -47,9 +76,12 @@ export function construirUrlsConsultasMl(
   return { q1: construir(9), q2: construir(), q4: construir(15) };
 }
 
+// Q6 (Magalu) empata com Q1/Q5: as três são listas de faturados, a evidência
+// mais forte de que o pedido está pronto para expedir.
 const prioridadePorOrigem: Record<OrigemCandidatoReconciliacao, number> = {
   q1: 3,
   q5: 3,
+  q6: 3,
   q4: 2,
   q2: 1,
   q3: 0,
