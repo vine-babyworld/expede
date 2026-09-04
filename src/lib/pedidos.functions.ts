@@ -1168,7 +1168,7 @@ async function atualizarSituacoesExistentes(
   }
 }
 
-async function fetchNfNumeroBling(nfId: number, token: string): Promise<string | null> {
+export async function fetchNfNumeroBling(nfId: number, token: string): Promise<string | null> {
   try {
     const res = await fetch(`${BLING_NFE_URL}/${nfId}`, {
       headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },

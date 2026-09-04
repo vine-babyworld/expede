@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { getDecryptedAccessToken } from "@/lib/bling.functions";
-import { resolverProdutoDoItem } from "@/lib/pedidos.functions";
+import { fetchNfNumeroBling, resolverProdutoDoItem } from "@/lib/pedidos.functions";
 import { encontrarPedidoPorNumeroLoja } from "@/lib/reconciliar-atendidos";
 import { marketplacePelaLojaBling } from "@/lib/nf-emissao.policy";
 
@@ -107,6 +107,14 @@ export const Route = createFileRoute("/api/admin/importar-pedido")({
         // O marketplace vem da loja Bling: sem isso a coluna cai no default
         // 'mercadolivre' e um pedido Shopee importado por aqui fica classificado errado.
         const marketplaceDetectado = marketplacePelaLojaBling(d);
+
+        // Mesma normalização do reconciliador: o Bling manda notaFiscal.id = 0
+        // quando não há nota, e o detalhe do pedido nem sempre traz o número —
+        // sem buscar, o pedido importado por aqui ficava com a NF em branco.
+        const nfId: number | null =
+          d.notaFiscal?.id && d.notaFiscal.id !== 0 ? d.notaFiscal.id : null;
+        let nfNumero: string | null = d.notaFiscal?.numero ?? null;
+        if (nfId && !nfNumero) nfNumero = await fetchNfNumeroBling(nfId, token);
         const pedidoPayload = {
           bling_connection_id:      conn.id,
           bling_pedido_id:          d.id,
@@ -117,8 +125,8 @@ export const Route = createFileRoute("/api/admin/importar-pedido")({
           data_pedido:              d.data ? new Date(d.data).toISOString() : null,
           total:                    d.total ?? null,
           cliente:                  d.contato ?? null,
-          bling_nota_fiscal_id:     d.notaFiscal?.id ?? null,
-          bling_nota_fiscal_numero: d.notaFiscal?.numero ?? null,
+          bling_nota_fiscal_id:     nfId,
+          bling_nota_fiscal_numero: nfNumero,
           raw_json:                 d,
           ...(marketplaceDetectado ? { marketplace: marketplaceDetectado } : {}),
         };
@@ -163,6 +171,7 @@ export const Route = createFileRoute("/api/admin/importar-pedido")({
           situacao_id: pedidoPayload.situacao_id,
           marketplace: marketplaceDetectado,
           notaFiscalId: pedidoPayload.bling_nota_fiscal_id,
+          notaFiscalNumero: pedidoPayload.bling_nota_fiscal_numero,
           detalhe: "importado com sucesso",
         });
       },
