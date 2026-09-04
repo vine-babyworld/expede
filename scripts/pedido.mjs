@@ -45,7 +45,7 @@ for (const [nome, valor] of [
 ]) {
   if (!valor) {
     console.error(
-      `ERRO: ${nome} não encontrado. Rode com: node --env-file=.env scripts/pedido.mjs ${numeroLoja}`,
+      `ERRO: ${nome} não encontrado. Rode com: node --env-file=.env ${process.argv[1]} ${numeroLoja}`,
     );
     process.exit(1);
   }
@@ -165,7 +165,10 @@ async function main() {
 
   if (!importar) {
     console.log("\nPara importar, rode de novo com --importar:");
-    console.log(`  node --env-file=.env scripts/pedido.mjs ${numeroLoja} --importar`);
+    // process.argv[1] em vez de caminho fixo: quando o script é chamado de outro
+    // diretório pelo caminho completo, a sugestão precisa ser colável do jeito
+    // que a pessoa realmente invocou.
+    console.log(`  node --env-file=.env ${process.argv[1]} ${numeroLoja} --importar`);
     return;
   }
 
