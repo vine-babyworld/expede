@@ -1,7 +1,9 @@
 export const ML_BLING_LOJA_ID = "203482894";
 export const SHOPEE_BLING_LOJA_ID = "204014269";
+// "Código da loja API Bling" do canal [MP] MAGALU (Preferências > Integrações).
+export const MAGALU_BLING_LOJA_ID = "206279109";
 
-export type MarketplacePedido = "mercadolivre" | "shopee";
+export type MarketplacePedido = "mercadolivre" | "shopee" | "magalu";
 export type ClassificacaoEmissaoNf =
   | "automatic"
   | "manual"
@@ -34,7 +36,19 @@ export function marketplacePelaLojaBling(detalhe: any): MarketplacePedido | null
   const lojaId = obterLojaBlingId(detalhe);
   if (lojaId === ML_BLING_LOJA_ID) return "mercadolivre";
   if (lojaId === SHOPEE_BLING_LOJA_ID) return "shopee";
+  if (lojaId === MAGALU_BLING_LOJA_ID) return "magalu";
   return null;
+}
+
+// Converte o valor livre da coluna `pedidos.marketplace` para o union fechado.
+// Usada ao reprocessar um pedido já gravado: sem ela, "o que não é shopee vira
+// mercadolivre" re-carimbaria um pedido Magalu como ML.
+// `mercadolivreflex` colapsa em `mercadolivre` de propósito — Flex é uma
+// modalidade logística do ML, não um canal separado no controlador fiscal.
+export function normalizarMarketplacePedido(valor: string | null | undefined): MarketplacePedido {
+  if (valor === "shopee") return "shopee";
+  if (valor === "magalu") return "magalu";
+  return "mercadolivre";
 }
 
 export type OpcoesEmissaoNf = {
@@ -51,6 +65,10 @@ export function classificarEmissaoNf(
   marketplace: MarketplacePedido | null,
   opcoes: OpcoesEmissaoNf = {},
 ): ClassificacaoEmissaoNf {
+  // Só o ML tem emissão automática. Shopee e Magalu ficam de fora por decisão:
+  // o operador emite a NF no Bling e o EXPEDE apenas detecta que ela existe.
+  // No Magalu isso é caminho crítico, não detalhe — a etiqueta do Magalu
+  // Entregas só fica disponível depois da NF-e emitida.
   if (marketplace !== "mercadolivre") return "out_of_scope";
 
   // Com o Flex desligado, "manual" prevalece até quando uma NF já existe: o

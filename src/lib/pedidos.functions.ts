@@ -8,6 +8,8 @@ import {
   isPedidoFlex,
   ML_BLING_LOJA_ID as ML_LOJA_ID,
   SHOPEE_BLING_LOJA_ID as SHOPEE_LOJA_ID,
+  MAGALU_BLING_LOJA_ID as MAGALU_LOJA_ID,
+  normalizarMarketplacePedido,
   type MarketplacePedido,
 } from "@/lib/nf-emissao.policy";
 import { validarCandidatoAtendidoMl } from "@/lib/atendidos-ml";
@@ -18,7 +20,10 @@ import {
   janelaCivilBrt,
   planejarInspecoesReconciliacao,
   registrarErroConsulta,
+  LABEL_POR_ORIGEM,
+  MARKETPLACE_POR_ORIGEM,
   type CandidatoReconciliacao,
+  type OrigemCandidatoReconciliacao,
 } from "@/lib/reconciliar-atendidos";
 
 export { isPedidoFlex } from "@/lib/nf-emissao.policy";
@@ -297,7 +302,7 @@ async function processarPedidoBling(
   token: string,
   opts: {
     permitirSemNf?: boolean;
-    marketplace?: "mercadolivre" | "shopee";
+    marketplace?: MarketplacePedido;
     atendidoMl?: { lojaId: string; dataInicio: string; dataFim: string };
   } = {},
 ): Promise<{
@@ -553,11 +558,12 @@ export type ReconciliarReport = {
   query3: ReconciliarQueryReport;
   query4: ReconciliarQueryReport;
   query5: ReconciliarQueryReport;
+  query6: ReconciliarQueryReport;
   situacoes: AtualizarSituacoesReport;
   itensAusentes: ItensAusentesReport;
   detalhes: string[];
 
-  // Total de candidatos distintos vistos nesta rodada (deduplicado entre Q1-Q5) —
+  // Total de candidatos distintos vistos nesta rodada (deduplicado entre Q1-Q6) —
   // diferente da soma de query1.encontrados + query2.encontrados, que conta sobreposições.
   totalCandidatos: number;
   // Pedidos efetivamente inseridos nesta execução (exclui os pulados por já existir).
@@ -583,12 +589,24 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
     query3: novoQueryReport(),
     query4: novoQueryReport(),
     query5: novoQueryReport(),
+    query6: novoQueryReport(),
     situacoes: novaSituacoesReport(),
     itensAusentes: novaItensAusentesReport(),
     detalhes: [],
 
     totalCandidatos: 0,
     importadosNovos: [],
+  };
+
+  // Buckets por origem: os valores são referências para os mesmos objetos do
+  // report, então atualizar pelo mapa atualiza o report.
+  const bucketPorOrigem: Record<OrigemCandidatoReconciliacao, ReconciliarQueryReport> = {
+    q1: report.query1,
+    q2: report.query2,
+    q3: report.query3,
+    q4: report.query4,
+    q5: report.query5,
+    q6: report.query6,
   };
 
   // Prefere uma conexão com status="connected" (mais antiga entre as conectadas).
@@ -648,24 +666,30 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
   // limitando quantos rodam por execução, isso garante que a fila sempre avance
   // (pedidos antigos pendentes não ficam perpetuamente atrás de chegadas novas).
   const { inicio: dataInicio, fim: dataFim } = janelaCivilBrt(new Date(), 10);
-  // Shopee usa janela menor (7 dias) para nunca reimportar pedidos antigos que já foram
-  // processados fora do EXPEDE e chegaram duplicados via sync sem filtro de data.
-  const dataInicioShopee = new Date(Date.now() - 7 * 86_400_000).toISOString().substring(0, 10);
+  // Shopee e Magalu usam janela menor (7 dias) para nunca reimportar pedidos antigos que já
+  // foram processados fora do EXPEDE e chegaram duplicados via sync sem filtro de data.
+  const dataInicio7Dias = new Date(Date.now() - 7 * 86_400_000).toISOString().substring(0, 10);
 
   // Query 1: faturados (idSituacao=9) — últimos 10 dias, loja ML
   // Query 2: loja ML (idLoja=203482894) — últimos 10 dias, inclui pedidos sem NF
   // Query 4: atendidos ML (idSituacao=15 + idLoja=203482894) — últimos 10 dias,
   // validada de novo no detalhe porque a API pode ignorar filtros de lista.
   // Query 5: faturados (idSituacao=9) — últimos 7 dias, loja Shopee (sempre exige NF, sem variante "sem NF")
-  const urlQ5 = `${BLING_PEDIDOS_URL}?idSituacao=9&idLoja=${SHOPEE_LOJA_ID}&limite=50&pagina=1&dataInicio=${dataInicioShopee}`;
+  // Query 6: faturados (idSituacao=9) — últimos 7 dias, loja Magalu. Mesma forma da Q5: no Magalu
+  // Entregas a etiqueta só existe depois da NF-e, então um pedido sem NF nunca é expedível.
+  const urlQ5 = `${BLING_PEDIDOS_URL}?idSituacao=9&idLoja=${SHOPEE_LOJA_ID}&limite=50&pagina=1&dataInicio=${dataInicio7Dias}`;
+  const urlQ6 = `${BLING_PEDIDOS_URL}?idSituacao=9&idLoja=${MAGALU_LOJA_ID}&limite=50&pagina=1&dataInicio=${dataInicio7Dias}`;
   const urlsMl = construirUrlsConsultasMl(BLING_PEDIDOS_URL, String(ML_LOJA_ID), dataInicio, dataFim);
   console.log(`[reconciliar] Q5 url=${urlQ5}`);
+  console.log(`[reconciliar] Q6 url=${urlQ6}`);
 
-  const [resFaturados, resLoja, resAtendidosML, resFaturadosShopee] = await executarConsultasEmLotes([
+  // Cinco consultas em lotes de 3 = 2 lotes, dentro do limite de 3 req/s do Bling.
+  const [resFaturados, resLoja, resAtendidosML, resFaturadosShopee, resFaturadosMagalu] = await executarConsultasEmLotes([
     () => fetch(urlsMl.q1, { headers }),
     () => fetch(urlsMl.q2, { headers }),
     () => fetch(urlsMl.q4, { headers }),
     () => fetch(urlQ5, { headers }),
+    () => fetch(urlQ6, { headers }),
   ], 3, 1_100);
   const resAtendidos: PromiseSettledResult<Response> = { status: "rejected", reason: "desativado" } as PromiseSettledResult<Response>;
 
@@ -733,9 +757,9 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
     for (const p of lista) {
       // Filtro defensivo: mesmo que o Bling ignore dataInicio para esta loja,
       // rejeitamos qualquer pedido cuja data seja anterior à janela de 7 dias.
-      if (p.data && p.data < dataInicioShopee) {
+      if (p.data && p.data < dataInicio7Dias) {
         q5Pulados++;
-        console.warn(`[reconciliar] Q5 pedido ${p.id} data=${p.data} anterior à janela ${dataInicioShopee} — ignorado`);
+        console.warn(`[reconciliar] Q5 pedido ${p.id} data=${p.data} anterior à janela ${dataInicio7Dias} — ignorado`);
         continue;
       }
       candidatosBrutos.push({ id: p.id, permitirSemNf: false, origem: "q5", dataPedido: p.data ?? null });
@@ -745,6 +769,28 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
     const motivo = resFaturadosShopee.status === "rejected" ? resFaturadosShopee.reason : (resFaturadosShopee.value as any)?.status;
     console.error("[reconciliar] GET faturados Shopee falhou:", motivo);
     report.detalhes.push(`Q5 erro ao buscar lista: ${String(motivo)}`);
+  }
+
+  if (resFaturadosMagalu.status === "fulfilled" && resFaturadosMagalu.value.ok) {
+    const json: any = await resFaturadosMagalu.value.json().catch(() => null);
+    const lista = json?.data ?? [];
+    report.query6.encontrados = lista.length;
+    console.log(`[reconciliar] Q6 retornou ${lista.length} item(ns)`);
+    let q6Pulados = 0;
+    for (const p of lista) {
+      // Mesmo filtro defensivo da Q5: o Bling às vezes ignora dataInicio por loja.
+      if (p.data && p.data < dataInicio7Dias) {
+        q6Pulados++;
+        console.warn(`[reconciliar] Q6 pedido ${p.id} data=${p.data} anterior à janela ${dataInicio7Dias} — ignorado`);
+        continue;
+      }
+      candidatosBrutos.push({ id: p.id, permitirSemNf: false, origem: "q6", dataPedido: p.data ?? null });
+    }
+    if (q6Pulados > 0) report.detalhes.push(`Q6 pulados por data anterior à janela: ${q6Pulados}`);
+  } else {
+    const motivo = resFaturadosMagalu.status === "rejected" ? resFaturadosMagalu.reason : (resFaturadosMagalu.value as any)?.status;
+    console.error("[reconciliar] GET faturados Magalu falhou:", motivo);
+    report.detalhes.push(`Q6 erro ao buscar lista: ${String(motivo)}`);
   }
 
   const candidatos = agregarCandidatosReconciliacao(candidatosBrutos);
@@ -807,8 +853,8 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
     const candidatosOrdenados = [...nuncaTentados, ...tentadosSemNf];
 
     for (const cand of candidatosOrdenados) {
-      const label = cand.origem === "q1" ? "Q1" : cand.origem === "q3" ? "Q3" : cand.origem === "q4" ? "Q4" : cand.origem === "q5" ? "Q5" : "Q2";
-      const bucket = cand.origem === "q1" ? report.query1 : cand.origem === "q3" ? report.query3 : cand.origem === "q4" ? report.query4 : cand.origem === "q5" ? report.query5 : report.query2;
+      const label = LABEL_POR_ORIGEM[cand.origem];
+      const bucket = bucketPorOrigem[cand.origem];
       if (existentesComNfSet.has(cand.id)) {
         bucket.pulados++;
         report.detalhes.push(`${label} skip: ${cand.id} — já existe com NF`);
@@ -826,9 +872,9 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
     }
 
     for (const cand of candidatosParaInspecionar) {
-      const label = cand.origem === "q1" ? "Q1" : cand.origem === "q3" ? "Q3" : cand.origem === "q4" ? "Q4" : cand.origem === "q5" ? "Q5" : "Q2";
-      const bucket = cand.origem === "q1" ? report.query1 : cand.origem === "q3" ? report.query3 : cand.origem === "q4" ? report.query4 : cand.origem === "q5" ? report.query5 : report.query2;
-      const marketplace: "mercadolivre" | "shopee" = cand.origem === "q5" ? "shopee" : "mercadolivre";
+      const label = LABEL_POR_ORIGEM[cand.origem];
+      const bucket = bucketPorOrigem[cand.origem];
+      const marketplace: MarketplacePedido = MARKETPLACE_POR_ORIGEM[cand.origem];
 
       const result = await processarPedidoBling(cand.id, conn.id, token, {
         permitirSemNf: cand.permitirSemNf,
@@ -908,8 +954,7 @@ async function reprocessarPedidosSemItens(
   console.log(`[reconciliar] ${semItens.length} pedido(s) sem itens — reprocessando`);
 
   for (const p of semItens) {
-    const marketplace: "mercadolivre" | "shopee" =
-      (p as any).marketplace === "shopee" ? "shopee" : "mercadolivre";
+    const marketplace: MarketplacePedido = normalizarMarketplacePedido((p as any).marketplace);
 
     const result = await processarPedidoBling((p as any).bling_pedido_id, connId, token, {
       permitirSemNf: true,

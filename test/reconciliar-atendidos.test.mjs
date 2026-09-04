@@ -129,3 +129,31 @@ test("erro da lista Q4 é exposto no bucket e nos detalhes", () => {
   assert.deepEqual(bucket.erros, ["Q4 erro ao buscar lista: 503"]);
   assert.deepEqual(detalhes, ["Q4 erro ao buscar lista: 503"]);
 });
+
+test("cada origem de consulta mapeia para o seu marketplace", () => {
+  const { MARKETPLACE_POR_ORIGEM, LABEL_POR_ORIGEM } = reconciliarAtendidos;
+
+  assert.equal(MARKETPLACE_POR_ORIGEM.q5, "shopee");
+  assert.equal(MARKETPLACE_POR_ORIGEM.q6, "magalu");
+  for (const origem of ["q1", "q2", "q3", "q4"]) {
+    assert.equal(MARKETPLACE_POR_ORIGEM[origem], "mercadolivre", `${origem} deve ser ML`);
+  }
+
+  // Todo canal novo precisa de label e de marketplace — o mapa incompleto era o
+  // que fazia um pedido cair no marketplace errado.
+  assert.deepEqual(Object.keys(LABEL_POR_ORIGEM).sort(), Object.keys(MARKETPLACE_POR_ORIGEM).sort());
+  assert.equal(LABEL_POR_ORIGEM.q6, "Q6");
+});
+
+test("Q6 (Magalu) tem a mesma prioridade de Q1/Q5 na deduplicação", () => {
+  // Mesmo pedido visto por Q6 e Q2: vence Q6, que é a lista de faturados.
+  const agregados = agregarCandidatosReconciliacao([
+    { id: 77, origem: "q2", permitirSemNf: true, dataPedido: "2026-09-01" },
+    { id: 77, origem: "q6", permitirSemNf: false, dataPedido: "2026-09-01" },
+  ]);
+
+  assert.equal(agregados.length, 1);
+  assert.equal(agregados[0].origem, "q6");
+  // Só a Q1 herda o permitirSemNf da Q2; Magalu sempre exige NF.
+  assert.equal(agregados[0].permitirSemNf, false);
+});
