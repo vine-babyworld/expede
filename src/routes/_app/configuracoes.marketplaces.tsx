@@ -125,6 +125,35 @@ function MarketplacesPage() {
         </div>
       </div>
 
+      {/* Magalu — Fase 1: pedidos e etiqueta chegam pelo Bling, sem API própria ainda */}
+      <div className="bg-card border rounded-xl shadow-sm p-4 md:p-6">
+        <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="h-6 w-6 rounded bg-blue-200 flex items-center justify-center text-blue-700 text-xs font-bold shrink-0">
+              M
+            </div>
+            <div>
+              <h2 className="text-base font-semibold">Magalu</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Pedidos e etiqueta do Magalu Entregas chegam via Bling. Conexão direta com a API
+                (repasse e status) em breve.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 shrink-0">
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border bg-emerald-100 text-emerald-700 border-emerald-200">
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              Ativo via Bling
+            </span>
+            <MobileHidden>
+              <Button size="sm" disabled>
+                <Plug className="h-4 w-4 mr-2" /> Conectar
+              </Button>
+            </MobileHidden>
+          </div>
+        </div>
+      </div>
+
       {/* Amazon placeholder */}
       <div className="bg-card border rounded-xl shadow-sm p-4 md:p-6 opacity-60">
         <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">

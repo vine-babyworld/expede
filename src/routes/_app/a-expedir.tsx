@@ -6,6 +6,7 @@ import { Search, ClipboardList } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { getPedidosAExpedir, type PedidoAExpedir } from "@/lib/dashboard.functions";
 import { isPedidoFlex } from "@/lib/pedidos.functions";
+import { marketplaceBadge } from "@/lib/marketplace-labels";
 import { ResponsiveTable, type ResponsiveColumn } from "@/components/ResponsiveTable";
 
 export const Route = createFileRoute("/_app/a-expedir")({
@@ -20,12 +21,6 @@ function SituacaoBadge({ situacaoId }: { situacaoId: number | null }) {
   if (situacaoId === 15)
     return <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-teal-100 text-teal-800">Atendido</span>;
   return <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700">Situação {situacaoId ?? "—"}</span>;
-}
-
-function detectarMarketplace(numeroLoja: string | null): { nome: string; cor: string } | null {
-  if (!numeroLoja) return null;
-  if (numeroLoja.startsWith("2000")) return { nome: "Mercado Livre", cor: "bg-yellow-100 text-yellow-800 border-yellow-300" };
-  return { nome: "Outros", cor: "bg-gray-100 text-gray-700 border-gray-300" };
 }
 
 function formatBRL(value: number | null): string {
@@ -88,7 +83,7 @@ function AExpedirPage() {
     {
       id: "marketplace", header: "Marketplace", priority: "secondary",
       cell: (p) => {
-        const marketplace = detectarMarketplace(p.numero_loja);
+        const marketplace = marketplaceBadge(p.marketplace);
         return (
           <div className="flex flex-wrap items-center gap-1.5">
             {marketplace && (

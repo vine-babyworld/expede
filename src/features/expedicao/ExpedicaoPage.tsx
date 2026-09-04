@@ -37,6 +37,7 @@ import { registrarBipagem } from "@/lib/bipagem.functions";
 import { buscarEtiquetaBling } from "@/lib/etiqueta.functions";
 import { gerarDanfeCustom } from "@/lib/danfe.functions";
 import { isPedidoFlex, marcarPedidoImpresso, nfNaoAutorizada, nfSituacaoLabel } from "@/lib/pedidos.functions";
+import { marketplaceBadgeOuNulo } from "@/lib/marketplace-labels";
 import { useQzTray } from "@/hooks/useQzTray";
 import { PrinterConfig } from "@/components/PrinterConfig";
 import { MobileHidden } from "@/components/MobileHidden";
@@ -193,6 +194,7 @@ const MARKETPLACE_FILTROS: MarketplaceFiltro[] = [
   { id: "mercadolivre", label: "Mercado Livre", predicate: (p) => p.marketplace === "mercadolivre" && !isPedidoFlex(p) },
   { id: "ml_flex", label: "ML Flex", predicate: (p) => isPedidoFlex(p) },
   { id: "shopee", label: "Shopee", predicate: (p) => p.marketplace === "shopee" },
+  { id: "magalu", label: "Magalu", predicate: (p) => p.marketplace === "magalu" },
   { id: "amazon", label: "Amazon", predicate: (p) => p.marketplace === "amazon" },
 ];
 
@@ -582,15 +584,7 @@ export function ExpedicaoPage() {
 
 // ─── Card de pedido ───────────────────────────────────────────────────────────
 
-function detectarMarketplace(marketplace: string | null): { nome: string; cor: string } | null {
-  if (!marketplace) return null;
-  if (marketplace === "mercadolivre" || marketplace === "mercadolivreflex") {
-    return { nome: "Mercado Livre", cor: "bg-yellow-100 text-yellow-800 border-yellow-300" };
-  }
-  if (marketplace === "shopee") return { nome: "Shopee", cor: "bg-orange-100 text-orange-800 border-orange-300" };
-  if (marketplace === "amazon") return { nome: "Amazon", cor: "bg-amber-100 text-amber-800 border-amber-300" };
-  return { nome: "Outros", cor: "bg-gray-100 text-gray-700 border-gray-300" };
-}
+const detectarMarketplace = marketplaceBadgeOuNulo;
 
 function NfNaoAutorizadaDialog({
   pedido,

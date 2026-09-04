@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/select";
 import { getHistorico, HISTORICO_LIMIT, type HistoricoRow } from "@/lib/dashboard.functions";
 import { isPedidoFlex, nfNaoAutorizada, nfSituacaoLabel } from "@/lib/pedidos.functions";
+import { marketplaceBadge } from "@/lib/marketplace-labels";
 import { buscarEtiquetaBling } from "@/lib/etiqueta.functions";
 import { gerarDanfeCustom } from "@/lib/danfe.functions";
 import { useQzTray } from "@/hooks/useQzTray";
@@ -38,6 +39,7 @@ const MARKETPLACE_OPTIONS = [
   { value: "mercadolivre", label: "Mercado Livre" },
   { value: "mercadolivreflex", label: "ML Flex" },
   { value: "shopee", label: "Shopee" },
+  { value: "magalu", label: "Magalu" },
   { value: "amazon", label: "Amazon" },
 ] as const;
 
@@ -51,15 +53,6 @@ function formatDateTime(iso: string | null): string {
   const hour  = String(d.getUTCHours()).padStart(2, "0");
   const min   = String(d.getUTCMinutes()).padStart(2, "0");
   return `${day}/${month}/${year} ${hour}:${min}`;
-}
-
-function marketplaceBadge(marketplace: string | null): { nome: string; cor: string } {
-  if (marketplace === "shopee") return { nome: "Shopee", cor: "bg-orange-100 text-orange-800 border-orange-300" };
-  if (marketplace === "mercadolivre" || marketplace === "mercadolivreflex") {
-    return { nome: "Mercado Livre", cor: "bg-yellow-100 text-yellow-800 border-yellow-300" };
-  }
-  if (marketplace === "amazon") return { nome: "Amazon", cor: "bg-gray-100 text-gray-700 border-gray-300" };
-  return { nome: marketplace ?? "—", cor: "bg-gray-100 text-gray-700 border-gray-300" };
 }
 
 function formatBRL(value: number | null): string {
