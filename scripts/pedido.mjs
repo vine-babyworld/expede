@@ -35,7 +35,9 @@ const numeroLoja = process.argv[2];
 const importar = process.argv.includes("--importar");
 
 if (!numeroLoja || numeroLoja.startsWith("--")) {
-  console.error("Uso: node --env-file=.env scripts/pedido.mjs <numeroLoja> [--importar]");
+  // Exemplo concreto em vez de <placeholder>: no PowerShell "<" é operador de
+  // redirecionamento, e a linha nem chega a executar se for colada como está.
+  console.error(`Uso: node --env-file=.env ${process.argv[1]} 2000018004864372 [--importar]`);
   process.exit(1);
 }
 for (const [nome, valor] of [
