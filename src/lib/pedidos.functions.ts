@@ -13,9 +13,11 @@ import {
 import { validarCandidatoAtendidoMl } from "@/lib/atendidos-ml";
 import {
   agregarCandidatosReconciliacao,
+  construirUrlConsultaAlterados,
   construirUrlsConsultasMl,
   executarConsultasEmLotes,
   janelaCivilBrt,
+  pedidoDentroDoHorizonteAlteracao,
   planejarInspecoesReconciliacao,
   registrarErroConsulta,
   type CandidatoReconciliacao,
@@ -27,6 +29,16 @@ const BLING_PEDIDOS_URL = "https://api.bling.com.br/Api/v3/pedidos/vendas";
 const DEPOSITO_ALVO = "Geral";
 const MAX_CANDIDATOS_POR_EXECUCAO = 4;
 const MAX_CANDIDATOS_SITUACAO = 4; // orçamento próprio de atualizarSituacoesExistentes (não compartilha com MAX_CANDIDATOS_POR_EXECUCAO)
+// Q6 — janela de ALTERAÇÃO. Curta de propósito: a lista vem ordenada por id
+// decrescente e o Bling limita a página a 100, então uma janela larga descartaria
+// justamente os pedidos antigos alterados (id baixo, fim da lista), que são o alvo
+// da consulta. Medido em 04/09/2026: 5 dias já devolviam 83 pedidos na loja ML —
+// perto demais do teto. Com o cron rodando a cada minuto, 3 dias sobram.
+const DIAS_JANELA_ALTERACAO = 3;
+const LIMITE_PAGINA_BLING = 100;
+// Horizonte de data do PEDIDO aceito pelo Q6. Sem ele, qualquer edição num pedido
+// de meses atrás o traria de volta para "A expedir".
+const DIAS_HORIZONTE_PEDIDO_ALTERADO = 30;
 const BLING_PRODUTOS_URL = "https://api.bling.com.br/Api/v3/produtos";
 const BLING_NFE_URL = "https://api.bling.com.br/Api/v3/nfe";
 
@@ -553,6 +565,7 @@ export type ReconciliarReport = {
   query3: ReconciliarQueryReport;
   query4: ReconciliarQueryReport;
   query5: ReconciliarQueryReport;
+  query6: ReconciliarQueryReport;
   situacoes: AtualizarSituacoesReport;
   itensAusentes: ItensAusentesReport;
   detalhes: string[];
@@ -566,6 +579,25 @@ export type ReconciliarReport = {
 
 function novoQueryReport(): ReconciliarQueryReport {
   return { encontrados: 0, importados: 0, pulados: 0, erros: [] };
+}
+
+const ROTULO_POR_ORIGEM: Record<string, string> = {
+  q1: "Q1", q2: "Q2", q3: "Q3", q4: "Q4", q5: "Q5", q6: "Q6",
+};
+
+function rotuloDaOrigem(origem: string): string {
+  return ROTULO_POR_ORIGEM[origem] ?? origem.toUpperCase();
+}
+
+function bucketDaOrigem(report: ReconciliarReport, origem: string): ReconciliarQueryReport {
+  switch (origem) {
+    case "q1": return report.query1;
+    case "q3": return report.query3;
+    case "q4": return report.query4;
+    case "q5": return report.query5;
+    case "q6": return report.query6;
+    default:   return report.query2;
+  }
 }
 
 function novaSituacoesReport(): AtualizarSituacoesReport {
@@ -583,6 +615,7 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
     query3: novoQueryReport(),
     query4: novoQueryReport(),
     query5: novoQueryReport(),
+    query6: novoQueryReport(),
     situacoes: novaSituacoesReport(),
     itensAusentes: novaItensAusentesReport(),
     detalhes: [],
@@ -661,11 +694,28 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
   const urlsMl = construirUrlsConsultasMl(BLING_PEDIDOS_URL, String(ML_LOJA_ID), dataInicio, dataFim);
   console.log(`[reconciliar] Q5 url=${urlQ5}`);
 
-  const [resFaturados, resLoja, resAtendidosML, resFaturadosShopee] = await executarConsultasEmLotes([
+  // Q6 — pedidos ALTERADOS nos últimos dias, nas duas lojas. Única consulta que
+  // enxerga um pedido antigo faturado hoje (ver comentário em
+  // construirUrlConsultaAlterados). Piso pela data do pedido evita ressuscitar
+  // pedido velho tocado por qualquer motivo.
+  const janelaAlteracao = janelaCivilBrt(new Date(), DIAS_JANELA_ALTERACAO);
+  const pisoDataPedidoQ6 = janelaCivilBrt(new Date(), DIAS_HORIZONTE_PEDIDO_ALTERADO).inicio;
+  const urlQ6Ml = construirUrlConsultaAlterados(
+    BLING_PEDIDOS_URL, String(ML_LOJA_ID), janelaAlteracao.inicio, janelaAlteracao.fim,
+  );
+  const urlQ6Shopee = construirUrlConsultaAlterados(
+    BLING_PEDIDOS_URL, String(SHOPEE_LOJA_ID), janelaAlteracao.inicio, janelaAlteracao.fim,
+  );
+
+  const [
+    resFaturados, resLoja, resAtendidosML, resFaturadosShopee, resAlteradosMl, resAlteradosShopee,
+  ] = await executarConsultasEmLotes([
     () => fetch(urlsMl.q1, { headers }),
     () => fetch(urlsMl.q2, { headers }),
     () => fetch(urlsMl.q4, { headers }),
     () => fetch(urlQ5, { headers }),
+    () => fetch(urlQ6Ml, { headers }),
+    () => fetch(urlQ6Shopee, { headers }),
   ], 3, 1_100);
   const resAtendidos: PromiseSettledResult<Response> = { status: "rejected", reason: "desativado" } as PromiseSettledResult<Response>;
 
@@ -747,6 +797,52 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
     report.detalhes.push(`Q5 erro ao buscar lista: ${String(motivo)}`);
   }
 
+  // Q6 — as duas lojas. permitirSemNf=false de propósito: a rede de segurança só
+  // deve trazer pedido que já tem NF, ou seja, que de fato passou a ser expedível.
+  // Um pedido antigo sem NF alterado por outro motivo não interessa aqui.
+  for (const [res, loja, marketplace] of [
+    [resAlteradosMl, "ML", "mercadolivre"],
+    [resAlteradosShopee, "Shopee", "shopee"],
+  ] as Array<[PromiseSettledResult<Response>, string, "mercadolivre" | "shopee"]>) {
+    if (res.status === "fulfilled" && res.value.ok) {
+      const json: any = await res.value.json().catch(() => null);
+      const lista = json?.data ?? [];
+      report.query6.encontrados += lista.length;
+      let foraDoHorizonte = 0;
+      for (const p of lista) {
+        if (!pedidoDentroDoHorizonteAlteracao(p.data, pisoDataPedidoQ6)) {
+          foraDoHorizonte++;
+          continue;
+        }
+        candidatosBrutos.push({
+          id: p.id,
+          permitirSemNf: false,
+          origem: "q6",
+          dataPedido: p.data ?? null,
+          marketplace,
+        });
+      }
+      console.log(
+        `[reconciliar] Q6 ${loja}: ${lista.length} alterado(s) desde ${janelaAlteracao.inicio},` +
+        ` ${foraDoHorizonte} fora do horizonte de ${DIAS_HORIZONTE_PEDIDO_ALTERADO} dias`,
+      );
+      // Página cheia = possível truncamento, e o corte cai nos ids mais baixos,
+      // que são exatamente os pedidos antigos que o Q6 existe para achar.
+      if (lista.length >= LIMITE_PAGINA_BLING) {
+        const aviso = `Q6 ${loja} devolveu a página cheia (${lista.length}) — janela de ${DIAS_JANELA_ALTERACAO} dias pode estar truncando pedidos antigos`;
+        console.warn(`[reconciliar] ${aviso}`);
+        report.detalhes.push(aviso);
+      }
+      if (foraDoHorizonte > 0) {
+        report.detalhes.push(`Q6 ${loja} pulados por data do pedido anterior a ${pisoDataPedidoQ6}: ${foraDoHorizonte}`);
+      }
+    } else {
+      const motivo = res.status === "rejected" ? res.reason : (res.value as any)?.status;
+      console.error(`[reconciliar] GET alterados ${loja} falhou:`, motivo);
+      registrarErroConsulta(report.query6, report.detalhes, `Q6 ${loja}`, motivo);
+    }
+  }
+
   const candidatos = agregarCandidatosReconciliacao(candidatosBrutos);
   report.totalCandidatos = candidatos.length;
 
@@ -807,8 +903,8 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
     const candidatosOrdenados = [...nuncaTentados, ...tentadosSemNf];
 
     for (const cand of candidatosOrdenados) {
-      const label = cand.origem === "q1" ? "Q1" : cand.origem === "q3" ? "Q3" : cand.origem === "q4" ? "Q4" : cand.origem === "q5" ? "Q5" : "Q2";
-      const bucket = cand.origem === "q1" ? report.query1 : cand.origem === "q3" ? report.query3 : cand.origem === "q4" ? report.query4 : cand.origem === "q5" ? report.query5 : report.query2;
+      const label = rotuloDaOrigem(cand.origem);
+      const bucket = bucketDaOrigem(report, cand.origem);
       if (existentesComNfSet.has(cand.id)) {
         bucket.pulados++;
         report.detalhes.push(`${label} skip: ${cand.id} — já existe com NF`);
@@ -826,9 +922,12 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
     }
 
     for (const cand of candidatosParaInspecionar) {
-      const label = cand.origem === "q1" ? "Q1" : cand.origem === "q3" ? "Q3" : cand.origem === "q4" ? "Q4" : cand.origem === "q5" ? "Q5" : "Q2";
-      const bucket = cand.origem === "q1" ? report.query1 : cand.origem === "q3" ? report.query3 : cand.origem === "q4" ? report.query4 : cand.origem === "q5" ? report.query5 : report.query2;
-      const marketplace: "mercadolivre" | "shopee" = cand.origem === "q5" ? "shopee" : "mercadolivre";
+      const label = rotuloDaOrigem(cand.origem);
+      const bucket = bucketDaOrigem(report, cand.origem);
+      // Q6 varre as duas lojas, então carrega o próprio marketplace; as demais
+      // origens continuam deduzindo pela consulta que as produziu.
+      const marketplace: "mercadolivre" | "shopee" =
+        cand.marketplace ?? (cand.origem === "q5" ? "shopee" : "mercadolivre");
 
       const result = await processarPedidoBling(cand.id, conn.id, token, {
         permitirSemNf: cand.permitirSemNf,

@@ -2,8 +2,14 @@ import { createFileRoute } from "@tanstack/react-router";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { getDecryptedAccessToken } from "@/lib/bling.functions";
 import { resolverProdutoDoItem } from "@/lib/pedidos.functions";
+import { encontrarPedidoPorNumeroLoja } from "@/lib/reconciliar-atendidos";
+import { marketplacePelaLojaBling } from "@/lib/nf-emissao.policy";
 
 const BLING_PEDIDOS_URL = "https://api.bling.com.br/Api/v3/pedidos/vendas";
+// O Bling ignora ?numeroLoja=, então a busca é uma varredura conferida no cliente.
+// 5 páginas de 100 cobrem ~5 semanas de pedidos, o suficiente para recuperação manual.
+const BUSCA_NUMERO_LOJA_PAGINAS = 5;
+const BUSCA_NUMERO_LOJA_LIMITE = 100;
 
 export const Route = createFileRoute("/api/admin/importar-pedido")({
   server: {
@@ -49,19 +55,39 @@ export const Route = createFileRoute("/api/admin/importar-pedido")({
         let resolvedBlingId: number | null = blingPedidoId ?? null;
 
         if (!resolvedBlingId && numeroLoja) {
-          const res = await fetch(
-            `${BLING_PEDIDOS_URL}?numeroLoja=${encodeURIComponent(numeroLoja)}&limite=5&pagina=1`,
-            { headers }
-          );
-          if (!res.ok) {
-            return Response.json({ ok: false, error: `bling_api_error:${res.status}` }, { status: 500 });
+          // Varredura paginada: o Bling aceita ?numeroLoja= mas não filtra por ele
+          // (verificado em 04/09/2026), então cada página precisa ser conferida aqui.
+          // Confiar em lista[0], como era feito antes, importava o pedido mais
+          // recente da conta no lugar do pedido solicitado.
+          const alvo = String(numeroLoja);
+          for (let pagina = 1; pagina <= BUSCA_NUMERO_LOJA_PAGINAS && !resolvedBlingId; pagina++) {
+            const res = await fetch(
+              `${BLING_PEDIDOS_URL}?numeroLoja=${encodeURIComponent(alvo)}` +
+              `&limite=${BUSCA_NUMERO_LOJA_LIMITE}&pagina=${pagina}`,
+              { headers }
+            );
+            if (!res.ok) {
+              return Response.json({ ok: false, error: `bling_api_error:${res.status}` }, { status: 500 });
+            }
+            const json: any = await res.json().catch(() => null);
+            const lista: any[] = json?.data ?? [];
+            const encontrado = encontrarPedidoPorNumeroLoja(lista, alvo);
+            if (encontrado) resolvedBlingId = encontrado.id;
+            if (lista.length < BUSCA_NUMERO_LOJA_LIMITE) break; // última página
+            await new Promise((r) => setTimeout(r, 350)); // rate limit Bling: 3 req/s
           }
-          const json: any = await res.json().catch(() => null);
-          const lista = json?.data ?? [];
-          if (lista.length === 0) {
-            return Response.json({ ok: false, error: `pedido com numeroLoja=${numeroLoja} nao encontrado no Bling` }, { status: 404 });
+
+          if (!resolvedBlingId) {
+            return Response.json(
+              {
+                ok: false,
+                error: `pedido com numeroLoja=${alvo} nao encontrado nas ultimas ` +
+                  `${BUSCA_NUMERO_LOJA_PAGINAS * BUSCA_NUMERO_LOJA_LIMITE} vendas do Bling` +
+                  ` — informe blingPedidoId se o pedido for mais antigo`,
+              },
+              { status: 404 },
+            );
           }
-          resolvedBlingId = lista[0].id;
         }
 
         if (!resolvedBlingId) {
@@ -77,7 +103,10 @@ export const Route = createFileRoute("/api/admin/importar-pedido")({
         const d = jsonDetalhe?.data;
         if (!d) return Response.json({ ok: false, error: "resposta vazia da API Bling" }, { status: 500 });
 
-        // Upsert forçado — ignora situação e NF, importa o pedido como está
+        // Upsert forçado — ignora situação e NF, importa o pedido como está.
+        // O marketplace vem da loja Bling: sem isso a coluna cai no default
+        // 'mercadolivre' e um pedido Shopee importado por aqui fica classificado errado.
+        const marketplaceDetectado = marketplacePelaLojaBling(d);
         const pedidoPayload = {
           bling_connection_id:      conn.id,
           bling_pedido_id:          d.id,
@@ -91,6 +120,7 @@ export const Route = createFileRoute("/api/admin/importar-pedido")({
           bling_nota_fiscal_id:     d.notaFiscal?.id ?? null,
           bling_nota_fiscal_numero: d.notaFiscal?.numero ?? null,
           raw_json:                 d,
+          ...(marketplaceDetectado ? { marketplace: marketplaceDetectado } : {}),
         };
 
         const { data: upserted, error: upsertErr } = await supabaseAdmin
@@ -131,6 +161,7 @@ export const Route = createFileRoute("/api/admin/importar-pedido")({
           numero: pedidoPayload.numero,
           numeroLoja: pedidoPayload.numero_loja,
           situacao_id: pedidoPayload.situacao_id,
+          marketplace: marketplaceDetectado,
           notaFiscalId: pedidoPayload.bling_nota_fiscal_id,
           detalhe: "importado com sucesso",
         });
