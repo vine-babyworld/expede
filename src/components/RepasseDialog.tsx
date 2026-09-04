@@ -33,6 +33,16 @@ function Linha({ label, valor, negativo }: { label: string; valor: string; negat
   );
 }
 
+// Linha da quebra de tarifas: indentada e menor, subordinada ao agregado.
+function LinhaQuebra({ label, valor }: { label: string; valor: string }) {
+  return (
+    <div className="flex items-baseline justify-between py-1 pl-4">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <span className="tabular-nums text-xs text-muted-foreground">{valor}</span>
+    </div>
+  );
+}
+
 export function RepasseDialog({
   pedido,
   onClose,
@@ -45,7 +55,10 @@ export function RepasseDialog({
   function corpo() {
     if (!pedido) return null;
 
-    if (pedido.marketplace !== "mercadolivre") {
+    const isShopee = pedido.marketplace === "shopee";
+    const nomeMarketplace = isShopee ? "Shopee" : "Mercado Livre";
+
+    if (pedido.marketplace !== "mercadolivre" && !isShopee) {
       return (
         <p className="text-sm text-muted-foreground py-6 text-center">
           Repasse indisponível para este marketplace.
@@ -56,7 +69,7 @@ export function RepasseDialog({
     if (pedido.repasse_checked_at === null) {
       return (
         <p className="text-sm text-muted-foreground py-6 text-center">
-          Aguardando sincronização com o Mercado Livre.
+          Aguardando sincronização com o {nomeMarketplace}.
         </p>
       );
     }
@@ -75,18 +88,29 @@ export function RepasseDialog({
         ? ""
         : ` (${pedido.repasse_tarifa_percentual.toString().replace(".", ",")}%)`;
 
+    // "Tarifa de venda" no ML; na Shopee o agregado inclui o cupom do vendedor,
+    // que é desconto dado por nós e não tarifa dela — chamar tudo de tarifa
+    // seria impreciso.
+    const rotuloTarifa = isShopee
+      ? `Tarifas e descontos${percentual}`
+      : `Tarifa de venda total${percentual}`;
+
+    const linhas = pedido.repasse_linhas ?? [];
+    const envioCoberto = isShopee && pedido.repasse_custo_envio === 0;
+    const divergencia = pedido.repasse_divergencia ?? 0;
+
     return (
       <div className="space-y-1">
         <Linha label="Valor da venda" valor={formatBRL(pedido.repasse_valor_bruto)} />
+        <Linha label={rotuloTarifa} valor={`- ${formatBRL(pedido.repasse_tarifa_venda)}`} negativo />
+        {linhas.length > 1 &&
+          linhas.map((l) => (
+            <LinhaQuebra key={l.chave} label={l.rotulo} valor={`- ${formatBRL(l.valor)}`} />
+          ))}
         <Linha
-          label={`Tarifa de venda total${percentual}`}
-          valor={`- ${formatBRL(pedido.repasse_tarifa_venda)}`}
-          negativo
-        />
-        <Linha
-          label="Custo do envio"
-          valor={`- ${formatBRL(pedido.repasse_custo_envio)}`}
-          negativo
+          label={envioCoberto ? "Custo do envio (coberto pela Shopee)" : "Custo do envio"}
+          valor={envioCoberto ? formatBRL(0) : `- ${formatBRL(pedido.repasse_custo_envio)}`}
+          negativo={!envioCoberto}
         />
         <div className="flex items-baseline justify-between pt-3 mt-2 border-t-2">
           <span className="font-medium">Total</span>
@@ -95,9 +119,17 @@ export function RepasseDialog({
           </span>
         </div>
 
+        {divergencia !== 0 && (
+          <p className="text-xs text-amber-600 pt-3">
+            Conferência: nossa soma difere em {formatBRL(Math.abs(divergencia))} do valor informado
+            pela {nomeMarketplace}.
+          </p>
+        )}
         {!pedido.repasse_final && (
           <p className="text-xs text-muted-foreground pt-3">
-            O envio ainda não foi entregue — estes valores podem mudar.
+            {isShopee
+              ? "A Shopee ainda não liberou o pagamento — estes valores podem mudar."
+              : "O envio ainda não foi entregue — estes valores podem mudar."}
           </p>
         )}
         <p className="text-xs text-muted-foreground pt-1">
@@ -106,7 +138,6 @@ export function RepasseDialog({
       </div>
     );
   }
-
   return (
     <Dialog open={aberto} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-md">

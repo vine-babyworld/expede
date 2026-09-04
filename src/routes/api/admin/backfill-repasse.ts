@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { backfillRepasseMl } from "@/lib/repasse.functions";
+import { backfillRepasse } from "@/lib/repasse.functions";
 
 export const Route = createFileRoute("/api/admin/backfill-repasse")({
   server: {
@@ -16,9 +16,17 @@ export const Route = createFileRoute("/api/admin/backfill-repasse")({
         const limite =
           Number.isFinite(limiteParam) && limiteParam > 0 ? Math.min(limiteParam, 100) : 40;
 
+        const marketplaceParam = url.searchParams.get("marketplace") ?? "mercadolivre";
+        if (marketplaceParam !== "mercadolivre" && marketplaceParam !== "shopee") {
+          return Response.json(
+            { ok: false, error: "marketplace deve ser mercadolivre ou shopee" },
+            { status: 400 },
+          );
+        }
+
         try {
-          const resultado = await backfillRepasseMl(limite);
-          return Response.json({ ok: true, resultado });
+          const resultado = await backfillRepasse(marketplaceParam, limite);
+          return Response.json({ ok: true, marketplace: marketplaceParam, resultado });
         } catch (err) {
           console.error("[backfill-repasse] erro:", err);
           return Response.json(

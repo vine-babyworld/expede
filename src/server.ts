@@ -92,6 +92,7 @@ const NF_EMISSAO_INTERVAL_MS = 60 * 1000;
 
 let lastRepasseAt = 0;
 const REPASSE_INTERVAL_MS = 5 * 60 * 1000; // 5 min — mesmo ritmo do cron de status ML
+let lastRepasseShopeeAt = 0;
 
 // Situacao_ids Bling que indicam pedido já baixado/faturado pelo Bling
 const BLING_SITUACAO_FINALIZADA = new Set([9, 15]); // 9=Atendido, 15=Faturado
@@ -272,7 +273,7 @@ export async function cronRepasseMl() {
 
     lastRepasseAt = now;
 
-    const candidatos = await selecionarCandidatosRepasse();
+    const candidatos = await selecionarCandidatosRepasse("mercadolivre");
     console.log(`[cron-repasse] ${candidatos.length} candidato(s)`);
 
     for (const pedido of candidatos) {
@@ -289,6 +290,59 @@ export async function cronRepasseMl() {
     console.log("[cron-repasse] ciclo concluído");
   } catch (e) {
     console.error("[cron-repasse] exceção não tratada", {
+      message: e instanceof Error ? e.message : String(e),
+    });
+  }
+}
+// Irmão de cronRepasseMl com gate e orçamento próprios: uma indisponibilidade
+// da Shopee não pode consumir os slots do ML, nem o contrário.
+export async function cronRepasseShopee() {
+  const now = Date.now();
+
+  try {
+    if (now - lastRepasseShopeeAt < REPASSE_INTERVAL_MS) return;
+
+    const db = supabaseAdmin as any;
+    const { data: state } = await db
+      .from("cron_state")
+      .select("last_run_at")
+      .eq("job_name", "repasse_shopee")
+      .maybeSingle();
+
+    const lastRun = state?.last_run_at ? new Date(state.last_run_at as string).getTime() : 0;
+    if (now - lastRun < REPASSE_INTERVAL_MS) return;
+
+    const { error: upsertError } = await db
+      .from("cron_state")
+      .upsert(
+        { job_name: "repasse_shopee", last_run_at: new Date(now).toISOString() },
+        { onConflict: "job_name" },
+      );
+
+    if (upsertError) {
+      console.error("[cron-repasse-shopee] upsert cron_state falhou", { message: upsertError.message });
+      return;
+    }
+
+    lastRepasseShopeeAt = now;
+
+    const candidatos = await selecionarCandidatosRepasse("shopee");
+    console.log(`[cron-repasse-shopee] ${candidatos.length} candidato(s)`);
+
+    for (const pedido of candidatos) {
+      const res = await atualizarRepassePedido(pedido);
+      if (res.ok) {
+        console.log(
+          `[cron-repasse-shopee] pedido ${pedido.bling_pedido_id} liquido=${res.liquido} final=${res.final}`,
+        );
+      } else {
+        console.warn(`[cron-repasse-shopee] pedido ${pedido.bling_pedido_id} erro: ${res.error}`);
+      }
+    }
+
+    console.log("[cron-repasse-shopee] ciclo concluído");
+  } catch (e) {
+    console.error("[cron-repasse-shopee] exceção não tratada", {
       message: e instanceof Error ? e.message : String(e),
     });
   }
