@@ -12,6 +12,28 @@ export type EtiquetaResult =
   | { ok: true; tipo: EtiquetaTipo; conteudo: string }
   | { ok: false; error: string };
 
+type BuscadorEtiqueta = {
+  buscar: (numeroLoja: string) => Promise<{ ok: true; conteudo: string } | { ok: false; error: string }>;
+  tipo: EtiquetaTipo;
+};
+
+// Despacho explícito por marketplace. Antes o ML era o `else` de todos os
+// canais: qualquer marketplace sem tratamento próprio ia bater na API do
+// Mercado Livre com um id de pedido que não é dele. Agora um canal conhecido
+// sem buscador (`null`) falha com erro claro.
+//
+// `null` na coluna continua caindo no ML de propósito — são os pedidos legados,
+// gravados antes da coluna `marketplace` existir.
+const FALLBACK_POR_MARKETPLACE: Record<string, BuscadorEtiqueta | null> = {
+  mercadolivre: { buscar: buscarEtiquetaML, tipo: "zpl" },
+  mercadolivreflex: { buscar: buscarEtiquetaML, tipo: "zpl" },
+  shopee: { buscar: buscarEtiquetaShopee, tipo: "pdf_base64" },
+  // Magalu Entregas: o Bling já resolve a etiqueta (PDF/ZPL) assim que a NF-e
+  // é emitida, então o fallback nunca deveria ser necessário. Sem buscador
+  // próprio até a Fase 2 — melhor falhar explicitamente do que cair no ML.
+  magalu: null,
+};
+
 async function salvarEtiqueta(pedidoId: string, conteudo: string, tipo: EtiquetaTipo) {
   await supabaseAdmin
     .from("pedidos")
@@ -34,7 +56,8 @@ export const buscarEtiquetaBling = createServerFn({ method: "POST" })
       return { ok: true, tipo: tipoCache, conteudo: pedido.etiqueta_zpl };
     }
 
-    // numero_loja = id do pedido no marketplace (ML order ID ou Shopee order_sn)
+    // numero_loja = id do pedido no marketplace (ML order ID, Shopee order_sn,
+    // código do pedido no Magalu)
     const numeroLoja: string | null = (pedido as any)?.numero_loja ?? null;
     const marketplace: string | null = (pedido as any)?.marketplace ?? null;
 
@@ -51,34 +74,32 @@ export const buscarEtiquetaBling = createServerFn({ method: "POST" })
     console.warn("[etiqueta] Bling falhou:", blingResult.error, "— tentando marketplace:", marketplace, numeroLoja);
 
     // 3. Fallback por marketplace
-    if (marketplace === "shopee" && numeroLoja) {
-      try {
-        const shopeeResult = await buscarEtiquetaShopee(numeroLoja);
-        if (shopeeResult.ok) {
-          if (pedido?.id) await salvarEtiqueta(pedido.id, shopeeResult.conteudo, "pdf_base64");
-          return { ok: true, tipo: "pdf_base64", conteudo: shopeeResult.conteudo };
-        }
-        console.warn("[etiqueta] Shopee também falhou:", shopeeResult.error);
-        return { ok: false, error: shopeeResult.error };
-      } catch (err) {
-        console.warn("[etiqueta] Shopee exception:", err);
-      }
+    if (!numeroLoja) return blingResult;
+
+    // Pedido legado sem marketplace definido segue no ML.
+    const canal = marketplace ?? "mercadolivre";
+
+    if (!(canal in FALLBACK_POR_MARKETPLACE)) {
+      console.warn(`[etiqueta] marketplace desconhecido: ${canal} — sem fallback`);
       return blingResult;
     }
 
-    // Fallback ML (default — inclui pedidos legados sem marketplace definido)
-    if (numeroLoja) {
-      try {
-        const mlResult = await buscarEtiquetaML(numeroLoja);
-        if (mlResult.ok) {
-          if (pedido?.id) await salvarEtiqueta(pedido.id, mlResult.conteudo, "zpl");
-          return { ok: true, tipo: "zpl", conteudo: mlResult.conteudo };
-        }
-        console.warn("[etiqueta] ML também falhou:", mlResult.error);
-        return { ok: false, error: mlResult.error };
-      } catch (err) {
-        console.warn("[etiqueta] ML exception:", err);
+    const fallback = FALLBACK_POR_MARKETPLACE[canal];
+    if (!fallback) {
+      console.warn(`[etiqueta] ${canal} não tem busca própria de etiqueta — depende do Bling`);
+      return { ok: false, error: `sem_fallback:${canal}` };
+    }
+
+    try {
+      const result = await fallback.buscar(numeroLoja);
+      if (result.ok) {
+        if (pedido?.id) await salvarEtiqueta(pedido.id, result.conteudo, fallback.tipo);
+        return { ok: true, tipo: fallback.tipo, conteudo: result.conteudo };
       }
+      console.warn(`[etiqueta] ${canal} também falhou:`, result.error);
+      return { ok: false, error: result.error };
+    } catch (err) {
+      console.warn(`[etiqueta] ${canal} exception:`, err);
     }
 
     return blingResult; // retorna o erro original do Bling

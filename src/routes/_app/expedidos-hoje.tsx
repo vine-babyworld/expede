@@ -5,6 +5,7 @@ import { ArrowLeft, PackageCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getExpedidosHoje } from "@/lib/dashboard.functions";
 import { ResponsiveTable, type ResponsiveColumn } from "@/components/ResponsiveTable";
+import { marketplaceBadge } from "@/lib/marketplace-labels";
 
 export const Route = createFileRoute("/_app/expedidos-hoje")({
   component: ExpedidosHojePage,
@@ -22,12 +23,6 @@ function formatTime(iso: string | null): string {
   const hour = String(d.getUTCHours()).padStart(2, "0");
   const min  = String(d.getUTCMinutes()).padStart(2, "0");
   return `${hour}:${min}`;
-}
-
-function marketplaceBadge(marketplace: string | null): { nome: string; cor: string } {
-  if (marketplace === "shopee") return { nome: "Shopee", cor: "bg-orange-100 text-orange-800 border-orange-300" };
-  if (marketplace === "mercadolivre") return { nome: "Mercado Livre", cor: "bg-yellow-100 text-yellow-800 border-yellow-300" };
-  return { nome: marketplace ?? "—", cor: "bg-gray-100 text-gray-700 border-gray-300" };
 }
 
 function ExpedidosHojePage() {
