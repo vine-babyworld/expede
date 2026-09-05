@@ -316,11 +316,48 @@ Cobre Produtos, Pedidos, Promoções, SAC, Perguntas e Respostas, Chat. Dados ap
 O portal ainda diz *"apenas o ambiente Produção disponível, Sandbox em desenvolvimento"* — **frase
 desatualizada**, o sandbox de Pedidos/Entregas está ativo.
 
-## 9. Homologação/aprovação
+## 9. Registro do app (IDM CLI) e aprovação
 
-Cadastro de parceiro, registro do app no IDMagalu, homologação **módulo a módulo** e ticket no portal de
-suporte pedindo liberação para produção. Trabalho administrativo do Vinicius, mas é dependência externa de
-prazo incerto — sinalizar sempre no planejamento.
+⚠️ **Correção de 05/09/2026:** a nota anterior dizia "cadastro de parceiro no Acelera Magalu + homologação
+módulo a módulo + ticket". Isso descreve o fluxo da plataforma **legada** (IntegraCommerce). Na plataforma
+nova o registro é feito **por linha de comando**, não por portal web, e a doc oficial descreve o processo
+em apenas **três passos**.
+
+### Passo a passo confirmado
+
+1. **Conta** em `https://id.magalu.com` — dá para reaproveitar as credenciais do SuperApp / Portal Seller.
+2. **Baixar o IDM CLI**: `https://github.com/luizalabs/id-magalu-cli/releases/latest`.
+   No Windows, renomear para `idm.exe` e pôr num diretório do PATH.
+3. **`idm login`** — abre o navegador. Aceitar os consentimentos "Criar client" e "Atualizar client".
+4. **Criar o client:**
+
+```
+idm client create   --name "EXPEDE"   --description "Sistema de expedicao da Baby World"   --redirect-uris "https://babyworld.expede.workers.dev/api/magalu/callback"   --audience "https://api.magalu.com https://api-sandbox.magalu.com https://services.magalu.com"   --scopes "<lista da secao 2>"   --scopes-default "<lista da secao 2>"   --terms-of-use "<URL publica>"   --privacy-term "<URL publica>"
+```
+
+Obrigatórios: `name`, `audience`, `redirect-uris`, `scopes`, `terms-of-use`, `privacy-term`.
+Opcionais: `description`, `icon`, `access-token-exp` (**máximo 7200s**), `refresh-token-exp`, `reason`.
+
+Devolve **UUID** (identificador interno, usado no `idm client update`), **client_id** e **client_secret**.
+
+⚠️ **O `client_secret` não é recuperável depois de gerado.** Guardar na hora, direto como secret do
+Worker (`npx wrangler secret put MAGALU_CLIENT_SECRET`), nunca em arquivo versionado.
+
+### Aprovação
+
+Não há homologação módulo a módulo nesta plataforma. O que existe é **aprovação adicional para alguns
+escopos específicos** (a doc cita `open:portfolio-scores-seller:read` como exemplo). Conferir o status
+com `idm client list`.
+
+**Não confirmado:** se os escopos de logística/etiqueta (`open:order-logistics-seller:*`) estão entre os
+que exigem aprovação extra. Descobrir ao criar o client — se exigirem, isso vira o item de maior lead time
+da Fase 2.
+
+### Dois pré-requisitos que valem lembrar
+
+- `terms-of-use` e `privacy-term` precisam ser **URLs públicas acessíveis ao seller**. Se a Baby World não
+  tiver essas páginas, isso bloqueia a criação do client — resolver antes.
+- Quem faz o `idm login` e o consentimento depois precisa ser **ADMIN da PJ** (ver seção 2).
 
 ## 10. Riscos técnicos conhecidos
 
@@ -339,6 +376,9 @@ prazo incerto — sinalizar sempre no planejamento.
   payloads de write-back, paginação, status, rate limits e webhooks v1 com HMAC. Descobertos o breaking
   change de perfil ADMIN (mar/2026) e o header obrigatório `X-Channel-Id`. Derrubado o mito do limite de 20
   etiquetas por request (é da API legada).
+- **2026-09-05**: confirmado que o registro do app é por **CLI (`idm`)**, não por portal web, e que o
+  fluxo oficial tem só 3 passos — a "homologação módulo a módulo" registrada em 2026-08-19 era do fluxo
+  legado. `client_secret` não é recuperável. `access-token-exp` tem teto de 7200s.
 - 2026-08-19: primeira pesquisa de viabilidade, baseline.
 
 ## 12. Lacunas — a testar com a conta real
