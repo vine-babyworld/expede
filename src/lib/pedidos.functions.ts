@@ -9,6 +9,7 @@ import {
   ML_BLING_LOJA_ID as ML_LOJA_ID,
   SHOPEE_BLING_LOJA_ID as SHOPEE_LOJA_ID,
   MAGALU_BLING_LOJA_ID as MAGALU_LOJA_ID,
+  marketplacePelaLojaBling,
   normalizarMarketplacePedido,
   type MarketplacePedido,
 } from "@/lib/nf-emissao.policy";
@@ -20,8 +21,10 @@ import {
   janelaCivilBrt,
   planejarInspecoesReconciliacao,
   registrarErroConsulta,
+  construirUrlConsultaAlterados,
   LABEL_POR_ORIGEM,
   MARKETPLACE_POR_ORIGEM,
+  pedidoDentroDoHorizonteAlteracao,
   type CandidatoReconciliacao,
   type OrigemCandidatoReconciliacao,
 } from "@/lib/reconciliar-atendidos";
@@ -31,6 +34,16 @@ export { isPedidoFlex } from "@/lib/nf-emissao.policy";
 const BLING_PEDIDOS_URL = "https://api.bling.com.br/Api/v3/pedidos/vendas";
 const DEPOSITO_ALVO = "Geral";
 const MAX_CANDIDATOS_POR_EXECUCAO = 4;
+// Q7 — janela de ALTERAÇÃO. Curta de propósito: a página do Bling é limitada a
+// 100 e vem ordenada por id decrescente, então uma janela larga descartaria
+// justamente os pedidos antigos alterados (id baixo, fim da lista), que são o
+// alvo da consulta. Medido em 04/09/2026: 5 dias já devolviam 83 pedidos só na
+// loja ML. Com o cron rodando a cada minuto, 3 dias sobram.
+const DIAS_JANELA_ALTERACAO = 3;
+const LIMITE_PAGINA_BLING = 100;
+// Horizonte de data do PEDIDO aceito pela Q7. Sem ele, qualquer edição num
+// pedido de meses atrás o traria de volta para "A expedir".
+const DIAS_HORIZONTE_PEDIDO_ALTERADO = 30;
 const MAX_CANDIDATOS_SITUACAO = 4; // orçamento próprio de atualizarSituacoesExistentes (não compartilha com MAX_CANDIDATOS_POR_EXECUCAO)
 const BLING_PRODUTOS_URL = "https://api.bling.com.br/Api/v3/produtos";
 const BLING_NFE_URL = "https://api.bling.com.br/Api/v3/nfe";
@@ -559,6 +572,7 @@ export type ReconciliarReport = {
   query4: ReconciliarQueryReport;
   query5: ReconciliarQueryReport;
   query6: ReconciliarQueryReport;
+  query7: ReconciliarQueryReport;
   situacoes: AtualizarSituacoesReport;
   itensAusentes: ItensAusentesReport;
   detalhes: string[];
@@ -590,6 +604,7 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
     query4: novoQueryReport(),
     query5: novoQueryReport(),
     query6: novoQueryReport(),
+    query7: novoQueryReport(),
     situacoes: novaSituacoesReport(),
     itensAusentes: novaItensAusentesReport(),
     detalhes: [],
@@ -607,6 +622,7 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
     q4: report.query4,
     q5: report.query5,
     q6: report.query6,
+    q7: report.query7,
   };
 
   // Prefere uma conexão com status="connected" (mais antiga entre as conectadas).
@@ -683,13 +699,27 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
   console.log(`[reconciliar] Q5 url=${urlQ5}`);
   console.log(`[reconciliar] Q6 url=${urlQ6}`);
 
-  // Cinco consultas em lotes de 3 = 2 lotes, dentro do limite de 3 req/s do Bling.
-  const [resFaturados, resLoja, resAtendidosML, resFaturadosShopee, resFaturadosMagalu] = await executarConsultasEmLotes([
+  // Query 7: alterados recentemente, SEM filtro de loja — única consulta que enxerga
+  // um pedido antigo faturado hoje, porque Q1..Q6 filtram pela data do PEDIDO. Uma
+  // chamada cobre as três lojas (e a próxima que entrar); o canal sai do loja.id de
+  // cada item. Ver Lição #37.
+  const janelaAlteracao = janelaCivilBrt(new Date(), DIAS_JANELA_ALTERACAO);
+  const pisoDataPedidoQ7 = janelaCivilBrt(new Date(), DIAS_HORIZONTE_PEDIDO_ALTERADO).inicio;
+  const urlQ7 = construirUrlConsultaAlterados(
+    BLING_PEDIDOS_URL, null, janelaAlteracao.inicio, janelaAlteracao.fim,
+  );
+  console.log(`[reconciliar] Q7 url=${urlQ7}`);
+
+  // Seis consultas em lotes de 3 = 2 lotes, dentro do limite de 3 req/s do Bling.
+  const [
+    resFaturados, resLoja, resAtendidosML, resFaturadosShopee, resFaturadosMagalu, resAlterados,
+  ] = await executarConsultasEmLotes([
     () => fetch(urlsMl.q1, { headers }),
     () => fetch(urlsMl.q2, { headers }),
     () => fetch(urlsMl.q4, { headers }),
     () => fetch(urlQ5, { headers }),
     () => fetch(urlQ6, { headers }),
+    () => fetch(urlQ7, { headers }),
   ], 3, 1_100);
   const resAtendidos: PromiseSettledResult<Response> = { status: "rejected", reason: "desativado" } as PromiseSettledResult<Response>;
 
@@ -793,6 +823,44 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
     report.detalhes.push(`Q6 erro ao buscar lista: ${String(motivo)}`);
   }
 
+  // Q7 — permitirSemNf=false de propósito: a rede de segurança só deve trazer
+  // pedido que já tem NF, ou seja, que de fato passou a ser expedível. Um pedido
+  // antigo sem NF, alterado por outro motivo, não interessa aqui.
+  if (resAlterados.status === "fulfilled" && resAlterados.value.ok) {
+    const json: any = await resAlterados.value.json().catch(() => null);
+    const lista = json?.data ?? [];
+    report.query7.encontrados = lista.length;
+    let foraDoHorizonte = 0;
+    let foraDeEscopo = 0;
+    for (const p of lista) {
+      const marketplace = marketplacePelaLojaBling(p);
+      if (!marketplace) { foraDeEscopo++; continue; }
+      if (!pedidoDentroDoHorizonteAlteracao(p.data, pisoDataPedidoQ7)) { foraDoHorizonte++; continue; }
+      candidatosBrutos.push({
+        id: p.id, permitirSemNf: false, origem: "q7", dataPedido: p.data ?? null, marketplace,
+      });
+    }
+    console.log(
+      `[reconciliar] Q7: ${lista.length} alterado(s) desde ${janelaAlteracao.inicio},` +
+      ` ${foraDeEscopo} de loja fora de escopo, ${foraDoHorizonte} fora do horizonte` +
+      ` de ${DIAS_HORIZONTE_PEDIDO_ALTERADO} dias`,
+    );
+    // Página cheia = possível truncamento, e o corte cai nos ids mais baixos, que
+    // são exatamente os pedidos antigos que a Q7 existe para achar.
+    if (lista.length >= LIMITE_PAGINA_BLING) {
+      const aviso = `Q7 devolveu a página cheia (${lista.length}) — janela de ${DIAS_JANELA_ALTERACAO} dias pode estar truncando pedidos antigos`;
+      console.warn(`[reconciliar] ${aviso}`);
+      report.detalhes.push(aviso);
+    }
+    if (foraDoHorizonte > 0) {
+      report.detalhes.push(`Q7 pulados por data do pedido anterior a ${pisoDataPedidoQ7}: ${foraDoHorizonte}`);
+    }
+  } else {
+    const motivo = resAlterados.status === "rejected" ? resAlterados.reason : (resAlterados.value as any)?.status;
+    console.error("[reconciliar] GET alterados falhou:", motivo);
+    registrarErroConsulta(report.query7, report.detalhes, "Q7", motivo);
+  }
+
   const candidatos = agregarCandidatosReconciliacao(candidatosBrutos);
   report.totalCandidatos = candidatos.length;
 
@@ -874,7 +942,9 @@ export async function reconciliarPedidos(): Promise<ReconciliarReport> {
     for (const cand of candidatosParaInspecionar) {
       const label = LABEL_POR_ORIGEM[cand.origem];
       const bucket = bucketPorOrigem[cand.origem];
-      const marketplace: MarketplacePedido = MARKETPLACE_POR_ORIGEM[cand.origem];
+      // A Q7 varre as três lojas numa consulta só, então carrega o próprio canal;
+      // as demais origens são uma loja cada e saem do mapa.
+      const marketplace: MarketplacePedido = cand.marketplace ?? MARKETPLACE_POR_ORIGEM[cand.origem];
 
       const result = await processarPedidoBling(cand.id, conn.id, token, {
         permitirSemNf: cand.permitirSemNf,
@@ -1114,7 +1184,7 @@ async function atualizarSituacoesExistentes(
   }
 }
 
-async function fetchNfNumeroBling(nfId: number, token: string): Promise<string | null> {
+export async function fetchNfNumeroBling(nfId: number, token: string): Promise<string | null> {
   try {
     const res = await fetch(`${BLING_NFE_URL}/${nfId}`, {
       headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },

@@ -157,3 +157,116 @@ test("Q6 (Magalu) tem a mesma prioridade de Q1/Q5 na deduplicação", () => {
   // Só a Q1 herda o permitirSemNf da Q2; Magalu sempre exige NF.
   assert.equal(agregados[0].permitirSemNf, false);
 });
+
+// --- Q7: rede de segurança para pedido faturado muito depois da data do pedido ---
+// Regressão do pedido 9137 (numeroLoja 2000018004864372): feito em 18/08, faturado
+// só em 03/09. Q1/Q2/Q4/Q5/Q6 filtram por dataInicial/dataFinal (data do PEDIDO)
+// numa janela curta, então quando ele finalmente virou faturado já estava fora
+// dela — invisível para o reconciliador para sempre. Ver Lição #37.
+
+test("Q7 busca por data de ALTERAÇÃO, sem limitar pela data do pedido", () => {
+  const construirUrlConsultaAlterados = reconciliarAtendidos.construirUrlConsultaAlterados;
+  assert.equal(typeof construirUrlConsultaAlterados, "function");
+
+  const url = construirUrlConsultaAlterados(
+    "https://api.bling.com.br/Api/v3/pedidos/vendas",
+    "203482894",
+    "2026-08-25",
+    "2026-09-04",
+  );
+  const params = new URL(url).searchParams;
+
+  assert.equal(params.get("idLoja"), "203482894");
+  assert.equal(params.get("dataAlteracaoInicial"), "2026-08-25");
+  assert.equal(params.get("dataAlteracaoFinal"), "2026-09-04");
+  // O ponto da correção: a data do pedido não pode restringir a busca.
+  assert.equal(params.has("dataInicial"), false);
+  assert.equal(params.has("dataFinal"), false);
+
+  // Sem loja: uma chamada cobre as três lojas (e a próxima que entrar). Quem
+  // separa o canal é marketplacePelaLojaBling sobre o loja.id de cada item.
+  const semLoja = new URL(
+    construirUrlConsultaAlterados("https://api.bling.com.br/Api/v3/pedidos/vendas", null, "2026-08-25", "2026-09-04"),
+  ).searchParams;
+  assert.equal(semLoja.has("idLoja"), false);
+  assert.equal(semLoja.get("dataAlteracaoInicial"), "2026-08-25");
+});
+
+test("Q7 respeita um horizonte de data do pedido para não ressuscitar pedido antigo", () => {
+  const dentroDoHorizonte = reconciliarAtendidos.pedidoDentroDoHorizonteAlteracao;
+  assert.equal(typeof dentroDoHorizonte, "function");
+
+  assert.equal(dentroDoHorizonte("2026-08-18", "2026-08-05"), true, "pedido 9137 entra");
+  assert.equal(dentroDoHorizonte("2026-08-05", "2026-08-05"), true, "piso é inclusivo");
+  assert.equal(dentroDoHorizonte("2026-07-30", "2026-08-05"), false, "antigo demais");
+  assert.equal(dentroDoHorizonte(null, "2026-08-05"), false, "sem data não arrisca");
+});
+
+test("Q7 carrega o próprio marketplace e cede para a fonte específica do mesmo pedido", () => {
+  const q7 = (id, marketplace) => ({
+    id, origem: "q7", permitirSemNf: false, marketplace, dataPedido: "2026-08-18",
+  });
+
+  const candidatos = agregarCandidatosReconciliacao([
+    q7(1, "magalu"),
+    q7(2, "shopee"), cand(2, "q5"),
+    q7(3, "mercadolivre"), cand(3, "q2"),
+    q7(4, "magalu"), { id: 4, origem: "q6", permitirSemNf: false, dataPedido: "2026-09-01" },
+  ]);
+
+  assert.deepEqual(candidatos[0], q7(1, "magalu"), "sozinha, a Q7 preserva o marketplace");
+  assert.equal(candidatos[1].origem, "q5", "Q5 é fonte específica e vence a Q7");
+  assert.equal(candidatos[2].origem, "q2", "Q2 vence a Q7 e mantém permitirSemNf");
+  assert.equal(candidatos[2].permitirSemNf, true);
+  assert.equal(candidatos[3].origem, "q6", "Q6 (Magalu) vence a Q7");
+});
+
+test("Q7 aparece nos mapas de canal e rótulo", () => {
+  const { MARKETPLACE_POR_ORIGEM, LABEL_POR_ORIGEM } = reconciliarAtendidos;
+  assert.equal(LABEL_POR_ORIGEM.q7, "Q7");
+  // A Q7 varre as três lojas: o mapa é só fallback de tipo, quem manda é o
+  // campo `marketplace` do candidato.
+  assert.ok(["mercadolivre", "shopee", "magalu"].includes(MARKETPLACE_POR_ORIGEM.q7));
+});
+
+test("Q7 disputa a vaga reservada das demais fontes, não o orçamento do Q4", () => {
+  const plano = planejarInspecoesReconciliacao([
+    cand(1, "q4"), cand(2, "q4"), cand(3, "q4"), cand(4, "q4"),
+    { id: 5, origem: "q7", permitirSemNf: false, marketplace: "mercadolivre", dataPedido: "2026-08-18" },
+  ], 4, 0, 0);
+
+  assert.equal(plano.length, 4);
+  assert.equal(plano.some((c) => c.origem === "q7"), true);
+});
+
+// --- Busca por numeroLoja: o Bling ACEITA o parâmetro e o IGNORA ---
+// Verificado contra a API em 04/09/2026: pedir ?numeroLoja=2000018004864372
+// devolveu os 10 pedidos mais recentes da conta, nenhum deles o solicitado.
+// Quem confia em lista[0] importa o pedido errado. Ver Lição #38.
+
+test("busca por numeroLoja confere a lista devolvida em vez de confiar na ordem", () => {
+  const encontrarPedidoPorNumeroLoja = reconciliarAtendidos.encontrarPedidoPorNumeroLoja;
+  assert.equal(typeof encontrarPedidoPorNumeroLoja, "function");
+
+  const listaIgnorandoFiltro = [
+    { id: 26784052100, numeroLoja: "2000018281873916" },
+    { id: 26783922593, numeroLoja: "2000018281688362" },
+  ];
+
+  assert.equal(
+    encontrarPedidoPorNumeroLoja(listaIgnorandoFiltro, "2000018004864372"),
+    null,
+    "não pode devolver o primeiro da lista quando o pedido pedido não está nela",
+  );
+  assert.deepEqual(
+    encontrarPedidoPorNumeroLoja(listaIgnorandoFiltro, "2000018281688362"),
+    { id: 26783922593, numeroLoja: "2000018281688362" },
+    "acha o pedido certo em qualquer posição",
+  );
+  assert.equal(encontrarPedidoPorNumeroLoja([], "2000018004864372"), null);
+  assert.deepEqual(
+    encontrarPedidoPorNumeroLoja([{ id: 1, numeroLoja: 2000018004864372 }], "2000018004864372"),
+    { id: 1, numeroLoja: 2000018004864372 },
+    "comparação é textual: numeroLoja numérico ainda casa com o alvo",
+  );
+});

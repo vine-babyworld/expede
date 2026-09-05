@@ -255,7 +255,7 @@ function DashboardPage() {
     mutationFn: () => triggerFn(),
     onSuccess: (data) => {
       setSyncReport(data.resultado);
-      const importados = data.resultado.query1.importados + data.resultado.query2.importados + (data.resultado.query3?.importados ?? 0) + (data.resultado.query4?.importados ?? 0);
+      const importados = data.resultado.query1.importados + data.resultado.query2.importados + (data.resultado.query3?.importados ?? 0) + (data.resultado.query4?.importados ?? 0) + (data.resultado.query5?.importados ?? 0) + (data.resultado.query6?.importados ?? 0) + (data.resultado.query7?.importados ?? 0);
       const atualizadas = data.resultado.situacoes?.atualizados ?? 0;
       toast.success(`${importados} pedidos importados · ${atualizadas} situações atualizadas`);
       queryClient.invalidateQueries({ queryKey: ["dash-expedicao"] });
@@ -491,6 +491,15 @@ function DashboardPage() {
                     )}
                     {syncReport.query4 && (
                       <QueryReportSection title="Query 4 — Atendidos ML (situação=15+loja)" report={syncReport.query4} />
+                    )}
+                    {syncReport.query5 && (
+                      <QueryReportSection title="Query 5 — Faturados Shopee" report={syncReport.query5} />
+                    )}
+                    {syncReport.query6 && (
+                      <QueryReportSection title="Query 6 — Faturados Magalu" report={syncReport.query6} />
+                    )}
+                    {syncReport.query7 && (
+                      <QueryReportSection title="Query 7 — Alterados recentemente (faturamento atrasado)" report={syncReport.query7} />
                     )}
                   </div>
                   {syncReport.situacoes && (
