@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/select";
 import { getHistorico, HISTORICO_LIMIT, type HistoricoRow } from "@/lib/dashboard.functions";
 import { isPedidoFlex, nfNaoAutorizada, nfSituacaoLabel } from "@/lib/pedidos.functions";
-import { marketplaceBadge } from "@/lib/marketplace-labels";
+import { MarketplaceBadge } from "@/components/MarketplaceBadge";
 import { buscarEtiquetaBling } from "@/lib/etiqueta.functions";
 import { gerarDanfeCustom } from "@/lib/danfe.functions";
 import { useQzTray } from "@/hooks/useQzTray";
@@ -211,12 +211,9 @@ function HistoricoPage() {
       header: "Marketplace",
       priority: "secondary",
       cell: (p) => {
-        const badge = marketplaceBadge(p.marketplace);
         return (
           <div className="flex flex-wrap gap-1.5">
-            <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${badge.cor}`}>
-              {badge.nome}
-            </span>
+            <MarketplaceBadge marketplace={p.marketplace} />
             {isPedidoFlex(p) && (
               <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border bg-yellow-100 text-yellow-800 border-yellow-300">
                 FLEX

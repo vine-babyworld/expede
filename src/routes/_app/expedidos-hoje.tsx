@@ -5,7 +5,7 @@ import { ArrowLeft, PackageCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getExpedidosHoje } from "@/lib/dashboard.functions";
 import { ResponsiveTable, type ResponsiveColumn } from "@/components/ResponsiveTable";
-import { marketplaceBadge } from "@/lib/marketplace-labels";
+import { MarketplaceBadge } from "@/components/MarketplaceBadge";
 
 export const Route = createFileRoute("/_app/expedidos-hoje")({
   component: ExpedidosHojePage,
@@ -42,14 +42,7 @@ function ExpedidosHojePage() {
     { id: "numero", header: "Nº Pedido", priority: "primary", className: "font-mono", cell: (p) => p.numero_loja },
     {
       id: "marketplace", header: "Marketplace", priority: "secondary",
-      cell: (p) => {
-        const m = marketplaceBadge(p.marketplace);
-        return (
-          <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${m.cor}`}>
-            {m.nome}
-          </span>
-        );
-      },
+      cell: (p) => <MarketplaceBadge marketplace={p.marketplace} />,
     },
     { id: "cliente", header: "Cliente", priority: "primary", className: "max-w-[220px] truncate", cell: (p) => p.cliente_nome },
     { id: "valor", header: "Valor", priority: "secondary", align: "right", className: "tabular-nums", cell: (p) => formatBRL(p.valor_total) },
