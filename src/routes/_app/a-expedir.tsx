@@ -6,7 +6,7 @@ import { Search, ClipboardList } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { getPedidosAExpedir, type PedidoAExpedir } from "@/lib/dashboard.functions";
 import { isPedidoFlex } from "@/lib/pedidos.functions";
-import { marketplaceBadge } from "@/lib/marketplace-labels";
+import { MarketplaceBadge } from "@/components/MarketplaceBadge";
 import { ResponsiveTable, type ResponsiveColumn } from "@/components/ResponsiveTable";
 
 export const Route = createFileRoute("/_app/a-expedir")({
@@ -83,14 +83,9 @@ function AExpedirPage() {
     {
       id: "marketplace", header: "Marketplace", priority: "secondary",
       cell: (p) => {
-        const marketplace = marketplaceBadge(p.marketplace);
         return (
           <div className="flex flex-wrap items-center gap-1.5">
-            {marketplace && (
-              <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${marketplace.cor}`}>
-                {marketplace.nome}
-              </span>
-            )}
+            <MarketplaceBadge marketplace={p.marketplace} />
             {isPedidoFlex(p) && (
               <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border bg-yellow-100 text-yellow-800 border-yellow-300">
                 FLEX

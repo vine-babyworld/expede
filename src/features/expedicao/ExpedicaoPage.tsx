@@ -37,7 +37,7 @@ import { registrarBipagem } from "@/lib/bipagem.functions";
 import { buscarEtiquetaBling } from "@/lib/etiqueta.functions";
 import { gerarDanfeCustom } from "@/lib/danfe.functions";
 import { isPedidoFlex, marcarPedidoImpresso, nfNaoAutorizada, nfSituacaoLabel } from "@/lib/pedidos.functions";
-import { marketplaceBadgeOuNulo } from "@/lib/marketplace-labels";
+import { MarketplaceBadge } from "@/components/MarketplaceBadge";
 import { useQzTray } from "@/hooks/useQzTray";
 import { PrinterConfig } from "@/components/PrinterConfig";
 import { MobileHidden } from "@/components/MobileHidden";
@@ -584,8 +584,6 @@ export function ExpedicaoPage() {
 
 // ─── Card de pedido ───────────────────────────────────────────────────────────
 
-const detectarMarketplace = marketplaceBadgeOuNulo;
-
 function NfNaoAutorizadaDialog({
   pedido,
   onClose,
@@ -633,7 +631,6 @@ function PedidoCard({
   const imageUrl = item?.produto?.imagem_url || null;
   const logistica = (pedido.raw_json as any)?.transporte?.volumes?.[0]?.servico ?? null;
   const ean = item?.ean ?? item?.produto_gtin ?? "—";
-  const marketplace = detectarMarketplace(pedido.marketplace);
   const numeroPrincipal = pedido.numero_loja || pedido.numero;
   const numeroSecundario = pedido.numero_loja ? pedido.numero : null;
   const isFlex = logistica?.toLowerCase().includes("flex") ?? false;
@@ -669,11 +666,7 @@ function PedidoCard({
           <h3 className="font-bold text-base leading-tight truncate">
             {item?.descricao ?? "—"}
           </h3>
-          {marketplace && (
-            <span className={`shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded border ${marketplace.cor}`}>
-              {marketplace.nome}
-            </span>
-          )}
+          <MarketplaceBadge marketplace={pedido.marketplace} tamanho="xs" ocultarVazio />
           {isFlex && (
             <span className="shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded border bg-yellow-100 text-yellow-800 border-yellow-300">
               FLEX

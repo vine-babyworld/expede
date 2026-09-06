@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { CheckCircle2, ShoppingCart, Plug } from "lucide-react";
+import { CheckCircle2, Plug } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { MobileHidden } from "@/components/MobileHidden";
 import { getMLConnection } from "@/lib/ml.functions";
@@ -36,7 +36,7 @@ function MarketplacesPage() {
       <div className="bg-card border rounded-xl shadow-sm p-4 md:p-6">
         <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
           <div className="flex items-center gap-3">
-            <ShoppingCart className="h-6 w-6 text-yellow-500" />
+            <img src="/marketplaces/mercadolivre.svg" alt="" className="h-6 w-auto shrink-0" />
             <div>
               <h2 className="text-base font-semibold">Mercado Livre</h2>
               <p className="text-xs text-muted-foreground mt-0.5">
@@ -84,9 +84,7 @@ function MarketplacesPage() {
       <div className="bg-card border rounded-xl shadow-sm p-4 md:p-6">
         <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="h-6 w-6 rounded bg-orange-200 flex items-center justify-center text-orange-700 text-xs font-bold shrink-0">
-              S
-            </div>
+            <img src="/marketplaces/shopee.svg" alt="" className="h-6 w-auto shrink-0" />
             <div>
               <h2 className="text-base font-semibold">Shopee</h2>
               <p className="text-xs text-muted-foreground mt-0.5">
@@ -129,9 +127,7 @@ function MarketplacesPage() {
       <div className="bg-card border rounded-xl shadow-sm p-4 md:p-6">
         <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="h-6 w-6 rounded bg-blue-200 flex items-center justify-center text-blue-700 text-xs font-bold shrink-0">
-              M
-            </div>
+            <img src="/marketplaces/magalu.svg" alt="" className="h-6 w-auto shrink-0" />
             <div>
               <h2 className="text-base font-semibold">Magalu</h2>
               <p className="text-xs text-muted-foreground mt-0.5">
@@ -158,9 +154,7 @@ function MarketplacesPage() {
       <div className="bg-card border rounded-xl shadow-sm p-4 md:p-6 opacity-60">
         <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="h-6 w-6 rounded bg-amber-200 flex items-center justify-center text-amber-700 text-xs font-bold shrink-0">
-              A
-            </div>
+            <img src="/marketplaces/amazon.svg" alt="" className="h-6 w-auto shrink-0" />
             <div>
               <h2 className="text-base font-semibold">Amazon</h2>
               <p className="text-xs text-muted-foreground mt-0.5">
