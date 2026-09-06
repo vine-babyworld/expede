@@ -12,6 +12,13 @@ const REQUEST_DELAY_MS = 350;
 const DETAIL_BATCH_SIZE = 15; // produtos enriquecidos por execução (reduzido de 40 para caber no timeout de 30s do Worker)
 
 const IMPORT_LOCAL_CMD = "node --env-file=.env scripts/sync-produtos-local.mjs";
+
+// Bloqueio de IP de datacenter pelo CDN/WAF do Bling: intermitente, tratado como
+// erro transitório (pausa + backoff) até um teto de tentativas consecutivas.
+const CDN_BLOCK_TAG = "bling_cdn_403";
+const CDN_BLOCK_TAG_RECUPERADO = "bling_cdn_403_recuperado";
+const CDN_BLOCK_MAX_TENTATIVAS = 5;
+const CDN_BLOCK_BACKOFF_MS = 60_000;
 const BLING_DIAG_HEADERS = ["server", "cf-ray", "cf-mitigated", "content-type"] as const;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -190,6 +197,31 @@ function formatBlingApiErrorText(
   headers?: BlingDiagHeaders,
 ): string {
   return classifyBlingError(status, text, headers).mensagem;
+}
+
+/** 403 emitido pelo CDN/WAF do Bling (bloqueio de IP), não recusa da API. */
+function isBlingCdnBlock(proxy: BlingProxyResponse): boolean {
+  return proxy.status === 403 && classifyBlingError(403, proxy.body, proxy.headers).cdnBlock;
+}
+
+type SyncJobErro = { tipo?: string; mensagem?: string; [key: string]: unknown };
+
+/** Conta bloqueios do CDN consecutivos no fim do array `erros` do job — evita
+ *  loop infinito de 403 sem precisar de coluna nova no banco. */
+function contarCdnBlocksConsecutivos(erros: SyncJobErro[]): number {
+  let total = 0;
+  for (let i = erros.length - 1; i >= 0; i -= 1) {
+    if (erros[i]?.tipo !== CDN_BLOCK_TAG) break;
+    total += 1;
+  }
+  return total;
+}
+
+/** Após uma requisição bem-sucedida, zera o contador sem perder o histórico. */
+function marcarCdnBlocksRecuperados(erros: SyncJobErro[]): void {
+  for (const erro of erros) {
+    if (erro?.tipo === CDN_BLOCK_TAG) erro.tipo = CDN_BLOCK_TAG_RECUPERADO;
+  }
 }
 
 async function assertAdmin(supabase: any, userId: string) {
@@ -432,6 +464,30 @@ async function runListagemJob(job: any): Promise<{ done: boolean; status: string
       return { done: false, status: "pausado" };
     }
 
+    // 403 do CDN/WAF é bloqueio de IP e intermitente: pausa com backoff em vez de
+    // matar o job. O teto de tentativas consecutivas evita loop infinito caso o
+    // bloqueio deixe de ser transitório (ou caso seja um 403 legítimo mal
+    // classificado).
+    if (isBlingCdnBlock(proxy)) {
+      const tentativas = contarCdnBlocksConsecutivos(erros) + 1;
+      const mensagem = `${formatBlingApiErrorText(proxy.status, proxy.body, proxy.headers)} (tentativa ${tentativas}/${CDN_BLOCK_MAX_TENTATIVAS})`;
+      const errosAtualizados = [...erros, { pagina, mensagem, tipo: CDN_BLOCK_TAG }].slice(-50);
+      if (tentativas >= CDN_BLOCK_MAX_TENTATIVAS) {
+        await supabaseAdmin.from("sync_jobs").update({
+          status: "erro", pagina_atual: pagina - 1, total_erros: totalErros + 1,
+          finalizado_em: new Date().toISOString(), proxima_execucao_em: null,
+          erros: errosAtualizados,
+        }).eq("id", job.id);
+        return { done: true, status: "erro" };
+      }
+      await supabaseAdmin.from("sync_jobs").update({
+        status: "pausado", pagina_atual: pagina - 1,
+        proxima_execucao_em: new Date(Date.now() + CDN_BLOCK_BACKOFF_MS).toISOString(),
+        erros: errosAtualizados,
+      }).eq("id", job.id);
+      return { done: false, status: "pausado" };
+    }
+
     if (!proxy.ok) {
       const mensagem = formatBlingApiErrorText(proxy.status, proxy.body, proxy.headers);
       await supabaseAdmin.from("sync_jobs").update({
@@ -440,6 +496,9 @@ async function runListagemJob(job: any): Promise<{ done: boolean; status: string
       }).eq("id", job.id);
       return { done: true, status: "erro" };
     }
+
+    // Página respondida: os bloqueios anteriores foram transitórios, zera o contador.
+    marcarCdnBlocksRecuperados(erros);
 
     let payload: any = {};
     try { payload = JSON.parse(proxy.body); } catch { payload = {}; }
@@ -588,6 +647,31 @@ async function runDetalhesJob(job: any): Promise<{ done: boolean; status: string
       return { done: false, status: "pausado" };
     }
 
+    // 403 do CDN/WAF: bloqueio de IP, não recusa do Bling. Pausa com backoff e
+    // NÃO marca o produto como detalhado, para o poller retomar do mesmo ponto.
+    if (isBlingCdnBlock(proxy)) {
+      const tentativas = contarCdnBlocksConsecutivos(erros) + 1;
+      const mensagem = `${formatBlingApiErrorText(proxy.status, proxy.body, proxy.headers)} (tentativa ${tentativas}/${CDN_BLOCK_MAX_TENTATIVAS})`;
+      const patch = {
+        total_processados: totalProcessados, total_erros: totalErros,
+        erros: [...erros, { produto_id: pend.bling_product_id, mensagem, tipo: CDN_BLOCK_TAG }].slice(-50),
+        total_paginas: pendingCount ?? null,
+        pagina_atual: totalProcessados,
+      };
+      if (tentativas >= CDN_BLOCK_MAX_TENTATIVAS) {
+        await supabaseAdmin.from("sync_jobs").update({
+          ...patch, status: "erro",
+          finalizado_em: new Date().toISOString(), proxima_execucao_em: null,
+        }).eq("id", job.id);
+        return { done: true, status: "erro" };
+      }
+      await supabaseAdmin.from("sync_jobs").update({
+        ...patch, status: "pausado",
+        proxima_execucao_em: new Date(Date.now() + CDN_BLOCK_BACKOFF_MS).toISOString(),
+      }).eq("id", job.id);
+      return { done: false, status: "pausado" };
+    }
+
     if (!proxy.ok) {
       totalErros += 1;
       const mensagem = formatBlingApiErrorText(proxy.status, proxy.body, proxy.headers);
@@ -599,6 +683,9 @@ async function runDetalhesJob(job: any): Promise<{ done: boolean; status: string
       await sleep(REQUEST_DELAY_MS);
       continue;
     }
+
+    // Resposta válida: os bloqueios anteriores foram transitórios, zera o contador.
+    marcarCdnBlocksRecuperados(erros);
 
     let payload: any = {};
     try { payload = JSON.parse(proxy.body); } catch { payload = {}; }
