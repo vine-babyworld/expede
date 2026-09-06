@@ -10,3 +10,8 @@ create table if not exists produtos_sync_runs (
   detalhes jsonb
 );
 alter table produtos_sync_runs enable row level security;
+
+-- Consulta típica: última(s) run(s) de uma conexão Bling, mais recente primeiro.
+-- Mesmo padrão de idx_sync_jobs_connection (20260527114333).
+create index if not exists idx_produtos_sync_runs_connection
+  on produtos_sync_runs (bling_connection_id, iniciado_em desc);
