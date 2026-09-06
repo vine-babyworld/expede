@@ -118,6 +118,7 @@ async function main() {
   let totalComGtin  = 0;
   let totalSemGtin  = 0;
   let loteAtual     = [];
+  let avisouRunLog  = false;
 
   async function flushLote() {
     if (loteAtual.length === 0) return;
@@ -129,6 +130,17 @@ async function main() {
       console.log(
         `  → Enviados ${lote.length} produtos | upserted=${result.total_upserted ?? "?"} erros=${result.total_erros ?? 0}`,
       );
+      // O Worker responde run_logged=false quando não conseguiu registrar a run.
+      // Avisa uma única vez — o import em si continua válido.
+      if (result.run_logged === false && !avisouRunLog) {
+        avisouRunLog = true;
+        console.warn(
+          "\n⚠  AVISO: o Worker não conseguiu gravar o log da run (run_logged=false).\n" +
+            "   A tabela `produtos_sync_runs` provavelmente não existe em produção.\n" +
+            "   Aplique a migração `supabase/migrations/20260618100000_produtos-sync-runs.sql`.\n" +
+            "   Os produtos continuam sendo importados normalmente; só o histórico de sync fica sem registro.\n",
+        );
+      }
     } catch (e) {
       console.error(`  → ERRO ao enviar lote de ${lote.length} produtos:`, e.message);
     }
