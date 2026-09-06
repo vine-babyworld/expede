@@ -32,13 +32,23 @@ export const Route = createFileRoute("/api/admin/importar-produtos-lote")({
         let totalErros = 0;
         const erros: any[] = [];
 
-        // Insert run log at start
-        const { data: run } = await supabaseAdmin
+        // Insert run log at start.
+        // Falha aqui NÃO derruba o import (o upsert de produtos é o que importa),
+        // mas precisa ficar visível nos logs do Worker — antes o erro era engolido
+        // e o import rodava "com sucesso" sem deixar nenhum registro de run.
+        const { data: run, error: runInsertErr } = await supabaseAdmin
           .from("produtos_sync_runs")
           .insert({ bling_connection_id: blingConnectionId, origem: "pc-local" })
           .select("id")
           .single();
+        if (runInsertErr) {
+          console.error(
+            "[importar-produtos-lote] falha ao inserir run em produtos_sync_runs:",
+            runInsertErr.message,
+          );
+        }
         const runId: string | null = run?.id ?? null;
+        let runLogged = Boolean(runId);
 
         // Map Bling raw objects to produto rows
         const rows: any[] = [];
@@ -66,7 +76,7 @@ export const Route = createFileRoute("/api/admin/importar-produtos-lote")({
 
         // Update run log at end
         if (runId) {
-          await supabaseAdmin
+          const { error: runUpdateErr } = await supabaseAdmin
             .from("produtos_sync_runs")
             .update({
               finalizado_em: new Date().toISOString(),
@@ -76,13 +86,26 @@ export const Route = createFileRoute("/api/admin/importar-produtos-lote")({
               detalhes: erros.length > 0 ? erros : null,
             })
             .eq("id", runId);
+          if (runUpdateErr) {
+            runLogged = false;
+            console.error(
+              "[importar-produtos-lote] falha ao atualizar run em produtos_sync_runs:",
+              runUpdateErr.message,
+            );
+          }
         }
 
         console.log(
-          `[importar-produtos-lote] recebidos=${totalRecebidos} upserted=${totalUpserted} erros=${totalErros}`,
+          `[importar-produtos-lote] recebidos=${totalRecebidos} upserted=${totalUpserted} erros=${totalErros} run_logged=${runLogged}`,
         );
 
-        return Response.json({ ok: true, total_recebidos: totalRecebidos, total_upserted: totalUpserted, total_erros: totalErros });
+        return Response.json({
+          ok: true,
+          total_recebidos: totalRecebidos,
+          total_upserted: totalUpserted,
+          total_erros: totalErros,
+          run_logged: runLogged,
+        });
       },
     },
   },
