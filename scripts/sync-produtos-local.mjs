@@ -22,6 +22,7 @@ const PAGE_DELAY_MS       = 600;    // delay entre páginas de listagem (rate li
 const DETAIL_DELAY_MS     = 350;    // delay entre chamadas de detalhe individual
 const RATE_LIMIT_WAIT_MS  = 5_000;  // espera após 429
 const MAX_RETRIES         = 3;
+const MAX_TOKEN_RENOVACOES = 3;     // renovações de token por requisição (import longo atravessa a expiração)
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -35,6 +36,20 @@ async function getToken() {
   const json = await res.json();
   if (!json.access_token) throw new Error("access_token ausente: " + JSON.stringify(json));
   return json.access_token;
+}
+
+/** Token corrente. Fica em escopo de módulo porque um import longo (~20 min) pode
+ *  atravessar a expiração do access token do Bling. */
+let tokenAtual = null;
+
+/** Rebusca o token no Worker. O endpoint /api/debug/bling-token chama
+ *  getDecryptedAccessToken, que renova sozinho quando o token está expirado (ou a
+ *  menos de 60s disso) — então um 401 no meio do import se resolve aqui, sem
+ *  nenhuma intervenção manual no painel do Bling. */
+async function renovarToken(motivo) {
+  console.log(`  Renovando token Bling (${motivo})...`);
+  tokenAtual = await getToken();
+  console.log("  Token renovado, retomando.");
 }
 
 async function sendBatch(lote) {
@@ -51,19 +66,21 @@ async function sendBatch(lote) {
 }
 
 /**
- * Faz GET em uma URL do Bling com retry em 429 e abort em 401.
+ * Faz GET em uma URL do Bling com retry em 429 e em 401.
  * Retorna o objeto Response em caso de sucesso, ou null se falhar após MAX_RETRIES.
- * Em 401, encerra o processo inteiro (token expirado, inútil continuar).
+ * Em 401, renova o token pelo Worker e repete a requisição (até MAX_TOKEN_RENOVACOES
+ * vezes); só aborta se a própria renovação falhar.
  *
  * @param {string} label - identificação para logs (ex: "detalhe 123456")
  */
-async function fetchBling(url, token, label) {
+async function fetchBling(url, label) {
   let tentativas = 0;
+  let renovacoes = 0;
   while (tentativas < MAX_RETRIES) {
     let res;
     try {
       res = await fetch(url, {
-        headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+        headers: { Authorization: `Bearer ${tokenAtual}`, Accept: "application/json" },
       });
     } catch (e) {
       tentativas++;
@@ -80,8 +97,19 @@ async function fetchBling(url, token, label) {
     }
 
     if (res.status === 401) {
-      console.error(`\nERRO: token expirado (401) em [${label}]. Renove a conexão Bling no painel e rode novamente.`);
-      process.exit(1);
+      if (renovacoes >= MAX_TOKEN_RENOVACOES) {
+        console.error(`\nERRO: 401 persistente em [${label}] após ${renovacoes} renovação(ões) de token. Abortando.`);
+        process.exit(1);
+      }
+      renovacoes++;
+      try {
+        await renovarToken(`401 em ${label}`);
+      } catch (e) {
+        console.error(`\nERRO: falha ao renovar o token após 401 em [${label}]:`, e.message);
+        console.error("Reautorize a conexão Bling no painel e rode novamente.");
+        process.exit(1);
+      }
+      continue;
     }
 
     return res; // sucesso (ou erro HTTP diferente de 429/401 — caller decide)
@@ -101,10 +129,9 @@ async function main() {
   console.log("   Deixe o terminal aberto e não interrompa o processo.\n");
 
   // 1. Obtém token via Worker (descriptografado do Supabase)
-  let token;
   try {
     console.log("Buscando token Bling no Worker...");
-    token = await getToken();
+    tokenAtual = await getToken();
     console.log("Token OK.\n");
   } catch (e) {
     console.error("ERRO ao buscar token:", e.message);
@@ -152,7 +179,7 @@ async function main() {
     const urlListagem = `${BLING_PRODUTOS_URL}?pagina=${pagina}&limite=${PAGE_LIMIT}&criterio=2`;
 
     // ── Busca a página de listagem ────────────────────────────────────────────
-    const resListagem = await fetchBling(urlListagem, token, `listagem p${pagina}`);
+    const resListagem = await fetchBling(urlListagem, `listagem p${pagina}`);
 
     if (!resListagem) {
       console.error(`  Página ${pagina}: falhou na listagem. Abortando.`);
@@ -181,7 +208,7 @@ async function main() {
 
     for (const p of produtos) {
       const urlDetalhe = `${BLING_PRODUTOS_URL}/${p.id}`;
-      const resDetalhe = await fetchBling(urlDetalhe, token, `detalhe ${p.id}`);
+      const resDetalhe = await fetchBling(urlDetalhe, `detalhe ${p.id}`);
 
       if (resDetalhe && resDetalhe.ok) {
         const jsonDetalhe = await resDetalhe.json().catch(() => ({}));
