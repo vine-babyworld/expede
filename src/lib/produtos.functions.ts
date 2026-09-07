@@ -294,7 +294,12 @@ async function fireAndForgetRun(jobId: string, origin: string) {
   }).catch(() => { /* ignore */ });
 }
 
-async function createAndFireDetalhesJob(connectionId: string, origin: string, userId: string | null) {
+/**
+ * Cria (ou reusa) o job da fase de detalhes. `origin` é OPCIONAL e serve só para
+ * acelerar: com ele o job é disparado na hora; sem ele o job nasce `pendente` e o
+ * cronSyncPoll o executa no minuto seguinte. A criação do job nunca depende de origin.
+ */
+async function createAndFireDetalhesJob(connectionId: string, origin: string | null, userId: string | null) {
   // Reusa job ativo de detalhes se existir
   const { data: existing } = await supabaseAdmin
     .from("sync_jobs")
@@ -307,7 +312,7 @@ async function createAndFireDetalhesJob(connectionId: string, origin: string, us
     .maybeSingle();
   if (existing) return existing.id;
 
-  const { data: job } = await supabaseAdmin
+  const { data: job, error: insertError } = await supabaseAdmin
     .from("sync_jobs")
     .insert({
       bling_connection_id: connectionId,
@@ -318,11 +323,13 @@ async function createAndFireDetalhesJob(connectionId: string, origin: string, us
     })
     .select("id")
     .single();
-  if (job) {
-    fireAndForgetRun(job.id, origin).catch(() => {});
-    return job.id;
+  if (insertError || !job) {
+    throw new Error(
+      "falha ao criar job de detalhes: " + (insertError?.message ?? "insert sem retorno"),
+    );
   }
-  return null;
+  if (origin) fireAndForgetRun(job.id, origin).catch(() => {});
+  return job.id;
 }
 
 export const syncProductsStart = createServerFn({ method: "POST" })
@@ -549,11 +556,29 @@ async function runListagemJob(job: any): Promise<{ done: boolean; status: string
       finalizado_em: new Date().toISOString(), proxima_execucao_em: null,
     }).eq("id", job.id);
 
-    // Dispara fase de detalhes
+    // Dispara fase de detalhes.
+    //
+    // Antes isto era `if (origin) ...` dentro de um catch vazio, e getServerOrigin()
+    // depende de getRequest(): fora de uma requisição HTTP ele devolve "". Ou seja,
+    // toda listagem concluída pelo CRON terminava sem criar a fase de detalhes, em
+    // silêncio absoluto — os produtos ficavam para sempre sem EAN/peso/dimensões.
+    // Agora o job é criado sempre; o origin só acelera o primeiro disparo.
     try {
       const origin = await getServerOrigin();
-      if (origin) await createAndFireDetalhesJob(job.bling_connection_id, origin, job.iniciado_por ?? null);
-    } catch { /* ignore */ }
+      await createAndFireDetalhesJob(
+        job.bling_connection_id,
+        origin || null,
+        job.iniciado_por ?? null,
+      );
+    } catch (e) {
+      const mensagem = `fase de detalhes não iniciada: ${String((e as any)?.message ?? e)}`;
+      console.error("[sync-produtos]", mensagem);
+      // Registra no próprio job: falhar em silêncio aqui foi o que escondeu o bug.
+      await supabaseAdmin
+        .from("sync_jobs")
+        .update({ erros: [...erros, { mensagem }].slice(-50), total_erros: totalErros + 1 })
+        .eq("id", job.id);
+    }
 
     return { done: true, status: "concluido" };
   }
