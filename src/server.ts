@@ -727,7 +727,10 @@ export default {
   // NUNCA é chamado em produção: o preset Nitro cloudflare-module gera seu próprio
   // entry point e expõe scheduled triggers via hook "cloudflare:scheduled"
   // (registrado em plugins/cloudflare-scheduled.ts), não via este export default.
-  // Mantido para paridade de tipo com o ServerEntry e como referência da lógica.
+  //
+  // NÃO ADICIONE CRON AQUI — a lista real está no plugin, e esta cópia NÃO é
+  // mantida em sincronia com ela (só repete 4 dos crons que rodam de verdade).
+  // Adicionar um cron aqui não tem efeito nenhum: já custou uma investigação.
   async scheduled(
     _event: unknown,
     _env: unknown,
@@ -735,11 +738,6 @@ export default {
   ) {
     ctx.waitUntil(
       cronSyncPoll().catch((e) => console.error("[cron-sync] poll erro:", e)),
-    );
-    ctx.waitUntil(
-      cronSyncProdutosDiario().catch((e) =>
-        console.error("[cron-sync-produtos] erro:", e),
-      ),
     );
     ctx.waitUntil(
       cronReconciliar().catch((e) => console.error("[cron-reconciliar] erro:", e)),
