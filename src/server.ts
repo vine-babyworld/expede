@@ -614,6 +614,104 @@ export async function cronSyncPoll() {
   }
 }
 
+const SYNC_PRODUTOS_HORA_BRT = 4;                          // 04:00 em São Paulo
+const SYNC_PRODUTOS_MIN_MS   = 12 * 60 * 60 * 1000;        // trava contra rodar 2x na mesma janela
+const SYNC_PRODUTOS_MAX_MS   = 26 * 60 * 60 * 1000;        // rede de segurança se a janela for perdida
+
+/** Hora atual em São Paulo, sem depender do timezone do isolate. */
+function horaEmSaoPaulo(d: Date): number {
+  return Number(
+    new Intl.DateTimeFormat("pt-BR", {
+      timeZone: "America/Sao_Paulo",
+      hour: "2-digit",
+      hour12: false,
+    }).format(d),
+  );
+}
+
+/**
+ * Cria um sync_job de produtos por conexão Bling conectada, uma vez por dia às 04:00
+ * (BRT). Não dispara a execução: o cronSyncPoll acima pega os jobs `pendente` no
+ * minuto seguinte.
+ *
+ * Esta lógica já existia em /api/public/hooks/bling-sync-products-daily, mas nenhum
+ * agendador chamava aquele endpoint — o `scheduled()` só invocava poll, reconciliar e
+ * nf-emissao. Na prática o sync diário de produtos nunca rodou: entre 28/08 e 06/09
+ * não houve um único job que não tivesse sido disparado à mão.
+ */
+export async function cronSyncProdutosDiario() {
+  const agora = new Date();
+  const now = agora.getTime();
+  const db = supabaseAdmin as any;
+
+  const { data: state, error: stateError } = await db
+    .from("cron_state")
+    .select("last_run_at")
+    .eq("job_name", "sync_produtos_diario")
+    .maybeSingle();
+  if (stateError) {
+    console.error("[cron-sync-produtos] select cron_state falhou:", stateError.message);
+    return;
+  }
+
+  const lastRun = state?.last_run_at ? new Date(state.last_run_at as string).getTime() : 0;
+  const diffMs = now - lastRun;
+  const naJanela = horaEmSaoPaulo(agora) === SYNC_PRODUTOS_HORA_BRT && diffMs >= SYNC_PRODUTOS_MIN_MS;
+  if (!naJanela && diffMs < SYNC_PRODUTOS_MAX_MS) return;
+
+  // Marca antes de criar os jobs: se a criação falhar no meio, a próxima janela
+  // tenta de novo — melhor que um loop criando jobs a cada minuto.
+  const { error: upsertError } = await db
+    .from("cron_state")
+    .upsert(
+      { job_name: "sync_produtos_diario", last_run_at: new Date(now).toISOString() },
+      { onConflict: "job_name" },
+    );
+  if (upsertError) {
+    console.error("[cron-sync-produtos] upsert cron_state falhou:", upsertError.message);
+    return;
+  }
+
+  const { data: conns, error: connError } = await supabaseAdmin
+    .from("bling_connections")
+    .select("id")
+    .eq("status", "connected");
+  if (connError) {
+    console.error("[cron-sync-produtos] select bling_connections falhou:", connError.message);
+    return;
+  }
+
+  for (const c of conns ?? []) {
+    const { data: existing, error: existingError } = await supabaseAdmin
+      .from("sync_jobs")
+      .select("id")
+      .eq("bling_connection_id", c.id)
+      .eq("tipo", "produtos")
+      .in("status", ["pendente", "rodando", "pausado"])
+      .limit(1)
+      .maybeSingle();
+    if (existingError) {
+      console.error("[cron-sync-produtos] select sync_jobs falhou:", existingError.message);
+      continue;
+    }
+    if (existing) {
+      console.log("[cron-sync-produtos] conexão", c.id, "já tem job ativo, pulando");
+      continue;
+    }
+
+    const { data: job, error: insertError } = await supabaseAdmin
+      .from("sync_jobs")
+      .insert({ bling_connection_id: c.id, tipo: "produtos", status: "pendente" })
+      .select("id")
+      .single();
+    if (insertError) {
+      console.error("[cron-sync-produtos] insert sync_jobs falhou:", insertError.message);
+      continue;
+    }
+    console.log("[cron-sync-produtos] job criado", job?.id, "para conexão", c.id);
+  }
+}
+
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
     try {
@@ -637,6 +735,11 @@ export default {
   ) {
     ctx.waitUntil(
       cronSyncPoll().catch((e) => console.error("[cron-sync] poll erro:", e)),
+    );
+    ctx.waitUntil(
+      cronSyncProdutosDiario().catch((e) =>
+        console.error("[cron-sync-produtos] erro:", e),
+      ),
     );
     ctx.waitUntil(
       cronReconciliar().catch((e) => console.error("[cron-reconciliar] erro:", e)),
