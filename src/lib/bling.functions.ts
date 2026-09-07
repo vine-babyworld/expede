@@ -133,7 +133,7 @@ export const blingRefreshToken = createServerFn({ method: "POST" })
 /** Helper interno: renova um token por id (sem checagem de auth). */
 export async function refreshConnectionById(
   connectionId: string,
-): Promise<{ ok: true } | { ok: false; error: string }> {
+): Promise<{ ok: true } | { ok: false; error: string; transitorio?: boolean }> {
   const { data: conn, error: errConn } = await supabaseAdmin
     .from("bling_connections")
     .select("id, refresh_token")
@@ -169,7 +169,7 @@ export async function refreshConnectionById(
     // própria conexão pode estar íntegra. Deixa a próxima tentativa (1 min depois) resolver.
     const msg = e instanceof Error ? e.message : String(e);
     console.error(`[bling-refresh] falha de rede ao renovar token (conn ${connectionId}):`, msg);
-    return { ok: false, error: `network_error: ${msg}` };
+    return { ok: false, error: `network_error: ${msg}`, transitorio: true };
   }
 
   const tokenJson: any = await res.json().catch(() => ({}));
@@ -178,12 +178,27 @@ export async function refreshConnectionById(
     // rawMsg pode vir como objeto (nunca string) em alguns erros do Bling — String(obj) viraria
     // "[object Object]", escondendo a causa real de qualquer diagnóstico futuro.
     const msg = typeof rawMsg === "string" ? rawMsg : JSON.stringify(rawMsg);
-    console.error(`[bling-refresh] Bling recusou a renovação (conn ${connectionId}):`, msg);
+
+    // 429 e 5xx não são recusa de autorização: são limite de taxa e indisponibilidade,
+    // exatamente como a falha de rede tratada acima. Marcar "expired" aqui faz o painel
+    // pedir reautorização de uma conexão íntegra — aconteceu de verdade em 07/09/2026,
+    // quando os dois jobs do cron diário renovaram o token no mesmo segundo e o segundo
+    // levou 429. Só um erro definitivo do OAuth (refresh token inválido/revogado) expira.
+    const transitorio = res.status === 429 || res.status >= 500;
+    console.error(
+      `[bling-refresh] Bling recusou a renovação (conn ${connectionId}):`,
+      msg,
+      transitorio ? "— transitório, mantém a conexão conectada" : "",
+    );
+
     await supabaseAdmin
       .from("bling_connections")
-      .update({ status: "expired", last_error: msg } as any)
+      .update(
+        (transitorio ? { last_error: msg } : { status: "expired", last_error: msg }) as any,
+      )
       .eq("id", conn.id);
-    return { ok: false, error: msg };
+
+    return { ok: false, error: msg, transitorio };
   }
 
   const now = Date.now();
@@ -325,7 +340,13 @@ export async function getDecryptedAccessToken(connectionId: string): Promise<str
   const exp = conn.access_expires_at ? new Date(conn.access_expires_at).getTime() : 0;
   if (exp <= Date.now() + 60_000 || conn.status !== "connected") {
     const r = await refreshConnectionById(connectionId);
-    if (!r.ok) throw new Error("Falha ao renovar token Bling: " + r.error);
+    // O prefixo "transitorio:" é o que permite ao chamador (runListagemJob/runDetalhesJob)
+    // pausar o job com backoff em vez de matá-lo por um 429 ou uma indisponibilidade.
+    if (!r.ok) {
+      throw new Error(
+        (r.transitorio ? "transitorio: " : "") + "Falha ao renovar token Bling: " + r.error,
+      );
+    }
     const { data: refreshed } = await supabaseAdmin
       .from("bling_connections")
       .select("access_token")

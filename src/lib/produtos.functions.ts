@@ -18,6 +18,14 @@ const IMPORT_LOCAL_CMD = "node --env-file=.env scripts/sync-produtos-local.mjs";
 const CDN_BLOCK_TAG = "bling_cdn_403";
 const CDN_BLOCK_TAG_RECUPERADO = "bling_cdn_403_recuperado";
 const CDN_BLOCK_MAX_TENTATIVAS = 5;
+/** Falha transitória ao obter o token (429 no endpoint de OAuth, Bling fora do ar):
+ *  pausa o job em vez de matá-lo. O prefixo vem de getDecryptedAccessToken. */
+function isFalhaTokenTransitoria(e: any): boolean {
+  return String(e?.message ?? e).startsWith("transitorio: ");
+}
+
+const TOKEN_BACKOFF_MS = 60_000;
+
 const CDN_BLOCK_BACKOFF_MS = 60_000;
 const BLING_DIAG_HEADERS = ["server", "cf-ray", "cf-mitigated", "content-type"] as const;
 
@@ -393,10 +401,18 @@ async function runListagemJob(job: any): Promise<{ done: boolean; status: string
   try {
     token = await getDecryptedAccessToken(job.bling_connection_id);
   } catch (e: any) {
+    const erros = [...(job.erros as any[] ?? []), { mensagem: String(e?.message ?? e) }];
+    if (isFalhaTokenTransitoria(e)) {
+      await supabaseAdmin
+        .from("sync_jobs")
+        .update({ status: "pausado", erros,
+          proxima_execucao_em: new Date(Date.now() + TOKEN_BACKOFF_MS).toISOString() })
+        .eq("id", job.id);
+      return { done: false, status: "pausado" };
+    }
     await supabaseAdmin
       .from("sync_jobs")
-      .update({ status: "erro", finalizado_em: new Date().toISOString(),
-        erros: [...(job.erros as any[] ?? []), { mensagem: String(e?.message ?? e) }] })
+      .update({ status: "erro", finalizado_em: new Date().toISOString(), erros })
       .eq("id", job.id);
     return { done: true, status: "erro" };
   }
@@ -559,9 +575,16 @@ async function runDetalhesJob(job: any): Promise<{ done: boolean; status: string
   try {
     token = await getDecryptedAccessToken(job.bling_connection_id);
   } catch (e: any) {
+    const errosToken = [...(job.erros as any[] ?? []), { mensagem: String(e?.message ?? e) }];
+    if (isFalhaTokenTransitoria(e)) {
+      await supabaseAdmin.from("sync_jobs").update({
+        status: "pausado", erros: errosToken,
+        proxima_execucao_em: new Date(Date.now() + TOKEN_BACKOFF_MS).toISOString(),
+      }).eq("id", job.id);
+      return { done: false, status: "pausado" };
+    }
     await supabaseAdmin.from("sync_jobs").update({
-      status: "erro", finalizado_em: new Date().toISOString(),
-      erros: [...(job.erros as any[] ?? []), { mensagem: String(e?.message ?? e) }],
+      status: "erro", finalizado_em: new Date().toISOString(), erros: errosToken,
     }).eq("id", job.id);
     return { done: true, status: "erro" };
   }
