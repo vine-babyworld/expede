@@ -1,0 +1,4 @@
+# O .bat roda no Windows e precisa de CRLF; com LF o cmd pode quebrar em
+# labels/goto. O certificado é PEM, LF é o canônico e o QZ Tray lê os dois.
+*.bat text eol=crlf
+*.crt text eol=lf
