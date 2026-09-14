@@ -147,29 +147,34 @@ export const Route = createFileRoute("/api/public/hooks/bling-pedidos")({
             const itensPrepared = await Promise.all(
               itens.map(async (it: any) => {
                 let produtoId: string | null = null;
+                let produtoGtin: string | null = null;
 
-                const gtin = it.gtin ?? null;
+                // "" do Bling conta como ausente — senão vira um EAN vazio no item, que a
+                // conferência da expedição trata como "não cadastrado".
+                const gtin = it.gtin != null && String(it.gtin).trim() !== "" ? String(it.gtin).trim() : null;
                 const sku  = it.codigo ?? null;
 
                 // Tentativa de match: EAN (gtin) primeiro, SKU depois
                 if (gtin) {
                   const { data: p } = await supabaseAdmin
                     .from("produtos")
-                    .select("id")
+                    .select("id, gtin")
                     .eq("gtin", gtin)
                     .eq("bling_connection_id", conn.id)
                     .maybeSingle();
                   produtoId = p?.id ?? null;
+                  produtoGtin = p?.gtin ?? null;
                 }
 
                 if (!produtoId && sku) {
                   const { data: p } = await supabaseAdmin
                     .from("produtos")
-                    .select("id")
+                    .select("id, gtin")
                     .eq("sku", sku)
                     .eq("bling_connection_id", conn.id)
                     .maybeSingle();
                   produtoId = p?.id ?? null;
+                  produtoGtin = p?.gtin ?? null;
                 }
 
                 return {
@@ -177,7 +182,10 @@ export const Route = createFileRoute("/api/public/hooks/bling-pedidos")({
                   produto_id:         produtoId,
                   bling_item_id:      it.id ?? null,
                   sku,
-                  ean:                gtin,
+                  // Cai para o GTIN do cadastro quando o pedido do Bling não traz gtin —
+                  // sem isso o webhook sobrescrevia com null o EAN que a reconciliação
+                  // já tinha preenchido, deixando o item sem nada pra conferir.
+                  ean:                gtin ?? produtoGtin,
                   descricao:          it.descricao ?? "",
                   quantidade:         it.quantidade ?? 1,
                   valor_unitario:     it.valor ?? null,

@@ -12,6 +12,8 @@ import {
   Loader2,
   Package,
   PackageOpen,
+  AlertTriangle,
+  ShieldAlert,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -34,6 +36,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { playBeep } from "./beep";
 import { registrarBipagem } from "@/lib/bipagem.functions";
+import { temEanCadastrado, validarBipagem } from "@/lib/bipagem";
 import { buscarEtiquetaBling } from "@/lib/etiqueta.functions";
 import { gerarDanfeCustom } from "@/lib/danfe.functions";
 import { isPedidoFlex, marcarPedidoImpresso, nfNaoAutorizada, nfSituacaoLabel } from "@/lib/pedidos.functions";
@@ -778,7 +781,7 @@ function PedidoCard({
 
 // ─── Modal de bipagem ─────────────────────────────────────────────────────────
 
-type ResultadoStatus = "ok" | "erro" | null;
+type ResultadoStatus = "ok" | "erro" | "alerta" | null;
 
 function BipagemModal({
   pedido,
@@ -801,6 +804,9 @@ function BipagemModal({
   const [itemAtivo, setItemAtivo] = useState<ItemExpedicao | null>(null);
   const [imprimindo, setImprimindo] = useState(false);
   const [enviando, setEnviando] = useState(false);
+  // Item barrado por não ter EAN cadastrado — habilita a liberação supervisionada
+  const [liberacaoPendente, setLiberacaoPendente] = useState<ItemExpedicao | null>(null);
+  const [codigoLiberacao, setCodigoLiberacao] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Seleciona automaticamente o primeiro item incompleto
@@ -819,6 +825,8 @@ function BipagemModal({
     setStatus(null);
     setMensagem("");
     setEnviando(false);
+    setLiberacaoPendente(null);
+    setCodigoLiberacao("");
     setTimeout(() => inputRef.current?.focus(), 120);
   }, [pedido]);
 
@@ -828,34 +836,62 @@ function BipagemModal({
     if (!valor.trim() || enviando) return;
     const code = valor.trim();
 
-    // Tenta encontrar item que corresponde ao código bipado e ainda precisa de bipes
-    // (usa o estado local `itens`, atualizado otimisticamente a cada bipe — evitando que um
-    // segundo scan muito rápido, antes do refetch do servidor, "encontre" um item que já
-    // acabou de ser completado e empurre quantidade_bipada além do pedido)
-    const match = itens.find(
-      (i) =>
-        ((i.ean && i.ean === code) ||
-          (!i.ean && i.produto_gtin && i.produto_gtin === code)) &&
-        i.quantidade_bipada < i.quantidade,
-    );
+    // Validação em `@/lib/bipagem` (pura e testada em test/bipagem.test.mjs). Usa o estado
+    // local `itens`, atualizado otimisticamente a cada bipe — evitando que um segundo scan
+    // muito rápido, antes do refetch do servidor, "encontre" um item que já acabou de ser
+    // completado e empurre quantidade_bipada além do pedido.
+    const veredito = validarBipagem({
+      itens,
+      itemAtivoId: itemAtivo?.id ?? null,
+      codigo: code,
+    });
 
-    const alvoItem = match ?? itemAtivo;
+    if (veredito.status === "codigo_vazio") return;
 
-    if (!alvoItem || alvoItem.quantidade_bipada >= alvoItem.quantidade) {
+    if (veredito.status === "pedido_completo" || veredito.status === "ja_bipado") {
       playBeep(false);
       setStatus("erro");
-      setMensagem("Nenhum item pendente com esse EAN");
+      setMensagem(veredito.mensagem);
       return;
     }
 
-    let ok: boolean;
-    if (!alvoItem.ean && !alvoItem.produto_gtin) {
-      ok = true; // sem EAN cadastrado — aceita qualquer código
-    } else if (alvoItem.ean) {
-      ok = alvoItem.ean === code;
-    } else {
-      ok = alvoItem.produto_gtin === code;
+    const alvoItem = itens.find((i) => i.id === veredito.item.id) ?? itemAtivo;
+    if (!alvoItem) return;
+
+    // Item sem EAN cadastrado: não conferimos nada, então não pode passar como sucesso.
+    // Fica bloqueado até o supervisor liberar explicitamente (botão "Liberar sem EAN"),
+    // e a tentativa já vai registrada na auditoria.
+    if (veredito.status === "ean_nao_cadastrado") {
+      playBeep(false);
+      setStatus("erro");
+      setMensagem(veredito.mensagem);
+      setLiberacaoPendente(alvoItem);
+      // Esvazia o campo mas guarda o código: o leitor digita e dá Enter, então deixar o
+      // texto antigo faria a próxima leitura concatenar em cima. O código bipado ainda vai
+      // junto na liberação, pra auditoria mostrar o que a pessoa tinha na mão.
+      setCodigoLiberacao(code);
+      setValor("");
+      setEnviando(true);
+      try {
+        await registrarFn({
+          data: {
+            pedidoItemId: alvoItem.id,
+            pedidoId: pedido.id,
+            codigoBipado: code,
+            resultado: "ean_nao_cadastrado",
+            usuario: profile?.nome ?? user?.email ?? null,
+          },
+        });
+        onRegistered();
+      } finally {
+        setEnviando(false);
+      }
+      return;
     }
+
+    const ok = veredito.status === "sucesso";
+    setLiberacaoPendente(null);
+    setCodigoLiberacao("");
 
     setEnviando(true);
     try {
@@ -887,7 +923,29 @@ function BipagemModal({
 
         onRegistered();
 
-        if (result.ok && result.pedidoConcluido) {
+        // O servidor reconfere o EAN por conta própria. Se ele recusar, desfaz o otimismo
+        // local — caso contrário a tela mostraria o item como bipado sem que o banco tenha
+        // incrementado, e o pedido "sumiria" da fila sem nunca ter sido conferido.
+        if (!result.ok) {
+          setItens(itens);
+          setItemAtivo(alvoItem);
+          setStatus("erro");
+          setMensagem(
+            result.error === "ean_nao_cadastrado"
+              ? "EAN NÃO CADASTRADO — recusado pelo servidor"
+              : "EAN NÃO CONFERE — recusado pelo servidor",
+          );
+          playBeep(false);
+          setTimeout(() => {
+            setValor("");
+            setStatus(null);
+            setMensagem("");
+            inputRef.current?.focus();
+          }, 1200);
+          return;
+        }
+
+        if (result.pedidoConcluido) {
           setImprimindo(true);
           setTimeout(() => {
             setImprimindo(false);
@@ -897,9 +955,7 @@ function BipagemModal({
         }
       } else {
         setStatus("erro");
-        setMensagem(
-          `EAN não confere — esperado: ${alvoItem.ean ?? "—"}, recebido: ${code}`,
-        );
+        setMensagem(veredito.mensagem);
         playBeep(false);
         await registrarFn({
           data: {
@@ -919,6 +975,68 @@ function BipagemModal({
         setMensagem("");
         inputRef.current?.focus();
       }, ok ? 600 : 1200);
+    } finally {
+      setEnviando(false);
+    }
+  };
+
+  // Liberação supervisionada: item sem EAN cadastrado só avança por ação explícita de
+  // quem está operando, e a liberação fica gravada em `bipagens` com o nome da pessoa.
+  const liberarSemEan = async () => {
+    const alvo = liberacaoPendente;
+    if (!alvo || enviando) return;
+
+    setEnviando(true);
+    try {
+      const result = await registrarFn({
+        data: {
+          pedidoItemId: alvo.id,
+          pedidoId: pedido.id,
+          codigoBipado: codigoLiberacao,
+          resultado: "liberado_sem_ean",
+          usuario: profile?.nome ?? user?.email ?? null,
+        },
+      });
+
+      onRegistered();
+
+      if (!result.ok) {
+        setStatus("erro");
+        setMensagem(
+          "Liberação recusada — este item tem EAN cadastrado e precisa ser bipado de verdade",
+        );
+        playBeep(false);
+        return;
+      }
+
+      const itensAtualizados = itens.map((i) =>
+        i.id === alvo.id
+          ? { ...i, quantidade_bipada: Math.min(i.quantidade, i.quantidade_bipada + 1) }
+          : i,
+      );
+      setItens(itensAtualizados);
+      setItemAtivo(itensAtualizados.find((i) => i.quantidade_bipada < i.quantidade) ?? null);
+      setLiberacaoPendente(null);
+      setCodigoLiberacao("");
+      setStatus("alerta");
+      setMensagem(`Liberado sem EAN — ${alvo.descricao}`);
+      playBeep(true);
+
+      if (result.pedidoConcluido) {
+        setImprimindo(true);
+        setTimeout(() => {
+          setImprimindo(false);
+          onConcluido(pedido);
+        }, 800);
+        return;
+      }
+
+      setTimeout(() => {
+        setValor("");
+        setStatus(null);
+        setMensagem("");
+        inputRef.current?.focus();
+      }, 900);
     } finally {
       setEnviando(false);
     }
@@ -1037,9 +1155,16 @@ function BipagemModal({
                   <p className="text-xs uppercase tracking-wider text-muted-foreground font-medium mb-1">
                     EAN esperado
                   </p>
-                  <p className="text-3xl font-mono font-bold tracking-tight">
-                    {itemAtivo.ean ?? "—"}
-                  </p>
+                  {temEanCadastrado(itemAtivo) ? (
+                    <p className="text-3xl font-mono font-bold tracking-tight">
+                      {itemAtivo.ean ?? itemAtivo.produto_gtin}
+                    </p>
+                  ) : (
+                    <p className="text-xl font-bold tracking-tight text-destructive flex items-center gap-2">
+                      <AlertTriangle className="h-5 w-5 shrink-0" />
+                      EAN NÃO CADASTRADO
+                    </p>
+                  )}
                 </div>
 
                 <div>
@@ -1062,7 +1187,9 @@ function BipagemModal({
                         ? "border-success"
                         : status === "erro"
                           ? "border-destructive"
-                          : "border-input focus:border-primary"
+                          : status === "alerta"
+                            ? "border-amber-500"
+                            : "border-input focus:border-primary"
                     }`}
                     placeholder="Aguardando leitura..."
                     autoComplete="off"
@@ -1074,9 +1201,40 @@ function BipagemModal({
                     </div>
                   )}
                   {status === "erro" && (
-                    <div className="mt-2 flex items-center gap-2 text-destructive font-semibold text-sm">
-                      <XCircle className="h-5 w-5" />
-                      {mensagem}
+                    <div className="mt-2 flex items-start gap-2 text-destructive font-semibold text-sm">
+                      <XCircle className="h-5 w-5 shrink-0 mt-0.5" />
+                      <span>{mensagem}</span>
+                    </div>
+                  )}
+                  {status === "alerta" && (
+                    <div className="mt-2 flex items-start gap-2 text-amber-600 font-semibold text-sm">
+                      <ShieldAlert className="h-5 w-5 shrink-0 mt-0.5" />
+                      <span>{mensagem}</span>
+                    </div>
+                  )}
+
+                  {/* Liberação supervisionada — só aparece depois que a conferência barrou
+                      o item por falta de EAN cadastrado, nunca por EAN divergente. */}
+                  {liberacaoPendente && (
+                    <div className="mt-3 rounded-lg border-2 border-amber-500/50 bg-amber-500/10 p-3">
+                      <p className="text-sm font-semibold text-amber-700 dark:text-amber-400 flex items-center gap-2">
+                        <ShieldAlert className="h-4 w-4 shrink-0" />
+                        Conferência impossível — produto sem EAN no sistema
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        O correto é cadastrar o EAN do SKU{" "}
+                        <span className="font-mono">{liberacaoPendente.sku ?? "—"}</span> no Bling.
+                        Se precisar expedir agora, a liberação fica registrada em teu nome.
+                      </p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={enviando}
+                        onClick={liberarSemEan}
+                        className="mt-2 border-amber-500 text-amber-700 hover:bg-amber-500/20 dark:text-amber-400"
+                      >
+                        Liberar sem EAN (registra meu nome)
+                      </Button>
                     </div>
                   )}
                 </div>

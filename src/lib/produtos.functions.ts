@@ -259,27 +259,36 @@ export function mapProduct(p: any, connectionId: string, opts?: { detail?: boole
   const row: any = {
     bling_connection_id: connectionId,
     bling_product_id: Number(p.id),
-    bling_parent_id: cls.parentId,
     sku: String(p.codigo ?? p.sku ?? ""),
-    gtin: p.gtin ? String(p.gtin) : null,
     nome: String(p.nome ?? "(sem nome)"),
-    tipo: cls.tipo,
-    bipavel: cls.bipavel,
     ativo: p.situacao === "A" || p.situacao === "Ativo" || p.situacao === true || p.situacao === undefined ? true : false,
-    peso_bruto: p.pesoBruto != null ? Number(p.pesoBruto) : null,
-    peso_liquido: p.pesoLiquido != null ? Number(p.pesoLiquido) : null,
-    altura: dim.altura != null ? Number(dim.altura) : null,
-    largura: dim.largura != null ? Number(dim.largura) : null,
-    profundidade: dim.profundidade != null ? Number(dim.profundidade) : null,
     estoque: p?.estoque?.saldoVirtualTotal != null
       ? Number(p.estoque.saldoVirtualTotal)
       : (p?.estoque?.saldoFisicoTotal != null ? Number(p.estoque.saldoFisicoTotal) : null),
     imagem_url: p?.imagemURL ?? p?.midia?.imagens?.externas?.[0]?.link ?? null,
-    raw_data: p,
     synced_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
-  if (opts?.detail) row.detail_synced_at = new Date().toISOString();
+
+  // Campos que SÓ o endpoint de detalhe do Bling devolve (GET /produtos/:id). O endpoint de
+  // listagem (GET /produtos) não traz gtin, dimensoes, pesos, variacoes nem produtoPai — se
+  // eles entrarem na linha do upsert, cada varredura de listagem grava null por cima do que
+  // o sync de detalhe já tinha preenchido. Foi exatamente assim que 2.852 dos 2.857 produtos
+  // ficaram sem GTIN e a conferência de EAN na expedição virou letra morta (09/2026).
+  // Omitir a coluna preserva o valor existente no upsert e cai no DEFAULT quando é insert.
+  if (opts?.detail) {
+    row.gtin = p.gtin ? String(p.gtin) : null;
+    row.bling_parent_id = cls.parentId;
+    row.tipo = cls.tipo;
+    row.bipavel = cls.bipavel;
+    row.peso_bruto = p.pesoBruto != null ? Number(p.pesoBruto) : null;
+    row.peso_liquido = p.pesoLiquido != null ? Number(p.pesoLiquido) : null;
+    row.altura = dim.altura != null ? Number(dim.altura) : null;
+    row.largura = dim.largura != null ? Number(dim.largura) : null;
+    row.profundidade = dim.profundidade != null ? Number(dim.profundidade) : null;
+    row.raw_data = p;
+    row.detail_synced_at = new Date().toISOString();
+  }
   return row;
 }
 
