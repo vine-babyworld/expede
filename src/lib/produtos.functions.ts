@@ -387,6 +387,73 @@ export const syncProductsStart = createServerFn({ method: "POST" })
     return { jobId: job.id, status: job.status, reused: false };
   });
 
+const reenriquecerDetalhesSchema = z.object({
+  connectionId: z.string().uuid(),
+  // Por padrão só reprocessa quem está sem EAN — é o caso que interessa e gasta menos
+  // cota da API do Bling (a fase de detalhes é 1 requisição por produto).
+  somenteSemGtin: z.boolean().optional().default(true),
+  // Para amostrar antes de rodar o catálogo inteiro.
+  limite: z.number().int().positive().max(500).optional(),
+});
+
+/**
+ * Faz a fase de detalhes voltar a enxergar produtos já processados.
+ *
+ * A fase de detalhes seleciona só `detail_synced_at IS NULL` e carimba a coluna mesmo
+ * quando a chamada ao Bling falha — ou seja, todo produto já visitado fica invisível para
+ * sempre, e não havia como pedir um novo enriquecimento. Foi assim que o catálogo ficou
+ * sem EAN: a rodada de 21-22/08/2026 enriqueceu 2.819 produtos, varreduras de listagem
+ * posteriores apagaram os `gtin`, e a fase de detalhes nunca mais pôde repor.
+ */
+export const reenriquecerDetalhes = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) => reenriquecerDetalhesSchema.parse(d))
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+    await assertAdmin(supabase, userId);
+
+    const semGtin = "gtin.is.null,gtin.eq.";
+    let marcados = 0;
+
+    if (data.limite) {
+      // Amostra: escolhe N produtos e zera só o carimbo deles.
+      let sel = supabaseAdmin
+        .from("produtos")
+        .select("id")
+        .eq("bling_connection_id", data.connectionId);
+      if (data.somenteSemGtin) sel = sel.or(semGtin);
+
+      const { data: alvos, error: selErr } = await sel.limit(data.limite);
+      if (selErr) throw new Error(selErr.message);
+      if (!alvos || alvos.length === 0) return { marcados: 0, jobId: null as string | null };
+
+      const { error: updErr } = await supabaseAdmin
+        .from("produtos")
+        .update({ detail_synced_at: null } as any)
+        .in("id", alvos.map((r: any) => r.id));
+      if (updErr) throw new Error(updErr.message);
+      marcados = alvos.length;
+    } else {
+      let upd = supabaseAdmin
+        .from("produtos")
+        .update({ detail_synced_at: null } as any)
+        .eq("bling_connection_id", data.connectionId);
+      if (data.somenteSemGtin) upd = upd.or(semGtin);
+
+      const { data: afetados, error: updErr } = await upd.select("id");
+      if (updErr) throw new Error(updErr.message);
+      marcados = afetados?.length ?? 0;
+    }
+
+    if (marcados === 0) return { marcados: 0, jobId: null as string | null };
+
+    let origin: string | null = null;
+    try { origin = await getServerOrigin(); } catch { /* ignore */ }
+    const jobId = await createAndFireDetalhesJob(data.connectionId, origin, userId);
+
+    return { marcados, jobId: jobId as string | null };
+  });
+
 /** Workhorse: roteia entre listagem e detalhes. */
 export async function runSyncJob(jobId: string): Promise<{ done: boolean; status: string }> {
   const { data: job, error: jobErr } = await supabaseAdmin
@@ -733,7 +800,10 @@ async function runDetalhesJob(job: any): Promise<{ done: boolean; status: string
       totalErros += 1;
       const mensagem = formatBlingApiErrorText(proxy.status, proxy.body, proxy.headers);
       erros.push({ produto_id: pend.bling_product_id, mensagem });
-      // marca como sincronizado mesmo assim pra não travar (raw_data preservado)
+      // Carimba mesmo com falha pra não travar o job num produto que erra sempre (o lote é
+      // sempre os primeiros N sem carimbo — sem isso o job repetiria o mesmo produto para
+      // sempre). O preço é o produto ficar de fora dos próximos enriquecimentos; quem
+      // desfaz isso é `reenriquecerDetalhes`, que zera o carimbo de quem está sem gtin.
       await supabaseAdmin.from("produtos")
         .update({ detail_synced_at: new Date().toISOString() })
         .eq("id", pend.id);

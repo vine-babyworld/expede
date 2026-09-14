@@ -19,6 +19,7 @@ import { MobileHidden } from "@/components/MobileHidden";
 import {
   listProdutos, listBlingConnectionsForFilter, getActiveSyncJobs,
   getProdutosOverview, syncProductsStart, atualizarProduto, sincronizarProduto,
+  reenriquecerDetalhes,
 } from "@/lib/produtos.functions";
 
 export const Route = createFileRoute("/_app/produtos")({
@@ -264,6 +265,46 @@ function ProdutosPage() {
     }
   };
 
+  // Rebusca o detalhe no Bling dos produtos que estão sem EAN. A fase de detalhes só olha
+  // produtos com `detail_synced_at` nulo, então sem isso não há como repor um EAN perdido.
+  const reenriquecerFn = useServerFn(reenriquecerDetalhes);
+  const [reenriquecendo, setReenriquecendo] = useState(false);
+
+  const handleReenriquecer = async (limite?: number) => {
+    const allConns = (connsQ.data ?? []).filter((c: any) => c.status === "connected");
+    const alvos = connectionId !== "__all"
+      ? [connectionId]
+      : allConns.map((c: any) => c.id);
+
+    if (alvos.length === 0) {
+      toast.error("Nenhuma conta Bling conectada");
+      return;
+    }
+
+    setReenriquecendo(true);
+    try {
+      let total = 0;
+      for (const id of alvos) {
+        const r = await reenriquecerFn({
+          data: { connectionId: id, somenteSemGtin: true, limite },
+        });
+        total += r.marcados;
+      }
+      if (total === 0) {
+        toast.info("Nenhum produto sem EAN para reprocessar");
+      } else {
+        toast.success(
+          `${total} produto(s) na fila de enriquecimento — acompanhe pelo aviso de progresso`,
+        );
+        qc.invalidateQueries({ queryKey: ["sync-jobs"] });
+      }
+    } catch (e: any) {
+      toast.error(e?.message ?? "Erro ao reprocessar detalhes");
+    } finally {
+      setReenriquecendo(false);
+    }
+  };
+
   const connName = (id: string) =>
     (connsQ.data ?? []).find((c: any) => c.id === id)?.bling_account_name ?? "Conta Bling";
 
@@ -328,12 +369,36 @@ function ProdutosPage() {
         </div>
         {isAdmin && (
           <MobileHidden>
-            <Button onClick={handleSync} disabled={syncMut.isPending || !!activeJob}>
-              {syncMut.isPending || activeJob
-                ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                : <RefreshCw className="h-4 w-4 mr-2" />}
-              Sincronizar agora
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={handleSync} disabled={syncMut.isPending || !!activeJob}>
+                {syncMut.isPending || activeJob
+                  ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  : <RefreshCw className="h-4 w-4 mr-2" />}
+                Sincronizar agora
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => handleReenriquecer(30)}
+                disabled={reenriquecendo || !!activeJob}
+                title="Rebusca no Bling o detalhe de 30 produtos sem EAN, para conferir se o EAN volta antes de rodar o catálogo inteiro"
+              >
+                {reenriquecendo
+                  ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  : <RefreshCw className="h-4 w-4 mr-2" />}
+                Buscar EAN (amostra 30)
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => handleReenriquecer()}
+                disabled={reenriquecendo || !!activeJob}
+                title="Rebusca no Bling o detalhe de TODOS os produtos sem EAN — 1 requisição por produto"
+              >
+                {reenriquecendo
+                  ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  : <RefreshCw className="h-4 w-4 mr-2" />}
+                Buscar EAN (todos)
+              </Button>
+            </div>
           </MobileHidden>
         )}
       </div>
