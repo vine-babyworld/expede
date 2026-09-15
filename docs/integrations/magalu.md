@@ -5,8 +5,24 @@
 
 ## 1. Visão geral e URLs oficiais
 
-- Última verificação: **2026-09-04** (pesquisa técnica completa, specs OpenAPI extraídos dos chunks JS do portal)
-- Verificação anterior: 2026-08-19 (só viabilidade)
+- Última verificação: **2026-09-15** (primeiro pedido real do Magalu chegou sem etiqueta — levantamento de emissão/impressão)
+- Verificação anterior: 2026-09-04 (pesquisa técnica completa) · 2026-08-19 (só viabilidade)
+
+### DESCOBERTA 2026-09-15: os specs OpenAPI são públicos e baixáveis
+
+Não é mais preciso raspar chunk JS do Docusaurus. O portal publica um índice para agentes:
+
+| Recurso | URL |
+|---|---|
+| Índice em markdown (llms.txt) | `https://developers.magalu.com/llms.txt` |
+| Índice em JSON | `https://developers.magalu.com/apis/index.json` |
+| **Spec de Pedidos + Etiquetas** | `https://developers.magalu.com/apis/orders.openapi.yaml` (~300 KB) |
+| Overview de Pedidos | `https://developers.magalu.com/apis/orders/overview.md` |
+| Smart Label (Magalog, **outra API**) | `https://developers.magalu.com/apis/smartlabel.openapi.yaml` |
+
+São 22 APIs no índice. **O endpoint de etiqueta do seller mora dentro de `orders.openapi.yaml`**, não em
+spec próprio — por isso a página HTML de "Gerar etiquetas" renderiza vazia (o schema é client-side).
+Sempre baixar o YAML; a página HTML não serve.
 
 ### Correção da verificação anterior: os "dois portais" NÃO são duas versões da mesma API
 
@@ -40,6 +56,18 @@ release notes até maio/2026, webhooks v1 com HMAC, sandbox.
 Configurar as três como audience do client de uma vez, para não travar depois:
 `idm client update --uuid "<uuid>" --audience "https://api.magalu.com https://api-sandbox.magalu.com https://services.magalu.com"`
 
+> 2026-09-15: o comando de exemplo oficial hoje recomenda só
+> `--audience "https://api.magalu.com https://services.magalu.com"` (o sandbox saiu da receita).
+> `services.magalu.com` importa porque é o host do **Smart Label/Magalog** (seção 4b).
+
+### Infraestrutura de borda (medido em 2026-09-15)
+
+`api.magalu.com` responde `Server: azion webserver` com `X-Azion-Request-Id` / `X-Azion-Edge-Location`.
+**É Azion (CDN brasileira), não Cloudflare.** Uma request sem token volta `401` JSON limpo, com o header
+diagnóstico `x-authorization-error: Authorization token not found or has invalid format.` — sem challenge,
+sem bot-fight. `id.magalu.com` está atrás de Google LB (`via: 1.1 google`, Doorkeeper/Rails).
+Indício favorável para chamar direto do Worker, **mas não é prova** — o teste foi de IP residencial.
+
 ### Channel IDs (produção diferente de sandbox)
 
 | Canal | Channel ID |
@@ -56,8 +84,52 @@ OAuth2 Authorization Code via **IDMagalu**.
 - **Assimetria real do contrato**: troca do code em `Content-Type: application/json`; refresh em
   `application/x-www-form-urlencoded`. Está assim nos dois cURL da doc — não é erro de leitura.
 - `access_token` com `expires_in: 7200` (2h), `token_type: Bearer`. Code válido 10 min, uso único.
-- `choose_tenants=true` **não aparece mais** na doc atual; o portal recomenda o widget
-  `openapi.magalu.com/script/script.js`.
+- **CORREÇÃO 2026-09-15:** `choose_tenants=true` **está sim documentado e é obrigatório** para seller.
+  A nota anterior estava errada. A doc: *"Deve sempre ser `true` para sellers. Se for `false`, o
+  consentimento é aplicado apenas para a pessoa física que fez login."* O widget
+  `openapi.magalu.com/script/script.js` é alternativa, não substituto.
+
+### A regra de escopo que mais provavelmente quebra a etiqueta (2026-09-15)
+
+Os escopos de um token são a **união** de dois conjuntos:
+
+```
+escopos do token = --scopes-default (gravado no client no IDMagalu) ∪ scope= (da URL de consentimento)
+```
+
+Doc literal: *"Estes escopos serão sempre incluídos no consentimento, sendo combinados com os escopos
+definidos no parâmetro `scope` da Requisição de Consentimento. O seller verá: `--scopes-default` +
+`scope` (da URL)."*
+
+**Consequência:** se o client foi criado sem `open:order-logistics-seller:*` no `--scopes-default` e a URL
+de consentimento também não pediu, o token autentica, lê pedidos normalmente e **nunca consegue emitir
+etiqueta**. Corrigir exige `idm client update --scopes/--scopes-default` **e refazer o consentimento**
+(token antigo não ganha escopo novo no refresh).
+
+### Lista completa de escopos do comando oficial de criação de client
+
+Copiada da doc (`create-application`), é o superconjunto recomendado para marketplace:
+
+```
+apiin:all
+open:logistic-carrier-shippings:read
+open:order-delivery-seller:read      open:order-delivery-seller:write
+open:order-invoice-seller:read       open:order-invoice:read
+open:order-logistics-seller:read     open:order-logistics-seller:write   <-- ETIQUETA
+open:order-order-seller:read
+open:portfolio-prices-seller:{read,write}   open:portfolio-prices:{read,write}
+open:portfolio-scores-seller:read
+open:portfolio-skus-seller:{read,write}     open:portfolio-skus:{read,write}
+open:portfolio-stocks-seller:{read,write}   open:portfolio-stocks:{read,write}
+open:sac-transaction-seller:read
+open:ticket-events-seller:{read,write}      open:ticket-messages-seller:{read,write}
+open:ticket-returns-seller:{read,write}     open:tickets-seller:{read,write}
+services:conversations-seller:{read,write}  services:questions-seller:{read,write}
+services:ticket-messages-seller:{read,write} services:tickets-seller:{read,write}
+```
+
+**`open:order-order-seller:write` NÃO existe** nessa lista (a versão anterior deste arquivo o listava —
+erro). **`open:smart-label:write` também não está** — é de outro produto (seção 4b).
 
 ### BREAKING CHANGE de março/2026 — o consentimento tem que ser ADMIN
 
@@ -71,14 +143,21 @@ e só estoura 403 depois, em produção.
 
 ### Escopos
 
-| Escopo | Para quê |
-|---|---|
-| `open:order-order-seller:read` | ler pedidos |
-| `open:order-order-seller:write` | escrever pedidos |
-| `open:order-delivery-seller:read` | ler entregas |
-| `open:order-delivery-seller:write` | escrever entregas (expedir) |
-| `open:order-invoice-seller:read` | consultar NF-e |
-| `open:order-logistics-seller:read` + `:write` | **etiquetas** |
+| Escopo | Para quê | Onde a doc declara |
+|---|---|---|
+| `open:order-order-seller:read` | ler pedidos | overview de Pedidos |
+| `open:order-delivery-seller:read` | ler entregas | overview de Pedidos |
+| `open:order-delivery-seller:write` | escrever entregas (`/shippings`, `/finishing`) | overview de Pedidos |
+| `open:order-invoice-seller:read` | consultar NF-e | overview de Pedidos |
+| **`open:order-logistics-seller:read`** | **ler operações de logística** | overview de **Etiquetas** |
+| **`open:order-logistics-seller:write`** | **realizar operações de logística = emitir etiqueta** | overview de **Etiquetas** |
+
+**O escopo de etiqueta é de outra família e está em outra página da doc.** O overview de Pedidos
+(`/apis/orders/overview.md`) lista só os quatro primeiros — nenhum `logistics`. Quem integrou pedidos
+lendo aquela página sai com um client que não emite etiqueta e não recebe nenhum aviso disso.
+
+Curiosidade útil: a própria doc de sandbox exige `open:order-logistics-seller:read` até para **criar** um
+pedido de teste — ou seja, o escopo de logística já é necessário cedo no fluxo.
 
 ## 3. API de pedidos
 
@@ -163,54 +242,108 @@ nunca por 100 hardcoded.
 
 Escopos: `open:order-logistics-seller:read` e `:write`.
 
+Sem parâmetros de path/query e **sem nenhum header obrigatório além de `Authorization` e `Content-Type`**
+(o spec declara `parameters:` vazio). Respostas documentadas: **só `200` e `422`**.
+
+Request (`PostLogisticShippingLabelRequest`, todos os 3 campos obrigatórios):
+
 ```json
-{ "channel":    { "id": "<channel_id>", "extras": {} },
+{
+  "channel":    { "id": "9fe0d853-732b-4e4a-a0b0-cff988ed043d", "extras": {} },
   "deliveries": [ { "id": "6c764444-436d-4659-8cec-304414b05259" } ],
-  "label":      { "format": "pdf", "type": "summary", "extras": {} } }
+  "label":      { "format": "zpl", "type": "summary", "extras": {} }
+}
 ```
 
 - `label.format` — enum **`["zpl","pdf"]`** (obrigatório). ZPL confirmado, bate com `src/lib/zpl-to-pdf.ts`
 - `label.type` — enum **`["summary","full"]`** (obrigatório)
-- `deliveries[].id` — **UUID da entrega**, não o código do pedido
+- `deliveries[].id` — **UUID da entrega** (`deliveries[].id`), nunca o `code` do pedido
+- **NOVO (visto em 2026-09-15):** `deliveries[].branch` — objeto `Branch { external_id, name }`, "Filial de
+  origem da entrega". Opcional. Não existia na leitura de 2026-09-04
+- `channel.extras` é `additionalProperties: string` — dá para carimbar o id interno do EXPEDE e recuperar
+  no suporte
 
-Response 200:
+Response 200 (`PostLogisticShippingLabelResponse`) — **só tem `label`**:
 
 ```json
-{ "label": { "signed_url": "https://...", "expires_on": "2023-06-31T10:17:07.000Z", "extras": {} },
-  "deliveries": [ { "id": "...", "tracking": { "code": "SZ274430011BR", "url": "http://sro.luizalabs.com/tracking?id=..." } } ] }
+{ "label": { "signed_url": "https://.../jas9df8yadfjf0kasd09fausdf0kd0a9k",
+             "expires_on": "2023-06-31T10:17:07.000Z",
+             "extras": {} } }
 ```
 
-**A etiqueta não vem no corpo** — vem uma `signed_url` temporária com `expires_on`. Diferente do padrão
-Shopee (`download_shipping_document` devolve o PDF binário direto). É preciso baixar o arquivo e persistir;
-a URL não pode ser tratada como permanente.
+**CORREÇÃO 2026-09-15:** a versão anterior deste arquivo dizia que a resposta trazia também
+`deliveries[].tracking.{code,url}`. **Não traz.** No spec atual `PostLogisticShippingLabelResponse` tem
+`required: [label]` e nenhuma outra propriedade; não há nenhuma ocorrência de `SZ274430011BR` nem de
+`sro.luizalabs` em `orders.openapi.yaml`. Ou a release note de dez/2025 foi revertida, ou a leitura
+anterior veio de fonte errada. **Não projetar o código contando com rastreio vindo da etiqueta.**
 
-Bônus (release note de dez/2025): o endpoint devolve `tracking.code` e `tracking.url` na hora. Gerar a
-etiqueta já entrega o rastreio, que pode alimentar o `POST /shippings`.
+**A etiqueta não vem no corpo** — vem uma `signed_url` temporária com `expires_on`. Diferente do padrão
+Shopee (`download_shipping_document` devolve o PDF binário direto). Baixar e persistir; a URL não é
+permanente. Se `deliveries[]` tem N itens, a resposta continua sendo **uma única** `signed_url` — o arquivo
+é o lote inteiro, não um por entrega.
+
+Etiqueta do Magalu Entregas tem **validade de 7 dias para postagem** (doc de seller, não a de API).
 
 ### Como distinguir Magalu Entregas de frete próprio
 
-`shipping.provider.extras` traz discriminadores explícitos:
+**REBAIXADO em 2026-09-15.** Os discriminadores `is_mle` / `is_fulfillment` / `shipping_type` /
+`shipping_name` **não existem em lugar nenhum de `orders.openapi.yaml`**. O que o spec realmente dá:
 
-```json
-{"is_mle": true, "is_fulfillment": false, "shipping_type": "Retira loja", "shipping_name": "Magalu Entregas"}
-```
+- `shipping.provider` (`ProviderField`): `id`, `name`, `description` (obrigatórios) + `extras`
+  (`additionalProperties: string`, exemplo genérico `{"chave":"valor"}`). Exemplo dos três: `"integra"`,
+  `"integra"`, `"Entrega pelo parceiro"` — nada de Magalu Entregas
+- `shipping.logistic_network` (`PackageShippingLogisticNetworkDocumentOpen`, nullable) com `id` e
+  `description`; **exemplo `id: "fulfillment"` / `description: "malha-fulfillment"`** — esse é o
+  discriminador documentado de Fulfillment
+- Em schemas internos não referenciados por nenhum path (`order_schema__ShippingProvider`) aparece
+  `external_id: "magalu_entregas"`, `name: "magalu_entregas"`,
+  `description: "Malha Magalu entregas"` — **forte indício** de qual valor procurar em
+  `provider.id`/`provider.name`, mas esses schemas são resíduo de outra API
 
-**Regra de roteamento:** `is_mle === true` chama `shipping-labels`. `is_mle === false` (transportadora
-própria) imprime a etiqueta própria e só reporta rastreio via `POST /shippings` com `carrier.name`.
+**Ação:** com a conta real, dumpar `shipping.provider` e `shipping.logistic_network` do primeiro pedido
+Magalu Entregas e só então escrever a regra de roteamento. Não codar contra `is_mle`.
 
-### Escrita de volta (write-back)
+Os mesmos schemas internos trazem `shipping.shipping_label.status` com
+`{ "status": "available", "description": "Etiqueta disponível para download" }` e
+`{ "external_id": "Emitted", "description": "Etiqueta emitida com sucesso" }` — sugere que existe um estado
+de etiqueta consultável, mas **nenhum endpoint público exposto o devolve**. Perguntar ao suporte.
+
+## 4b. Smart Label / Magalog — API DIFERENTE, não confundir
+
+O portal tem uma segunda API de etiqueta, **"Smart Label"**, e ela **não** é a do seller de marketplace:
+
+| | Etiqueta do seller (seção 4) | Smart Label / Magalog |
+|---|---|---|
+| Host | `https://api.magalu.com` | `https://services.magalu.com/logistic` |
+| Path | `POST /seller/v1/logistics/shipping-labels` | `POST /smart-label/v1/labels/generate` |
+| Escopo | `open:order-logistics-seller:read`+`:write` | **`open:smart-label:write`** |
+| Entrada | id da entrega (o Magalu monta a etiqueta) | **você monta tudo**: shipper.cnpj, origin, destination, invoice (chave, número, série, protocolo), package.tag.code, transport.service_id |
+| Saída | `signed_url` para download | **`content` inline**: string ZPL ou PDF em base64 |
+| Público | seller do marketplace | transportadora/embarcador (seção "APIs de Transportadora") |
+| Erros | 200 / 422 | 200 / 400 / 401 / 500 / 503, com `slug`+`details[]` |
+
+Spec: `https://developers.magalu.com/apis/smartlabel.openapi.yaml`.
+Response: `{ tag_id, transaction_id, format: "ZPL"|"PDF", content, created_at }`.
+
+Para o EXPEDE **a certa é a da seção 4**. Registrado aqui só para não cair na armadilha de achar que
+"Smart Label" é a evolução da etiqueta do seller — não é, é o outro lado do balcão.
+
+## 4c. Escrita de volta (write-back)
 
 **`POST /seller/v1/deliveries/{id}/shippings` -> 201** — pré-requisito: entrega em `approved`.
 
 ```
-carrier.name                      ex "Magalu Entregas"
-channel.id                        obrigatório
-dates.estimated_delivery_at       obrigatório
-dates.shipped_at                  obrigatório
-labels[].{id,value}
-protocol                          "Protocolo do rastreio"
-tracking_url                      obrigatório
+channel                     OBRIGATÓRIO  { id, extras }
+tracking_url                OBRIGATÓRIO  "http://url.de.acompanhamento.da.entrega/"
+dates.estimated_delivery_at OBRIGATÓRIO  "2025-03-14T18:12:20.313554"
+dates.shipped_at            OBRIGATÓRIO  "2025-03-14T18:12:20.313561"
+carrier.name                opcional     ex "Magalu Entregas"
+labels[].{id,value}         opcional     ex { "id": "12356", "value": "etiqueta" }
+protocol                    opcional     "000111222" — "Protocolo do rastreio"
 ```
+
+**CORREÇÃO 2026-09-15:** `required` é só `[channel, tracking_url, dates]`. `carrier` **não** é
+obrigatório (a nota anterior implicava que era). Response 201: `{ id, created_at }`.
 
 **Não existe campo `tracking.code`.** O código de rastreio só entra embutido na `tracking_url` ou via
 `protocol`. Limitação real do contrato — confirmar com o suporte qual é o lugar canônico.
@@ -294,12 +427,15 @@ webhook mais fetch pontual a varredura.
 |---|---|---|
 | `Authorization: Bearer <token>` | tudo | Sim |
 | `Content-Type: application/json` | POST/PUT | Sim |
-| **`X-Channel-Id: <uuid>`** | **GETs de `/deliveries`, `/deliveries/{id}`, `/histories`** | **Sim** |
+| ~~`X-Channel-Id: <uuid>`~~ | — | **ver abaixo** |
 | `X-Request-Id: <uuid>` | tudo | Não, mas mandar sempre |
 
-**`X-Channel-Id` é a pegadinha mais provável.** Está `required` no spec dos GETs de entrega e **não aparece
-nos exemplos cURL nem nas páginas de overview**. Sem ele esses endpoints falham. Nos POST/PUT o canal vai no
-**body** (`channel.id`), não no header — as duas convenções coexistem.
+**CORREÇÃO 2026-09-15 sobre `X-Channel-Id`:** `grep -i "in: header"` em `orders.openapi.yaml` devolve
+**zero ocorrências** — o spec atual não declara nenhum parâmetro de header em nenhum dos 11 paths, e não há
+nenhuma string `channel-id`/`X-Channel` no arquivo. A afirmação de 2026-09-04 de que era obrigatório nos
+GETs de entrega **não se sustenta no spec de hoje**. Pode ter sido removido, ou lido de fonte errada.
+Tratar como: mandar é inofensivo, **não** depender dele, e se um GET de entrega falhar sem motivo, testar
+com e sem. O canal vai no **body** (`channel.id`) em todos os POST/PUT — isso continua valendo.
 
 `X-Request-Id`: logar sempre — é o que o suporte Magalu pede para investigar qualquer problema.
 Não existe `X-Tenant-Id` de request (`tenant_id` só aparece no payload de webhook).
@@ -307,11 +443,44 @@ Não existe `X-Tenant-Id` de request (`tenant_id` só aparece no payload de webh
 Desabilitar o follow automático de redirect: o portal recomenda tratar `303 See Other` manualmente, porque
 o auto-redirect esconde erros de fluxo.
 
+## 7b. Estrutura de erro padrão da plataforma
+
+Todo erro vem como `{ slug, message, details[] }`, com `details[].{field, location, slug, message}` e
+`location` ∈ `header|body|query|params|path|unknown`.
+
+| HTTP | `slug` | Leitura para etiqueta |
+|---|---|---|
+| 400 | `BAD_REQUEST` | payload malformado; ver `details[]` |
+| 401 | `UNAUTHORIZED` | token ausente/expirado/inválido |
+| **403** | **`FORBIDDEN`** | **token válido mas SEM o escopo de logística, ou consentimento de perfil não-ADMIN** |
+| 404 | `NOT_FOUND` | entrega inexistente / `id` trocado pelo `code` |
+| 409 | `CONFLICT` | `ENTITY_WITH_SAME_KEY_ALREADY_EXISTS` |
+| **422** | `UNPROCESSABLE_ENTITY` | **único erro de negócio documentado no endpoint de etiqueta** |
+| **423** | **`LOCKED`** | **`Resource is locked`** — existe `PackageLockResponse` no spec; pacote travado (antifraude/SAC) provavelmente não emite etiqueta |
+| 429 | `TOO_MANY_REQUESTS` | rate limit |
+| 500/502/503/504 | `SERVER_ERROR`/`BAD_GATEWAY`/`SERVICE_UNAVAILABLE`/`GATEWAY_TIMEOUT` | retry com backoff |
+
+O 401 do gateway ainda traz o header `x-authorization-error` com o motivo em texto — logar.
+
 ## 8. Sandbox
 
 Base `https://api-sandbox.magalu.com`. Onboarding: `PUT /v1/samples/onboarding` com channel
 `5f62650a-0039-4d65-9b96-266d498c03bd` — cria um seller fictício e devolve credenciais.
 Cobre Produtos, Pedidos, Promoções, SAC, Perguntas e Respostas, Chat. Dados apagados a cada 3 meses de uso.
+
+Criar pedido: `POST https://api-sandbox.magalu.com/v1/samples/orders`
+Mover status: `PUT https://api-sandbox.magalu.com/v1/samples/orders/{id}` com
+`{ "channel": {"id": "..."}, "deliveries": [{"id": ...}], "status": "approved" }`.
+Status aceitos: `Approved`, `Invoiced`, `Shipped`, `Delivered`, `Cancelled`.
+
+### BLOQUEIO 2026-09-15: a etiqueta NÃO existe no sandbox
+
+A página do sandbox lista explicitamente os métodos liberados: *"Consultar pedidos, Consultar
+pedidos_por_código, Consultar entregas, Consultar entregas_por_id, Consultar histórico"*.
+**`POST /seller/v1/logistics/shipping-labels` não está na lista.** Ou seja: dá para ensaiar a leitura de
+pedidos/entregas no sandbox, mas **a emissão de etiqueta só pode ser validada em produção**, com um pedido
+real. Isso invalida a premissa da Fase 2 do plano ("validação técnica começa pelo sandbox") para a parte de
+etiqueta.
 
 O portal ainda diz *"apenas o ambiente Produção disponível, Sandbox em desenvolvimento"* — **frase
 desatualizada**, o sandbox de Pedidos/Entregas está ativo.
@@ -334,6 +503,27 @@ prazo incerto — sinalizar sempre no planejamento.
 
 ## 11. Changelog observado
 
+- **2026-09-15** (gatilho: primeiro pedido real do Magalu chegou sem etiqueta emitida no EXPEDE):
+  - **Descoberto** que os specs OpenAPI são públicos (`llms.txt` / `apis/index.json`). Fonte canônica
+    daqui pra frente; parar de raspar HTML/JS do portal.
+  - **Confirmado** que o escopo de etiqueta (`open:order-logistics-seller:*`) é de família diferente do de
+    pedidos e está declarado em outra página da doc.
+  - **Descoberto** que escopos do token = `--scopes-default` do client ∪ `scope=` da URL de consentimento.
+  - **Corrigido**: a resposta de `shipping-labels` **não** traz `deliveries[].tracking` (a nota de
+    2026-09-04 estava errada). Só `label.{signed_url,expires_on,extras}`.
+  - **Corrigido**: `X-Channel-Id` não aparece em nenhum lugar do spec atual — rebaixado de "obrigatório"
+    para "não depender".
+  - **Corrigido**: `choose_tenants=true` está documentado e é obrigatório (a nota anterior dizia que tinha
+    sumido).
+  - **Corrigido**: `carrier` não é obrigatório em `POST /shippings`; `open:order-order-seller:write` não
+    existe.
+  - **Rebaixado**: `is_mle`/`is_fulfillment`/`shipping_type`/`shipping_name` não existem no spec atual.
+  - **Novo**: campo `deliveries[].branch` no request de etiqueta; `shipping.logistic_network`
+    (`id: "fulfillment"`) nos pedidos; `handling_time`/`deadline` agora são `TimeField` com
+    `limit_date` em `format: date` (`"2021-07-22"`), não mais date-time — mas ainda em UTC.
+  - **Novo**: existe uma segunda API de etiqueta, **Smart Label / Magalog** (seção 4b), que não é a nossa.
+  - **Novo**: sandbox **não** cobre emissão de etiqueta.
+  - **Novo**: `api.magalu.com` roda em **Azion**, não Cloudflare; 401 limpo sem challenge.
 - **2026-09-04**: pesquisa técnica completa. Resolvida a dúvida dos "dois portais" — `acelera.magalu.com` é
   outra plataforma (IntegraCommerce), não uma versão antiga. Confirmados base URLs, endpoint de etiqueta,
   payloads de write-back, paginação, status, rate limits e webhooks v1 com HMAC. Descobertos o breaking
@@ -356,7 +546,23 @@ prazo incerto — sinalizar sempre no planejamento.
 8. Onde vai o código de rastreio em `POST /shippings`: `protocol` ou embutido na `tracking_url`?
 9. O sandbox usa `/v1/deliveries/{id}/shippings` (sem `/seller`) nos exemplos, contra `/seller/v1/...` em
    produção — confirmar se é erro de doc ou path real
-10. Validade típica (`expires_on`) da `signed_url` da etiqueta
+10. Validade típica (`expires_on`) da `signed_url` da etiqueta (a etiqueta em si vale 7 dias para
+    postagem, mas isso é outra coisa: é o prazo da etiqueta, não da URL assinada)
+11. **(2026-09-15)** Qual campo real distingue Magalu Entregas de frete próprio no pedido de produção —
+    `provider.id`? `provider.name`? `logistic_network.id`? Dumpar o primeiro pedido real e decidir
+12. **(2026-09-15)** A etiqueta exige a entrega em `invoiced`, ou basta `approved`? A doc do endpoint não
+    diz. O 400 `Package without approved invoice` do sandbox é do endpoint de **status**, não do de
+    etiqueta. Indício externo forte (doc de seller e do Bling: "emita a NF antes de imprimir a etiqueta"),
+    mas não confirmado no contrato da API
+13. **(2026-09-15)** `shipping.shipping_label.status` (`available`/`Emitted`) aparece em schema interno.
+    Existe endpoint público para consultar o status da etiqueta sem reemitir? Se não, como saber se a
+    etiqueta já foi emitida (e evitar duplicar)?
+14. **(2026-09-15)** `POST /seller/v1/logistics/shipping-labels` é idempotente? Chamar duas vezes para a
+    mesma entrega gera duas etiquetas/dois rastreios ou devolve a mesma?
+15. **(2026-09-15)** O que `deliveries[].branch` faz na prática — é obrigatório para quem tem mais de um
+    CD/filial? Influencia o CD de destino da coleta?
+16. **(2026-09-15)** Quais `slug`s de erro 422 o endpoint de etiqueta devolve. A doc lista só o HTTP 422
+    genérico
 
 ## 13. Plano de implementação no EXPEDE
 
@@ -368,10 +574,42 @@ Plano aprovado em 2026-09-04, por fases. Decisões tomadas com o Vinicius:
 - Validação técnica começa pelo **sandbox**.
 - **NF-e manual no Bling**, como a Shopee — Magalu fica `out_of_scope` em `classificarEmissaoNf`.
 
-**Descoberta que reordenou o plano:** o **Bling já gera a etiqueta do Magalu Entregas em PDF e ZPL**, depois
-que a NF-e é emitida, e a cadeia de etiqueta do EXPEDE (`src/lib/etiqueta.functions.ts:42`) já tenta o Bling
-**antes** do marketplace. Dá para expedir e imprimir etiqueta do Magalu **sem nenhuma chamada à API do
-Magalu**.
+**~~Descoberta que reordenou o plano:~~ PREMISSA REFUTADA EM 15/09/2026 — não confiar no parágrafo abaixo.**
+
+> ~~O Bling já gera a etiqueta do Magalu Entregas em PDF e ZPL, depois que a NF-e é emitida, e a cadeia de
+> etiqueta do EXPEDE (`src/lib/etiqueta.functions.ts:42`) já tenta o Bling antes do marketplace. Dá para
+> expedir e imprimir etiqueta do Magalu sem nenhuma chamada à API do Magalu.~~
+
+**Por que caiu.** O primeiro pedido Magalu real (9262, `numeroLoja 1570070104300104`, 14/09/2026) foi
+expedido e a etiqueta **não saiu**: `etiqueta_zpl` ficou `NULL` e `buscarEtiquetaBling` retornou
+`sem_fallback:magalu`. Confirmado pelo Vinicius que **o Bling nunca entrega a etiqueta de serviço do
+marketplace** — é exatamente o que já tinha acontecido com a Shopee e obrigou a construir
+`buscarEtiquetaShopee` chamando a API da Shopee direto (`05 - Erros e Soluções.md`, sessão do pedido #8912).
+A premissa acima nasceu da documentação do **Bling**, não de teste real; a experiência operacional a
+contradiz. **Regra que fica: para etiqueta de transporte de marketplace, o Bling não é fonte — só a API do
+próprio canal é.**
+
+Consequência prática: a **Fase 3 deixa de ser opcional**. Sem chamada à API do Magalu não há etiqueta, e o
+canal não opera.
+
+**Formato real da etiqueta (medido no PDF do pedido 9262, fornecido pelo Vinicius em 15/09/2026):**
+
+| Propriedade | Valor |
+|---|---|
+| Página | **A4** — `MediaBox [0 0 595.28 841.89]` = 210 × 297 mm |
+| Etiquetas por página | **3** |
+| Conteúdo | **rasterizado** — 3 imagens de 304 × 892 px + 3 códigos de barras de 232 × 36 px, todos `FlateDecode` |
+| Texto extraível | praticamente nenhum (15 tokens) — é imagem, não texto vetorial |
+
+Três consequências de arquitetura:
+
+1. **Precisa de recorte próprio.** `SHOPEE_A4_LABEL_CROP` (`useQzTray.ts:58`) **não serve** — a proporção é
+   outra e aqui são três etiquetas por folha, não uma. Isso confirma a pendência que já estava anotada em
+   `PROMPT-FASE-2-MAGALU.md`.
+2. **Não dá para converter para ZPL via Labelary** (`zpl-to-pdf.ts`), porque não há texto a interpretar —
+   o caminho é `imprimirPdf` com recorte, como a Shopee.
+3. Vale testar `label.format: "zpl"` na API, que pelo contrato existe e evitaria o recorte inteiro. **Este
+   PDF veio do portal, não da API** — não assumir que a API devolve o mesmo layout.
 
 - [ ] **Fase 0** — criar loja Magalu no Bling, ligar Magalu Entregas, **descobrir o `loja.id`** (bloqueia a
       Fase 1); registrar app no IDMagalu **com usuário ADMIN da PJ** e iniciar homologação (lead time)
@@ -388,6 +626,16 @@ Magalu**.
 
 ## 14. Fontes
 
+- **Specs OpenAPI crus (preferir sempre a estes HTMLs):**
+  [llms.txt](https://developers.magalu.com/llms.txt) ·
+  [index.json](https://developers.magalu.com/apis/index.json) ·
+  [orders.openapi.yaml](https://developers.magalu.com/apis/orders.openapi.yaml) ·
+  [orders/overview.md](https://developers.magalu.com/apis/orders/overview.md) ·
+  [smartlabel.openapi.yaml](https://developers.magalu.com/apis/smartlabel.openapi.yaml)
+- [Estrutura de erros](https://developers.magalu.com/docs/development-guide/error-structure) ·
+  [Criar aplicação (lista completa de escopos)](https://developers.magalu.com/docs/first-steps/create-an-application/create-application) ·
+  [Sandbox — criar pedido](https://developers.magalu.com/docs/apis/sandbox/orders/createorder) ·
+  [Sandbox — atualizar status](https://developers.magalu.com/docs/apis/sandbox/orders/orderstatus)
 - [Ambientes](https://developers.magalu.com/docs/first-steps/environment) · [OAuth 2.0](https://developers.magalu.com/docs/first-steps/create-an-application/authentication-authorization) · [IDs dos canais](https://developers.magalu.com/docs/development-guide/sales-channel-id)
 - [Gerar etiquetas](https://developers.magalu.com/docs/apis_logistic/labels/ref/seller-v-1-post-logistics-shipping-labels) · [Etiquetas — escopos](https://developers.magalu.com/docs/apis_logistic/labels/ref/overview) · [Magalu Entregas](https://developers.magalu.com/docs/apis_logistic/overview)
 - [Consultar pedidos](https://developers.magalu.com/docs/apis/orders/ref/seller-v-1-get-order-list) · [Consultar entregas](https://developers.magalu.com/docs/apis/orders/ref/seller-v-1-get-deliveries-list) · [Marcar enviada](https://developers.magalu.com/docs/apis/orders/ref/seller-v-1-post-delivery-shippings) · [Enviar NF-e](https://developers.magalu.com/docs/apis/orders/ref/seller-v-1-post-delivery-invoice) · [Finalizar](https://developers.magalu.com/docs/apis/orders/ref/seller-v-1-post-delivery-finishing)
@@ -448,3 +696,96 @@ Azion. Não houve challenge nem bot-fight em nenhum dos três alvos.
 - ⚠️ Pendente: `TOKEN EXPIRATION` saiu como **20 s** (o CLI aplica isso quando `--access-token-exp` é
   omitido), contra os 7200 s da doc. Renovar a cada chamada convida ao 429 — mesmo padrão da Lição #41 com
   o Bling.
+
+---
+
+## 16. Etapa 2 do spike (15/09/2026) — OAuth e rota de descoberta
+
+Commit `aa22f0d` na branch `feat/magalu-etiqueta`. **Nada aqui muda o comportamento do galpão**:
+`FALLBACK_POR_MARKETPLACE` continua com `magalu: null`, e expedição, impressão e QZ Tray estão intactos.
+
+### O que passou a existir
+
+| Peça | Arquivo | Papel |
+|---|---|---|
+| Lógica pura | `src/lib/magalu.ts` | URL de consentimento, margem de renovação, extração dos discriminadores de modalidade, detecção de formato do arquivo baixado. 23 testes em `test/magalu.test.mjs` |
+| Cliente OAuth/HTTP | `src/lib/magalu.functions.ts` | OAuth2 puro — sem HMAC (≠ Shopee) e **sem proxy** (≠ ML e Shopee) |
+| Cifra de token | `src/lib/token-crypto.ts` | AES-256-GCM extraído de `bling.functions.ts` **sem mudança de comportamento** |
+| Consentimento | `src/routes/api/magalu/auth.ts` + `callback.ts` | `state` em cookie HttpOnly, conferido na volta |
+| Descoberta | `src/routes/api/debug/magalu-etiqueta-teste.ts` | responde as 5 perguntas com o pedido 9262 |
+| Conexão | migration `20260915120000_magalu-connections.sql` | token em `bytea` cifrado, RLS restritiva |
+
+### Três decisões que valem como precedente
+
+**1. Token cifrado em repouso.** `magalu_connections` guarda `access_token`/`refresh_token` em `bytea`
+cifrado com o mesmo AES-256-GCM do Bling — não em `TEXT` puro como `shopee_connections` e `ml_connections`.
+A chave é a **mesma** do Bling (`BLING_ENCRYPTION_KEY`), de propósito: o segredo já existe no Worker e o IV
+é aleatório por registro. Não foi criada variável nova com precedência — uma segunda chave que divergisse
+faria os tokens do Bling já gravados pararem de decriptar em produção.
+
+**2. RLS restritiva, não `USING (true)`.** A tabela base não tem GRANT nenhum de tabela para
+`authenticated`; só as 11 colunas sem segredo têm GRANT de coluna, e a policy de SELECT exige
+`has_role(…, 'admin')`. `access_token` e `refresh_token` são inalcançáveis por chave anon/authenticated,
+por GRANT, não só por policy. A view `magalu_connections_status` é o que a UI lê.
+
+**3. A margem de renovação acompanha a validade do token, não é constante.**
+
+```
+margem = clamp(ttl × 10%, mínimo 5 s, máximo 300 s), nunca mais que metade do ttl
+```
+
+Com os 7200 s da doc dá 300 s; com os **20 s** que o client realmente tem, dá 5 s. Uma margem fixa de 60 s
+faria **toda chamada renovar o token** — que é literalmente o caminho do 429 da Lição #41, já vivido com o
+Bling. O `expires_in` da resposta é gravado em `access_ttl_seconds` justamente para alimentar essa conta.
+
+### A rota de descoberta
+
+```
+/api/debug/magalu-etiqueta-teste
+  ?code=1570070104300104   código do pedido no Magalu (default: o 9262)
+  ?deliveryId=<uuid>       pula a busca e usa esta entrega direto
+  ?emitir=zpl|pdf|ambos    EMITE ETIQUETA — escrita real; omitido = não emite
+  ?tipo=summary|full       `label.type` (default summary)
+  ?labelary=1              deriva o PDF do ZPL via Labelary (pergunta 5)
+  ?raw=zpl|pdf|labelary    devolve o arquivo em vez do JSON
+```
+
+**Sem `?emitir=` a rota é leitura pura** — e isso já responde as perguntas 1 e 2. A emissão ficou atrás de
+um parâmetro explícito porque **o sandbox não suporta `shipping-labels`**: não existe lugar para ensaiar, e
+toda emissão é escrita de verdade num marketplace real. A lacuna #4 (chamar duas vezes gera duas etiquetas
+ou dois rastreios?) continua aberta e é o motivo de `emitir=ambos` existir — usar **uma vez só**, de
+propósito, e olhar o resultado.
+
+A rota tenta três caminhos para achar a entrega (`/orders/{code}`, `/deliveries?code=`,
+`/deliveries?code={code}-1`) e **reporta o status de cada um**: qual deles responde o quê ainda é suposição,
+e descobrir isso é parte do resultado.
+
+### O que a rota NÃO decide
+
+`extrairDiscriminadoresDeModalidade` **dumpa** `shipping.provider` e `shipping.logistic_network` crus, mais
+`Object.keys(shipping)` e `Object.keys(provider)`, e reporta os campos legados (`is_mle`, `is_fulfillment`,
+`shipping_type`, `shipping_name`) como `undefined` quando não existem — distinto de `false`. A diferença
+importa: `false` significaria "frete próprio", `undefined` significa "o spec não tem esse campo". **Nenhuma
+regra de roteamento foi escrita**, por decisão: ela só sai depois de ver o dado real.
+
+### Pista já disponível sem chamar a API
+
+O `raw_json` do pedido 9262 no Bling traz `transporte.volumes[0].servico = "Agência Magalu"` — não
+"Magalu Entregas". Se isso refletir a modalidade real, o 9262 pode ser justamente o caso **negativo** da
+pergunta 2, e não o positivo que se esperava. `transporte.transportador.nome` é `null` e
+`codigoRastreamento` é string vazia.
+
+### O que falta para rodar (não foi feito nesta sessão)
+
+1. **Deploy** — a rota só existe em produção depois de publicar. Deploy **não** pode sair de `main`.
+2. **Consentimento** — abrir `/api/magalu/auth` logado e escolher o tenant **`organization`** (Baby Magia
+   LTDA, `94725b94-9532-4475-8c3a-299b0e685dde`), nunca o `person`.
+3. **Rodar a rota** e trazer o JSON. As respostas entram na seção 12 (lacunas) e aqui.
+
+### Incógnita que a primeira chamada real resolve de graça
+
+O `404` do `GET` em `id.magalu.com/oauth/token` (seção 15) não prova nada. `postToken` tenta o Content-Type
+documentado e, se levar **404/405/415**, repete com o outro e grava em
+`magalu_connections.token_endpoint_format` **qual funcionou**. Qualquer outro erro (credencial, code
+expirado) não é repetido — repetir só queimaria o code, que é de uso único. Quando o dado aparecer, um dos
+dois caminhos sai do código.
