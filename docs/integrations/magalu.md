@@ -395,3 +395,56 @@ Magalu**.
 - [Rate limit](https://developers.magalu.com/docs/development-guide/rate-limit) · [Paginação e filtros](https://developers.magalu.com/docs/development-guide/pagination-filtering-sorting) · [X-Request-Id](https://developers.magalu.com/docs/development-guide/request-identifier-x-request-id)
 - [Sandbox](https://developers.magalu.com/docs/apis/sandbox/overview) · [Release Notes](https://developers.magalu.com/docs/release-notes)
 - Legado, não usar: [Acelera Magalu](https://acelera.magalu.com/pedidos.html) · [IntegraCommerce](https://api.integracommerce.com.br/Documentation/Orders)
+
+---
+
+## 15. Medições em produção (15/09/2026) — o que deixou de ser suposição
+
+Rota `src/routes/api/debug/magalu-ping.ts`, executada dentro do Cloudflare Worker `babyworld`
+(version `a2f4e2be-e5cb-46c8-813f-952e45cfa799`), sem credencial.
+
+| Alvo | Status | Tempo | Veredito |
+|---|---|---|---|
+| `https://api.magalu.com/seller/v1/deliveries` | **401** | **177 ms** | ✅ alcança |
+| `https://api-sandbox.magalu.com/seller/v1/deliveries` | 401 | 218 ms | ✅ alcança |
+| `https://id.magalu.com/oauth/token` | 404 | 294 ms | ⚠️ ver abaixo |
+
+Corpo do 401, idêntico em prod e sandbox — é a prova de que a requisição chegou ao servidor do Magalu e
+foi processada:
+
+```json
+{ "developerMessage": "Unauthorized",
+  "userMessage": "You are not authorized to perform this operation. Invalid or expired token.",
+  "moreInfo": "http://developer.apiluiza.com.br/errors/reference/30001",
+  "errorCode": 30001 }
+```
+
+**Risco #1 da seção 10 está RESOLVIDO: não há bloqueio de IP de datacenter.** O Magalu é o **primeiro canal
+do EXPEDE sem proxy** — o ML precisa de Edge Function (`supabase/functions/ml-label`) e a Shopee de gateway
+de IP fixo (`ops/shopee-gateway/`). O cliente HTTP do Magalu pode viver direto em `src/lib/magalu.ts`.
+
+Headers observados: `Server: cloudflare` **junto com** `x-azion-request-id` e `x-azion-edge-location: CGH`.
+Há Cloudflare na borda e Azion atrás — medições anteriores, feitas de IP residencial, só tinham visto o
+Azion. Não houve challenge nem bot-fight em nenhum dos três alvos.
+
+> ⚠️ **`id.magalu.com/oauth/token` devolveu 404 — mas o teste foi um GET, e o endpoint de token é POST.**
+> Um 404 em resposta a método errado é plausível e **não** prova que o path esteja errado. Fica como
+> **item a confirmar no primeiro POST real** do fluxo OAuth: se o 404 persistir com POST, o path do token
+> é outro e a seção 2 precisa de correção. Não tratar como confirmado em nenhuma direção.
+
+### Estado do registro no IDMagalu (Fase 0 — concluída)
+
+- Client criado, UUID `fe3df874-5759-4e43-8e94-7be72d49698d`, `client_id`
+  `g91eMNEfVgQyPBNU7eRGq4yAuMoDNSMiqOwlkeTSuq8`. Secrets no Worker como `MAGALU_CLIENT_ID` /
+  `MAGALU_CLIENT_SECRET`.
+- **Os 6 escopos saíram `AVAILABLE` e `(default)`, com `PENDING` e `APPROVER` vazios** — incluindo
+  `open:order-logistics-seller:read` e `:write`. **Nenhuma aprovação manual do Magalu foi necessária**; não
+  há lead time de homologação bloqueando (seção 9).
+- Consentimento tem de ser dado pelo tenant **`organization`** (Baby Magia LTDA,
+  `94725b94-9532-4475-8c3a-299b0e685dde`), nunca pelo `person` (`23e801cc-…`) — daí `choose_tenants=true`
+  ser obrigatório na URL de consentimento.
+- ⚠️ **`idm client update` NÃO tem flag de escopos.** Escopo errado ⇒ criar client novo, com secret e
+  consentimento novos. A afirmação contrária, que estava em `PROMPT-FASE-2-MAGALU.md`, foi corrigida.
+- ⚠️ Pendente: `TOKEN EXPIRATION` saiu como **20 s** (o CLI aplica isso quando `--access-token-exp` é
+  omitido), contra os 7200 s da doc. Renovar a cada chamada convida ao 429 — mesmo padrão da Lição #41 com
+  o Bling.
