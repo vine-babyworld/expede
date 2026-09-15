@@ -26,7 +26,11 @@ import { Route as ApiShopeeCallbackRouteImport } from './routes/api/shopee/callb
 import { Route as ApiShopeeAuthRouteImport } from './routes/api/shopee/auth'
 import { Route as ApiMlCallbackRouteImport } from './routes/api/ml/callback'
 import { Route as ApiMlAuthRouteImport } from './routes/api/ml/auth'
+import { Route as ApiMagaluCallbackRouteImport } from './routes/api/magalu/callback'
+import { Route as ApiMagaluAuthRouteImport } from './routes/api/magalu/auth'
 import { Route as ApiDebugShopeeEtiquetaTesteRouteImport } from './routes/api/debug/shopee-etiqueta-teste'
+import { Route as ApiDebugMagaluPingRouteImport } from './routes/api/debug/magalu-ping'
+import { Route as ApiDebugMagaluEtiquetaTesteRouteImport } from './routes/api/debug/magalu-etiqueta-teste'
 import { Route as ApiDebugEtiquetaTesteRouteImport } from './routes/api/debug/etiqueta-teste'
 import { Route as ApiDebugDanfeTesteRouteImport } from './routes/api/debug/danfe-teste'
 import { Route as ApiDebugBlingTokenRouteImport } from './routes/api/debug/bling-token'
@@ -127,10 +131,31 @@ const ApiMlAuthRoute = ApiMlAuthRouteImport.update({
   path: '/api/ml/auth',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiMagaluCallbackRoute = ApiMagaluCallbackRouteImport.update({
+  id: '/api/magalu/callback',
+  path: '/api/magalu/callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiMagaluAuthRoute = ApiMagaluAuthRouteImport.update({
+  id: '/api/magalu/auth',
+  path: '/api/magalu/auth',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiDebugShopeeEtiquetaTesteRoute =
   ApiDebugShopeeEtiquetaTesteRouteImport.update({
     id: '/api/debug/shopee-etiqueta-teste',
     path: '/api/debug/shopee-etiqueta-teste',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiDebugMagaluPingRoute = ApiDebugMagaluPingRouteImport.update({
+  id: '/api/debug/magalu-ping',
+  path: '/api/debug/magalu-ping',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiDebugMagaluEtiquetaTesteRoute =
+  ApiDebugMagaluEtiquetaTesteRouteImport.update({
+    id: '/api/debug/magalu-etiqueta-teste',
+    path: '/api/debug/magalu-etiqueta-teste',
     getParentRoute: () => rootRouteImport,
   } as any)
 const ApiDebugEtiquetaTesteRoute = ApiDebugEtiquetaTesteRouteImport.update({
@@ -238,7 +263,11 @@ export interface FileRoutesByFullPath {
   '/api/debug/bling-token': typeof ApiDebugBlingTokenRoute
   '/api/debug/danfe-teste': typeof ApiDebugDanfeTesteRoute
   '/api/debug/etiqueta-teste': typeof ApiDebugEtiquetaTesteRoute
+  '/api/debug/magalu-etiqueta-teste': typeof ApiDebugMagaluEtiquetaTesteRoute
+  '/api/debug/magalu-ping': typeof ApiDebugMagaluPingRoute
   '/api/debug/shopee-etiqueta-teste': typeof ApiDebugShopeeEtiquetaTesteRoute
+  '/api/magalu/auth': typeof ApiMagaluAuthRoute
+  '/api/magalu/callback': typeof ApiMagaluCallbackRoute
   '/api/ml/auth': typeof ApiMlAuthRoute
   '/api/ml/callback': typeof ApiMlCallbackRoute
   '/api/shopee/auth': typeof ApiShopeeAuthRoute
@@ -271,7 +300,11 @@ export interface FileRoutesByTo {
   '/api/debug/bling-token': typeof ApiDebugBlingTokenRoute
   '/api/debug/danfe-teste': typeof ApiDebugDanfeTesteRoute
   '/api/debug/etiqueta-teste': typeof ApiDebugEtiquetaTesteRoute
+  '/api/debug/magalu-etiqueta-teste': typeof ApiDebugMagaluEtiquetaTesteRoute
+  '/api/debug/magalu-ping': typeof ApiDebugMagaluPingRoute
   '/api/debug/shopee-etiqueta-teste': typeof ApiDebugShopeeEtiquetaTesteRoute
+  '/api/magalu/auth': typeof ApiMagaluAuthRoute
+  '/api/magalu/callback': typeof ApiMagaluCallbackRoute
   '/api/ml/auth': typeof ApiMlAuthRoute
   '/api/ml/callback': typeof ApiMlCallbackRoute
   '/api/shopee/auth': typeof ApiShopeeAuthRoute
@@ -307,7 +340,11 @@ export interface FileRoutesById {
   '/api/debug/bling-token': typeof ApiDebugBlingTokenRoute
   '/api/debug/danfe-teste': typeof ApiDebugDanfeTesteRoute
   '/api/debug/etiqueta-teste': typeof ApiDebugEtiquetaTesteRoute
+  '/api/debug/magalu-etiqueta-teste': typeof ApiDebugMagaluEtiquetaTesteRoute
+  '/api/debug/magalu-ping': typeof ApiDebugMagaluPingRoute
   '/api/debug/shopee-etiqueta-teste': typeof ApiDebugShopeeEtiquetaTesteRoute
+  '/api/magalu/auth': typeof ApiMagaluAuthRoute
+  '/api/magalu/callback': typeof ApiMagaluCallbackRoute
   '/api/ml/auth': typeof ApiMlAuthRoute
   '/api/ml/callback': typeof ApiMlCallbackRoute
   '/api/shopee/auth': typeof ApiShopeeAuthRoute
@@ -343,7 +380,11 @@ export interface FileRouteTypes {
     | '/api/debug/bling-token'
     | '/api/debug/danfe-teste'
     | '/api/debug/etiqueta-teste'
+    | '/api/debug/magalu-etiqueta-teste'
+    | '/api/debug/magalu-ping'
     | '/api/debug/shopee-etiqueta-teste'
+    | '/api/magalu/auth'
+    | '/api/magalu/callback'
     | '/api/ml/auth'
     | '/api/ml/callback'
     | '/api/shopee/auth'
@@ -376,7 +417,11 @@ export interface FileRouteTypes {
     | '/api/debug/bling-token'
     | '/api/debug/danfe-teste'
     | '/api/debug/etiqueta-teste'
+    | '/api/debug/magalu-etiqueta-teste'
+    | '/api/debug/magalu-ping'
     | '/api/debug/shopee-etiqueta-teste'
+    | '/api/magalu/auth'
+    | '/api/magalu/callback'
     | '/api/ml/auth'
     | '/api/ml/callback'
     | '/api/shopee/auth'
@@ -411,7 +456,11 @@ export interface FileRouteTypes {
     | '/api/debug/bling-token'
     | '/api/debug/danfe-teste'
     | '/api/debug/etiqueta-teste'
+    | '/api/debug/magalu-etiqueta-teste'
+    | '/api/debug/magalu-ping'
     | '/api/debug/shopee-etiqueta-teste'
+    | '/api/magalu/auth'
+    | '/api/magalu/callback'
     | '/api/ml/auth'
     | '/api/ml/callback'
     | '/api/shopee/auth'
@@ -436,7 +485,11 @@ export interface RootRouteChildren {
   ApiDebugBlingTokenRoute: typeof ApiDebugBlingTokenRoute
   ApiDebugDanfeTesteRoute: typeof ApiDebugDanfeTesteRoute
   ApiDebugEtiquetaTesteRoute: typeof ApiDebugEtiquetaTesteRoute
+  ApiDebugMagaluEtiquetaTesteRoute: typeof ApiDebugMagaluEtiquetaTesteRoute
+  ApiDebugMagaluPingRoute: typeof ApiDebugMagaluPingRoute
   ApiDebugShopeeEtiquetaTesteRoute: typeof ApiDebugShopeeEtiquetaTesteRoute
+  ApiMagaluAuthRoute: typeof ApiMagaluAuthRoute
+  ApiMagaluCallbackRoute: typeof ApiMagaluCallbackRoute
   ApiMlAuthRoute: typeof ApiMlAuthRoute
   ApiMlCallbackRoute: typeof ApiMlCallbackRoute
   ApiShopeeAuthRoute: typeof ApiShopeeAuthRoute
@@ -569,11 +622,39 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiMlAuthRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/magalu/callback': {
+      id: '/api/magalu/callback'
+      path: '/api/magalu/callback'
+      fullPath: '/api/magalu/callback'
+      preLoaderRoute: typeof ApiMagaluCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/magalu/auth': {
+      id: '/api/magalu/auth'
+      path: '/api/magalu/auth'
+      fullPath: '/api/magalu/auth'
+      preLoaderRoute: typeof ApiMagaluAuthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/debug/shopee-etiqueta-teste': {
       id: '/api/debug/shopee-etiqueta-teste'
       path: '/api/debug/shopee-etiqueta-teste'
       fullPath: '/api/debug/shopee-etiqueta-teste'
       preLoaderRoute: typeof ApiDebugShopeeEtiquetaTesteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/debug/magalu-ping': {
+      id: '/api/debug/magalu-ping'
+      path: '/api/debug/magalu-ping'
+      fullPath: '/api/debug/magalu-ping'
+      preLoaderRoute: typeof ApiDebugMagaluPingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/debug/magalu-etiqueta-teste': {
+      id: '/api/debug/magalu-etiqueta-teste'
+      path: '/api/debug/magalu-etiqueta-teste'
+      fullPath: '/api/debug/magalu-etiqueta-teste'
+      preLoaderRoute: typeof ApiDebugMagaluEtiquetaTesteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/debug/etiqueta-teste': {
@@ -737,7 +818,11 @@ const rootRouteChildren: RootRouteChildren = {
   ApiDebugBlingTokenRoute: ApiDebugBlingTokenRoute,
   ApiDebugDanfeTesteRoute: ApiDebugDanfeTesteRoute,
   ApiDebugEtiquetaTesteRoute: ApiDebugEtiquetaTesteRoute,
+  ApiDebugMagaluEtiquetaTesteRoute: ApiDebugMagaluEtiquetaTesteRoute,
+  ApiDebugMagaluPingRoute: ApiDebugMagaluPingRoute,
   ApiDebugShopeeEtiquetaTesteRoute: ApiDebugShopeeEtiquetaTesteRoute,
+  ApiMagaluAuthRoute: ApiMagaluAuthRoute,
+  ApiMagaluCallbackRoute: ApiMagaluCallbackRoute,
   ApiMlAuthRoute: ApiMlAuthRoute,
   ApiMlCallbackRoute: ApiMlCallbackRoute,
   ApiShopeeAuthRoute: ApiShopeeAuthRoute,
