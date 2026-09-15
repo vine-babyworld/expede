@@ -533,6 +533,12 @@ prazo incerto — sinalizar sempre no planejamento.
 
 ## 12. Lacunas — a testar com a conta real
 
+> **Atualização 15/09/2026:** parte desta lista já foi medida em produção — ver **seção 16, "Resultado da
+> execução"**. Resolvidas: o discriminador de modalidade (é `provider.extras.is_mle`, que **existe** apesar
+> de ausente do spec) e o path do token. **Lacuna nova e prioritária:** `shipping-labels` recusa entrega em
+> `status = shipped` (`SHIPPING_LABEL_SHIPPED`), então existe uma **janela** para buscar a etiqueta, e os
+> limites dela não estão medidos — é o que a lacuna 2 abaixo virou.
+
 1. Limite de `deliveries[]` por request na geração de etiqueta (o "20" é da API legada)
 2. NF-e aprovada é pré-requisito da etiqueta? Indício forte: o sandbox devolve
    `400 Package without approved invoice` ao mover para `invoiced` sem NF — mas isso não está documentado no
@@ -789,3 +795,87 @@ documentado e, se levar **404/405/415**, repete com o outro e grava em
 `magalu_connections.token_endpoint_format` **qual funcionou**. Qualquer outro erro (credencial, code
 expirado) não é repetido — repetir só queimaria o code, que é de uso único. Quando o dado aparecer, um dos
 dois caminhos sai do código.
+
+### Resultado da execução (15/09/2026, 17h38–17h40 UTC) — o que deixou de ser suposição
+
+Consentimento dado pelo Vinicius, deploy publicado, rota rodada em produção contra o pedido 9262.
+
+#### OAuth — três pendências encerradas
+
+| Pendência | Estado anterior | Medido |
+|---|---|---|
+| Path do token | `GET id.magalu.com/oauth/token` deu 404 — "não prova nada" | ✅ **POST com `Content-Type: application/json` funcionou de primeira.** `token_endpoint_format = "json"` gravado. A seção 2 está correta; o 404 era só o método errado |
+| `TOKEN EXPIRATION: 20 s` | pendência aberta da Fase 0, exigiria `idm client update` | ✅ **não existe no token real.** `expires_in = 7201` (2 h), exatamente o que a doc promete. O `idm client list` mostrava 20 s, mas o token emitido ignora isso. **`idm client update --access-token-exp` é desnecessário** |
+| Tenant do consentimento | risco de 403 silencioso com o tenant `person` | ✅ `/seller/v1/orders` respondeu **200**; com `person` seria 403. Escopos no token: os 6, incluindo `open:order-logistics-seller:write` |
+
+> A resposta de token **não traz id de tenant**: `token_meta` tem só `scope`, `created_at`, `expires_in`,
+> `token_type`. Não há como confirmar o tenant pelo token — só pelo comportamento da primeira chamada de
+> seller. A coluna `tenant_id` fica `NULL`.
+
+#### Contrato — quatro correções ao que estava documentado
+
+1. **`GET /seller/v1/orders/{code}` funciona e devolve o pedido com `deliveries[]` embutido.** 200 em
+   135–189 ms, primeira tentativa. Não foi preciso cair para `/deliveries?code=`.
+2. **O `code` da entrega tem prefixo `LU-`**: `LU-1570070104300104-1`, não `1570070104300104-1`. Nenhuma
+   doc menciona isso. Quem montar o code à mão a partir do `numero_loja` erra.
+3. **A entrega NÃO tem nó `channel`.** Chaves reais: `code, id, seller, status, amounts, items, shipping,
+   events, returns, invoices, branch`. O `channel.id` da etiqueta tem de sair da constante
+   (`9fe0d853-732b-4e4a-a0b0-cff988ed043d`) — e ela foi aceita, porque a requisição passou da validação e
+   morreu numa regra de negócio, não num erro de canal. Há também um nó **`branch`**, não documentado.
+4. **Envelope de erro confirmado:** `{"slug","message","details":[{"field","location","slug","message"}]}`.
+
+#### Pergunta 2 — RESPONDIDA. O spec OpenAPI é que estava incompleto, não a base antiga
+
+```json
+"provider": { "id": "magalog", "name": "magalog", "description": "Magalu Entregas",
+  "extras": { "is_mle": true, "is_fulfillment": false,
+              "shipping_type": "Agência Magalu", "shipping_name": "Magalu Entregas", "tags": [] } },
+"logistic_network": { "id": "direta", "description": "Malha direta" }
+```
+
+**`provider.extras.is_mle` EXISTE em produção.** A seção 4 desta base (versão antiga) estava certa; o
+`orders.openapi.yaml` é que omite `extras`. Foi o spec que enganou, não a documentação anterior — inverter
+a lição: spec público ausente de campo **não** é prova de que o campo não existe.
+
+Dois discriminadores igualmente estáveis, e vale usar os dois com `is_mle` como primário:
+`provider.extras.is_mle === true` e `provider.id === "magalog"`.
+
+**Armadilha de nomenclatura, que quase derrubou o diagnóstico:** `shipping_type: "Agência Magalu"` convive
+com `is_mle: true` e `shipping_name: "Magalu Entregas"`. **`shipping_type` é a modalidade de POSTAGEM**
+(onde o pacote é entregue à transportadora), não a de frete. O `transporte.volumes[].servico` do Bling
+mapeia para `shipping_type`, e por isso o "Agência Magalu" do `raw_json` do 9262 sugeria — erradamente —
+que o pedido não era Magalu Entregas. **É Magalu Entregas.**
+
+#### Pergunta 1 — RESPONDIDA pelo avesso, e é o achado que muda a arquitetura
+
+`POST /seller/v1/logistics/shipping-labels` com `format: "zpl"`, `type: "summary"`:
+
+```
+400 BAD_REQUEST · details[0].slug = SHIPPING_LABEL_SHIPPED · "Etiqueta já despachada."
+```
+
+**A etiqueta existe do lado do Magalu** — a API não diz "não encontrada", diz "já despachada". Isso encerra
+a dúvida sobre a origem do PDF que o Vinicius tinha em mãos. **Nada foi emitido e nada foi escrito**, então
+a lacuna #4 (duas chamadas geram duas etiquetas?) segue intocada.
+
+> **⚠️ LACUNA NOVA, e é a mais importante que este spike produziu: existe uma JANELA para buscar a
+> etiqueta.** `shipping-labels` **recusa** entrega em `status = shipped`. O 9262 já estava `shipped` — e o
+> EXPEDE **nunca chamou `POST /shippings`**, então quem marcou foi o próprio Magalu, provavelmente na
+> coleta pela Agência. Consequência de desenho: a etiqueta tem de ser buscada **antes** disso, em
+> `approved` ou `invoiced`, e o EXPEDE não controla quando a janela fecha. Um cron que busque etiqueta
+> "quando der" pode perder o pedido. Os limites exatos da janela (abre em `approved` ou só em `invoiced`?
+> fecha exatamente em `shipped`?) ainda **não** estão medidos.
+
+#### O que continua em aberto
+
+| # | Pergunta | Estado |
+|---|---|---|
+| 1 | A etiqueta existe do lado do Magalu? | ✅ **sim** — `SHIPPING_LABEL_SHIPPED` prova |
+| 2 | Qual campo distingue Magalu Entregas de frete próprio? | ✅ **`provider.extras.is_mle`** (existe, apesar do spec) e `provider.id = "magalog"` |
+| 3 | `format: "zpl"` devolve ZPL imprimível? | ❌ **aberta** — precisa de pedido ainda não `shipped` |
+| 4 | Exige NF-e emitida ou basta `approved`? | ❌ **aberta**, e virou mais rica: a pergunta agora é *quando a janela abre E quando fecha* |
+| 5 | PDF nativo × PDF derivado do ZPL (Labelary)? | ❌ **aberta** — depende da 3 |
+
+**3, 4 e 5 não se respondem com o 9262** — só com um pedido Magalu novo, pego antes da coleta. É o único
+pedido Magalu que existe no EXPEDE (`select … from pedidos where marketplace='magalu'` → 1 linha). Não é
+trabalho de código: é esperar o próximo pedido e rodar a rota **antes** de despachar.
