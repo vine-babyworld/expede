@@ -10,6 +10,10 @@ const PAGES_PER_RUN = 5;
 const PAGE_LIMIT = 100;
 const REQUEST_DELAY_MS = 350;
 const DETAIL_BATCH_SIZE = 15; // produtos enriquecidos por execução (reduzido de 40 para caber no timeout de 30s do Worker)
+/** Tentativas de detalhe por produto antes de ele sair da fila. Sair da fila NÃO é o
+ *  mesmo que ser dado como sincronizado: `detail_synced_at` continua nulo e o motivo
+ *  fica em `detail_last_error`, então o produto aparece como pendente no relatório. */
+const DETAIL_MAX_ATTEMPTS = 3;
 
 const IMPORT_LOCAL_CMD = "node --env-file=.env scripts/sync-produtos-local.mjs";
 
@@ -18,6 +22,12 @@ const IMPORT_LOCAL_CMD = "node --env-file=.env scripts/sync-produtos-local.mjs";
 const CDN_BLOCK_TAG = "bling_cdn_403";
 const CDN_BLOCK_TAG_RECUPERADO = "bling_cdn_403_recuperado";
 const CDN_BLOCK_MAX_TENTATIVAS = 5;
+
+// Falha de gravação da página no banco. Teto menor que o do CDN porque erro de upsert
+// tende a ser determinístico: se três tentativas não passaram, tentar de novo não passa.
+const UPSERT_FAIL_TAG = "upsert_falhou";
+const UPSERT_FAIL_TAG_RECUPERADO = "upsert_falhou_recuperado";
+const UPSERT_FAIL_MAX_TENTATIVAS = 3;
 /** Falha transitória ao obter o token (429 no endpoint de OAuth, Bling fora do ar):
  *  pausa o job em vez de matá-lo. O prefixo vem de getDecryptedAccessToken. */
 function isFalhaTokenTransitoria(e: any): boolean {
@@ -214,15 +224,19 @@ function isBlingCdnBlock(proxy: BlingProxyResponse): boolean {
 
 type SyncJobErro = { tipo?: string; mensagem?: string; [key: string]: unknown };
 
-/** Conta bloqueios do CDN consecutivos no fim do array `erros` do job — evita
- *  loop infinito de 403 sem precisar de coluna nova no banco. */
-function contarCdnBlocksConsecutivos(erros: SyncJobErro[]): number {
+/** Conta erros consecutivos de um mesmo tipo no fim do array `erros` do job — evita
+ *  loop infinito sem precisar de coluna nova no banco. */
+function contarErrosConsecutivos(erros: SyncJobErro[], tag: string): number {
   let total = 0;
   for (let i = erros.length - 1; i >= 0; i -= 1) {
-    if (erros[i]?.tipo !== CDN_BLOCK_TAG) break;
+    if (erros[i]?.tipo !== tag) break;
     total += 1;
   }
   return total;
+}
+
+function contarCdnBlocksConsecutivos(erros: SyncJobErro[]): number {
+  return contarErrosConsecutivos(erros, CDN_BLOCK_TAG);
 }
 
 /** Após uma requisição bem-sucedida, zera o contador sem perder o histórico. */
@@ -288,6 +302,11 @@ export function mapProduct(p: any, connectionId: string, opts?: { detail?: boole
     row.profundidade = dim.profundidade != null ? Number(dim.profundidade) : null;
     row.raw_data = p;
     row.detail_synced_at = new Date().toISOString();
+    // Sucesso zera o histórico de falhas: um produto que voltou a responder tem que voltar
+    // a ser elegível a futuros reenriquecimentos.
+    row.detail_attempts = 0;
+    row.detail_last_error = null;
+    row.detail_last_attempt_at = row.detail_synced_at;
   }
   return row;
 }
@@ -429,14 +448,14 @@ export const reenriquecerDetalhes = createServerFn({ method: "POST" })
 
       const { error: updErr } = await supabaseAdmin
         .from("produtos")
-        .update({ detail_synced_at: null } as any)
+        .update({ detail_synced_at: null, detail_attempts: 0, detail_last_error: null } as any)
         .in("id", alvos.map((r: any) => r.id));
       if (updErr) throw new Error(updErr.message);
       marcados = alvos.length;
     } else {
       let upd = supabaseAdmin
         .from("produtos")
-        .update({ detail_synced_at: null } as any)
+        .update({ detail_synced_at: null, detail_attempts: 0, detail_last_error: null } as any)
         .eq("bling_connection_id", data.connectionId);
       if (data.somenteSemGtin) upd = upd.or(semGtin);
 
@@ -612,8 +631,51 @@ async function runListagemJob(job: any): Promise<{ done: boolean; status: string
       const { error: upErr } = await supabaseAdmin
         .from("produtos")
         .upsert(rows as any, { onConflict: "bling_connection_id,bling_product_id" });
-      if (upErr) { totalErros += rows.length; erros.push({ pagina, mensagem: "upsert em lote falhou: " + upErr.message }); }
-      else { totalProcessados += rows.length; }
+      if (upErr) {
+        // Falha de gravação NÃO avança a página. Antes o job somava o erro e seguia em
+        // frente; se a página perdida fosse a última, o job ainda terminava "concluido"
+        // com 100 produtos a menos e ninguém ficava sabendo. Agora a página volta a ser
+        // a próxima a rodar (pagina_atual = pagina - 1) e o job pausa para nova tentativa.
+        //
+        // COM TETO, e o teto não é detalhe: erro de upsert costuma ser DETERMINÍSTICO
+        // (linha que viola o schema, mesma bling_product_id duas vezes na página), ao
+        // contrário do 429/500 que passam sozinhos. Sem teto, o job repetiria a mesma
+        // página a cada 30s para sempre — e, como `syncProductsStart` reusa qualquer job
+        // em pendente/rodando/pausado, o botão "Sincronizar agora" responderia "já em
+        // andamento" para sempre, sem nenhuma tela que cancele job. Mesmo teto e mesma
+        // mecânica do bloqueio de CDN, logo acima.
+        totalErros += rows.length;
+        const tentativas = contarErrosConsecutivos(erros, UPSERT_FAIL_TAG) + 1;
+        erros.push({
+          pagina,
+          tipo: UPSERT_FAIL_TAG,
+          mensagem:
+            `upsert em lote falhou: ${upErr.message} (tentativa ${tentativas}/${UPSERT_FAIL_MAX_TENTATIVAS})`,
+        });
+        const patch = {
+          pagina_atual: pagina - 1, total_paginas: totalPaginas,
+          total_processados: totalProcessados, total_erros: totalErros,
+          erros: erros.slice(-50),
+        };
+        if (tentativas >= UPSERT_FAIL_MAX_TENTATIVAS) {
+          await supabaseAdmin.from("sync_jobs").update({
+            ...patch, status: "erro",
+            finalizado_em: new Date().toISOString(), proxima_execucao_em: null,
+          }).eq("id", job.id);
+          return { done: true, status: "erro" };
+        }
+        await supabaseAdmin.from("sync_jobs").update({
+          ...patch, status: "pausado",
+          proxima_execucao_em: new Date(Date.now() + 30_000).toISOString(),
+        }).eq("id", job.id);
+        return { done: false, status: "pausado" };
+      }
+      totalProcessados += rows.length;
+      // Página gravada: zera o contador de falhas de upsert sem perder o histórico,
+      // mesma ideia de `marcarCdnBlocksRecuperados`.
+      for (const erro of erros) {
+        if (erro?.tipo === UPSERT_FAIL_TAG) erro.tipo = UPSERT_FAIL_TAG_RECUPERADO;
+      }
     }
 
     if (produtos.length < PAGE_LIMIT) {
@@ -694,12 +756,15 @@ async function runDetalhesJob(job: any): Promise<{ done: boolean; status: string
   let totalErros = job.total_erros ?? 0;
   const erros: any[] = Array.isArray(job.erros) ? [...(job.erros as any[])] : [];
 
-  // Seleciona próximo lote de produtos sem detail_synced_at (ou desatualizados)
+  // Seleciona próximo lote de produtos sem detail_synced_at que ainda tenham tentativas
+  // disponíveis. Quem estourou DETAIL_MAX_ATTEMPTS sai da fila mas continua PENDENTE no
+  // banco, com o motivo em `detail_last_error` — some do job, não some do relatório.
   const { data: pendentes, error: selErr } = await supabaseAdmin
     .from("produtos")
-    .select("id, bling_product_id, tipo")
+    .select("id, bling_product_id, tipo, detail_attempts")
     .eq("bling_connection_id", job.bling_connection_id)
     .is("detail_synced_at", null)
+    .lt("detail_attempts", DETAIL_MAX_ATTEMPTS)
     .limit(DETAIL_BATCH_SIZE);
   if (selErr) {
     await supabaseAdmin.from("sync_jobs").update({
@@ -709,12 +774,14 @@ async function runDetalhesJob(job: any): Promise<{ done: boolean; status: string
     return { done: false, status: "pausado" };
   }
 
-  // Total restante (pra barra de progresso)
+  // Total restante (pra barra de progresso) — mesmo recorte da fila, senão o denominador
+  // nunca chega a zero e o job parece eternamente incompleto.
   const { count: pendingCount } = await supabaseAdmin
     .from("produtos")
     .select("id", { count: "exact", head: true })
     .eq("bling_connection_id", job.bling_connection_id)
-    .is("detail_synced_at", null);
+    .is("detail_synced_at", null)
+    .lt("detail_attempts", DETAIL_MAX_ATTEMPTS);
 
   if (!pendentes || pendentes.length === 0) {
     await supabaseAdmin.from("sync_jobs").update({
@@ -800,12 +867,17 @@ async function runDetalhesJob(job: any): Promise<{ done: boolean; status: string
       totalErros += 1;
       const mensagem = formatBlingApiErrorText(proxy.status, proxy.body, proxy.headers);
       erros.push({ produto_id: pend.bling_product_id, mensagem });
-      // Carimba mesmo com falha pra não travar o job num produto que erra sempre (o lote é
-      // sempre os primeiros N sem carimbo — sem isso o job repetiria o mesmo produto para
-      // sempre). O preço é o produto ficar de fora dos próximos enriquecimentos; quem
-      // desfaz isso é `reenriquecerDetalhes`, que zera o carimbo de quem está sem gtin.
+      // NÃO carimba `detail_synced_at`: o produto continua pendente e visível como "falhou".
+      // Antes o carimbo era posto mesmo na falha, só para o job não repetir o mesmo produto
+      // para sempre — e o produto sumia do enriquecimento em silêncio. O contador de
+      // tentativas resolve as duas coisas: tira da fila depois de DETAIL_MAX_ATTEMPTS e
+      // deixa o motivo gravado na própria linha.
       await supabaseAdmin.from("produtos")
-        .update({ detail_synced_at: new Date().toISOString() })
+        .update({
+          detail_attempts: Number(pend.detail_attempts ?? 0) + 1,
+          detail_last_error: mensagem,
+          detail_last_attempt_at: new Date().toISOString(),
+        })
         .eq("id", pend.id);
       await sleep(REQUEST_DELAY_MS);
       continue;
@@ -836,10 +908,18 @@ async function runDetalhesJob(job: any): Promise<{ done: boolean; status: string
         try {
           const variacaoCompleta = { ...v, produtoPai: { id: produto.id } };
           const childRow = mapProduct(variacaoCompleta, job.bling_connection_id, { detail: true });
-          await supabaseAdmin
+          // O supabase-js NÃO lança em erro de banco — devolve { error }. Sem desestruturar
+          // o retorno, o try/catch em volta só pegava exceção do mapProduct e toda variação
+          // que falhasse na gravação sumia sem log, sem contador e sem entrar em `erros`.
+          const { error: childErr } = await supabaseAdmin
             .from("produtos")
             .upsert(childRow as any, { onConflict: "bling_connection_id,bling_product_id" });
+          if (childErr) {
+            totalErros += 1;
+            erros.push({ produto_id: v?.id, mensagem: "variação não gravada: " + childErr.message });
+          }
         } catch (e: any) {
+          totalErros += 1;
           erros.push({ produto_id: v?.id, mensagem: "variação: " + String(e?.message ?? e) });
         }
       }
@@ -885,6 +965,7 @@ const listSchema = z.object({
   connectionId: z.string().uuid().optional(),
   status: z.enum(["ativos", "inativos", "todos"]).optional().default("ativos"),
   tipo: z.enum(["simples", "pai", "filho", "todos"]).optional().default("todos"),
+  cobertura: z.enum(["todos", "sem_ean", "sem_detalhe", "detalhe_falhou"]).optional().default("todos"),
   page: z.number().int().min(1).max(10000).optional().default(1),
 });
 
@@ -895,13 +976,22 @@ export const listProdutos = createServerFn({ method: "POST" })
     const PAGE_SIZE = 50;
     let q = supabaseAdmin
       .from("produtos")
-      .select("id, bling_connection_id, sku, gtin, nome, tipo, bipavel, ativo, estoque, imagem_url, synced_at, bling_product_id", { count: "exact" })
+      // Mantenha esta string LITERAL (sem concatenação): o supabase-js infere o tipo das
+      // linhas a partir do literal; quebrar em `"..." + "..."` faz o tipo virar
+      // GenericStringError e a tela inteira perde a tipagem das colunas.
+      .select("id, bling_connection_id, sku, gtin, nome, tipo, bipavel, ativo, estoque, imagem_url, synced_at, detail_synced_at, detail_attempts, detail_last_error, detail_last_attempt_at, bling_product_id", { count: "exact" })
       .order("nome", { ascending: true });
 
     if (data.connectionId) q = q.eq("bling_connection_id", data.connectionId);
     if (data.status === "ativos") q = q.eq("ativo", true);
     else if (data.status === "inativos") q = q.eq("ativo", false);
     if (data.tipo !== "todos") q = q.eq("tipo", data.tipo);
+    // Recortes de cobertura: sem eles não existe forma de listar "quem está sem EAN" a
+    // partir da tela, e o operador só descobria o buraco quando a bipagem falhava na
+    // expedição — ou seja, na hora do despacho.
+    if (data.cobertura === "sem_ean") q = q.or("gtin.is.null,gtin.eq.");
+    else if (data.cobertura === "sem_detalhe") q = q.is("detail_synced_at", null);
+    else if (data.cobertura === "detalhe_falhou") q = q.not("detail_last_error", "is", null);
     if (data.search) {
       const s = data.search.replace(/,/g, " ");
       q = q.or(`nome.ilike.%${s}%,sku.ilike.%${s}%,gtin.ilike.%${s}%`);
@@ -942,18 +1032,61 @@ export const getActiveSyncJobs = createServerFn({ method: "POST" })
 export const getProdutosOverview = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async () => {
-    const { data: lastSync } = await supabaseAdmin
+    const contar = async (aplicar: (q: any) => any) => {
+      const { count } = await aplicar(
+        supabaseAdmin.from("produtos").select("id", { count: "exact", head: true }),
+      );
+      return count ?? 0;
+    };
+
+    // O cabeçalho passou a mostrar `syncMaisAntigo` (o MIN). O MAX respondia "o catálogo
+    // foi tocado quando?" — e um único re-sync de linha fazia 2.859 produtos parados há
+    // uma semana parecerem frescos. O MIN responde "desde quando o catálogo INTEIRO está
+    // em dia?", que é a pergunta de quem confere EAN na expedição.
+    // `lastSyncedAt` continua sendo o MAX, só para não mudar o comportamento do dashboard,
+    // que é o outro consumidor deste retorno.
+    const { data: maisAntigo } = await supabaseAdmin
+      .from("produtos")
+      .select("synced_at")
+      .order("synced_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    const { data: maisRecente } = await supabaseAdmin
       .from("produtos")
       .select("synced_at")
       .order("synced_at", { ascending: false })
       .limit(1)
       .maybeSingle();
-    const { count } = await supabaseAdmin
-      .from("produtos")
-      .select("id", { count: "exact", head: true });
+
+    const [totalProdutos, semEan, semDetalhe, detalheFalhou] = await Promise.all([
+      contar((q) => q),
+      contar((q) => q.or("gtin.is.null,gtin.eq.")),
+      contar((q) => q.is("detail_synced_at", null)),
+      contar((q) => q.not("detail_last_error", "is", null)),
+    ]);
+
+    // Última varredura que realmente terminou. Diferente de "synced_at de alguma linha":
+    // é o que diz se o catálogo como um todo foi percorrido, e quando.
+    const { data: ultimaListagem } = await supabaseAdmin
+      .from("sync_jobs")
+      .select("finalizado_em, status")
+      .eq("tipo", "produtos")
+      .eq("fase", "listagem")
+      .eq("status", "concluido")
+      .order("finalizado_em", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
     return {
-      lastSyncedAt: lastSync?.synced_at ?? null,
-      totalProdutos: count ?? 0,
+      totalProdutos,
+      semEan,
+      semDetalhe,
+      detalheFalhou,
+      syncMaisAntigo: maisAntigo?.synced_at ?? null,
+      syncMaisRecente: maisRecente?.synced_at ?? null,
+      ultimaListagemConcluidaEm: ultimaListagem?.finalizado_em ?? null,
+      // Compatibilidade com quem ainda lê o nome antigo.
+      lastSyncedAt: maisRecente?.synced_at ?? null,
     };
   });
 
@@ -1021,6 +1154,14 @@ export const sincronizarProduto = createServerFn({ method: "POST" })
         raw_data: p,
         synced_at: now,
         detail_synced_at: now,
+        // Este re-sync É um detalhe bem-sucedido, então limpa o histórico de falha junto.
+        // Sem isso o produto sai da fila (detail_synced_at preenchido) mas fica preso para
+        // sempre em "detalhe falhou" na coluna e no contador do cabeçalho — nenhum job
+        // limparia, porque a fase de detalhes só olha quem tem detail_synced_at NULL. E o
+        // fluxo é justamente esse: o operador vê o alerta vermelho na linha e clica aqui.
+        detail_attempts: 0,
+        detail_last_error: null,
+        detail_last_attempt_at: now,
         updated_at: now,
       })
       .eq("bling_product_id", data.blingProductId)

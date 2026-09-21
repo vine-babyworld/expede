@@ -474,6 +474,9 @@ export type Database = {
           bling_parent_id: number | null
           bling_product_id: number
           created_at: string
+          detail_attempts: number
+          detail_last_attempt_at: string | null
+          detail_last_error: string | null
           detail_synced_at: string | null
           estoque: number | null
           gtin: string | null
@@ -498,6 +501,9 @@ export type Database = {
           bling_parent_id?: number | null
           bling_product_id: number
           created_at?: string
+          detail_attempts?: number
+          detail_last_attempt_at?: string | null
+          detail_last_error?: string | null
           detail_synced_at?: string | null
           estoque?: number | null
           gtin?: string | null
@@ -522,6 +528,9 @@ export type Database = {
           bling_parent_id?: number | null
           bling_product_id?: number
           created_at?: string
+          detail_attempts?: number
+          detail_last_attempt_at?: string | null
+          detail_last_error?: string | null
           detail_synced_at?: string | null
           estoque?: number | null
           gtin?: string | null
