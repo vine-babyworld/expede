@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { RefreshCw, Loader2, Package, Pencil } from "lucide-react";
+import { RefreshCw, Loader2, Package, Pencil, AlertCircle, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -125,6 +125,7 @@ function ProdutosPage() {
   const [connectionId, setConnectionId] = useState<string>("__all");
   const [status, setStatus] = useState<"ativos" | "inativos" | "todos">("ativos");
   const [tipo, setTipo] = useState<"simples" | "pai" | "filho" | "todos">("todos");
+  const [cobertura, setCobertura] = useState<"todos" | "sem_ean" | "sem_detalhe" | "detalhe_falhou">("todos");
   const [page, setPage] = useState(1);
   const [editingProduto, setEditingProduto] = useState<any | null>(null);
   const [sincronizando, setSincronizando] = useState<Set<number>>(new Set());
@@ -143,11 +144,11 @@ function ProdutosPage() {
     refetchInterval: 3000,
   });
   const listQ = useQuery({
-    queryKey: ["produtos", debounced, connectionId, status, tipo, page],
+    queryKey: ["produtos", debounced, connectionId, status, tipo, cobertura, page],
     queryFn: () => list({ data: {
       search: debounced,
       connectionId: connectionId === "__all" ? undefined : connectionId,
-      status, tipo, page,
+      status, tipo, cobertura, page,
     } }),
   });
 
@@ -198,13 +199,17 @@ function ProdutosPage() {
       };
     }
     if (job.status === "erro") {
-      const firstError = Array.isArray(job.erros) ? job.erros[0]?.mensagem : undefined;
+      // O ÚLTIMO erro, não o primeiro. Lendo `erros[0]` o banner congelava a primeira
+      // falha — era por isso que ele dizia "(tentativa 1/5)" mesmo com o job já em 5/5.
+      const erros = Array.isArray(job.erros) ? job.erros : [];
+      const ultimoErro = erros[erros.length - 1]?.mensagem;
+      const desde = job.finalizado_em ? ` Parado desde ${fmtAbs(job.finalizado_em)}.` : "";
       return {
         box: "border-rose-200 bg-rose-50",
         text: "text-rose-800",
         barTrack: "bg-rose-100",
         bar: "bg-rose-500",
-        message: `Erro em ${faseLabel.toLowerCase()}: ${firstError ?? "erro desconhecido"}.`,
+        message: `Erro em ${faseLabel.toLowerCase()}: ${ultimoErro ?? "erro desconhecido"}.${desde}`,
       };
     }
     return {
@@ -317,6 +322,10 @@ function ProdutosPage() {
     return `há ${Math.floor(h / 24)}d`;
   };
 
+  /** Data completa para o `title`: "há 5d" sozinho não permite conferir nada. */
+  const fmtAbs = (iso?: string | null) =>
+    iso ? new Date(iso).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }) : "nunca";
+
   const total = listQ.data?.total ?? 0;
   const pageSize = listQ.data?.pageSize ?? 50;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -355,7 +364,33 @@ function ProdutosPage() {
           cell: (p: any) => connName(p.bling_connection_id),
         }]
       : []),
-    { id: "sincronizado", header: "Sincronizado", priority: "secondary", className: "text-xs text-muted-foreground", cell: (p) => fmtRel(p.synced_at) },
+    {
+      id: "sincronizado",
+      header: "Sincronizado",
+      priority: "secondary",
+      className: "text-xs text-muted-foreground",
+      // Duas datas diferentes, porque são dois syncs diferentes: a LISTAGEM traz nome,
+      // preço e estoque; só a fase de DETALHE traz o EAN. "Sincronizado há 1h" com o
+      // detalhe parado há uma semana significa EAN de uma semana atrás — e era
+      // exatamente isso que a coluna escondia ao mostrar um número só.
+      cell: (p: any) => (
+        <div className="leading-tight">
+          <div title={`Listagem: ${fmtAbs(p.synced_at)}`}>{fmtRel(p.synced_at)}</div>
+          {p.detail_last_error ? (
+            <div
+              className="text-destructive"
+              title={`Falhou ${p.detail_attempts ?? 0}x — última tentativa ${fmtAbs(p.detail_last_attempt_at)}: ${p.detail_last_error}`}
+            >
+              detalhe falhou
+            </div>
+          ) : (
+            <div title={`Detalhe (EAN): ${fmtAbs(p.detail_synced_at)}`}>
+              {p.detail_synced_at ? `EAN ${fmtRel(p.detail_synced_at)}` : "sem detalhe"}
+            </div>
+          )}
+        </div>
+      ),
+    },
   ];
 
   return (
@@ -363,9 +398,44 @@ function ProdutosPage() {
       <div className="flex flex-col md:flex-row md:items-start md:justify-between mb-6 gap-4">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Produtos</h1>
+          {/* Cobertura, não só volume. "2859 produtos" sozinho rende idêntico para um
+              catálogo completo e para um pela metade — foi o que escondeu por 6 dias que a
+              varredura estava morrendo todo dia no 403 do WAF do Bling. */}
           <p className="text-sm text-muted-foreground mt-1">
-            {ov.data?.totalProdutos ?? 0} produtos · última sincronização {fmtRel(ov.data?.lastSyncedAt)}
+            {ov.data?.totalProdutos ?? 0} produtos · catálogo varrido por inteiro{" "}
+            <span title={fmtAbs(ov.data?.ultimaListagemConcluidaEm)}>
+              {fmtRel(ov.data?.ultimaListagemConcluidaEm)}
+            </span>
+            {ov.data?.syncMaisAntigo ? (
+              <>
+                {" "}
+                · linha mais desatualizada{" "}
+                <span title={fmtAbs(ov.data?.syncMaisAntigo)}>{fmtRel(ov.data?.syncMaisAntigo)}</span>
+              </>
+            ) : null}
           </p>
+          {(ov.data?.semEan ?? 0) > 0 || (ov.data?.detalheFalhou ?? 0) > 0 ? (
+            <p className="text-sm mt-1 flex flex-wrap gap-x-3 gap-y-1">
+              {(ov.data?.semEan ?? 0) > 0 && (
+                <button
+                  type="button"
+                  className="text-amber-600 dark:text-amber-500 underline underline-offset-2"
+                  onClick={() => { setCobertura("sem_ean"); setPage(1); }}
+                >
+                  {ov.data?.semEan} sem EAN — não dá para conferir na expedição
+                </button>
+              )}
+              {(ov.data?.detalheFalhou ?? 0) > 0 && (
+                <button
+                  type="button"
+                  className="text-destructive underline underline-offset-2"
+                  onClick={() => { setCobertura("detalhe_falhou"); setPage(1); }}
+                >
+                  {ov.data?.detalheFalhou} com falha ao buscar detalhe
+                </button>
+              )}
+            </p>
+          ) : null}
         </div>
         {isAdmin && (
           <MobileHidden>
@@ -408,7 +478,13 @@ function ProdutosPage() {
         return (
         <div className={`mb-4 rounded-lg border px-4 py-3 text-sm ${state.box}`}>
           <div className={`flex items-center gap-2 ${state.text}`}>
-            <Loader2 className="h-4 w-4 animate-spin" />
+            {/* O spinner era fixo para todos os estados: um job que morreu às 13h27
+                continuava girando como se estivesse trabalhando. */}
+            {["pendente", "rodando", "pausado"].includes(bannerJob.status)
+              ? <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+              : bannerJob.status === "erro"
+                ? <AlertCircle className="h-4 w-4 shrink-0" />
+                : <CheckCircle2 className="h-4 w-4 shrink-0" />}
             <span>{state.message}</span>
           </div>
           <div className={`mt-2 h-1.5 rounded overflow-hidden ${state.barTrack}`}>
@@ -456,6 +532,15 @@ function ProdutosPage() {
             <SelectItem value="simples">Simples</SelectItem>
             <SelectItem value="pai">Pai</SelectItem>
             <SelectItem value="filho">Filho</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={cobertura} onValueChange={(v: any) => { setCobertura(v); setPage(1); }}>
+          <SelectTrigger className="w-full md:w-48 h-11 md:h-9" aria-label="Filtrar por cobertura de dados"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="todos">Cobertura: todos</SelectItem>
+            <SelectItem value="sem_ean">Sem EAN</SelectItem>
+            <SelectItem value="sem_detalhe">Sem detalhe</SelectItem>
+            <SelectItem value="detalhe_falhou">Detalhe falhou</SelectItem>
           </SelectContent>
         </Select>
       </div>
