@@ -118,7 +118,13 @@ function BlingPage() {
 
   const disconnectMut = useMutation({
     mutationFn: (id: string) => disconnectFn({ data: { connectionId: id } }),
-    onSuccess: () => {
+    onSuccess: (res: any) => {
+      // A server function devolve ok:false quando o delete não casou com nenhuma linha
+      // (conexão de outro usuário). Sem esta checagem o toast verde aparecia mesmo assim.
+      if (res && res.ok === false) {
+        toast.error(res.message ?? "Não foi possível desconectar a conta");
+        return;
+      }
       toast.success("Conta desconectada");
       qc.invalidateQueries({ queryKey: ["bling-connection"] });
     },

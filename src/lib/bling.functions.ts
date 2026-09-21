@@ -99,13 +99,17 @@ export const blingOAuthStart = createServerFn({ method: "POST" })
 /** Lista (status, sem tokens) — usada pela tela de configurações. */
 export const getBlingConnection = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
-    const { userId } = context;
+  .handler(async () => {
+    // Mesma conexão para todo mundo, e a MAIS ANTIGA — que é a que pedidos, etiqueta,
+    // DANFE e sync de produtos usam. Antes esta tela filtrava por `user_id` e ordenava
+    // por created_at DESC: quem não tinha conectado pessoalmente via "não conectado" e
+    // clicava em Conectar, criando uma segunda conexão para a mesma conta Bling; e, com
+    // duas linhas, a tela mostrava o estado da mais nova enquanto o sistema inteiro
+    // operava na mais antiga.
     const { data, error } = await supabaseAdmin
       .from("bling_connections_status")
       .select("*")
-      .eq("user_id", userId)
-      .order("created_at", { ascending: false })
+      .order("created_at", { ascending: true })
       .limit(1)
       .maybeSingle();
     if (error) throw new Error(error.message);
@@ -230,13 +234,26 @@ export const blingDisconnect = createServerFn({ method: "POST" })
   .inputValidator((d: { connectionId: string }) => d)
   .handler(async ({ data, context }) => {
     const { userId } = context;
-    const { error } = await supabaseAdmin
+    // `.select("id")` não é enfeite: sem ele, um delete que não casa com nenhuma linha
+    // volta com `error: null` e a tela mostrava "Conta desconectada" em verde sem ter
+    // desconectado nada. Isso passou a ser alcançável quando a tela de configurações
+    // deixou de filtrar a conexão por usuário — o não-dono enxerga o botão, clica, e a
+    // cláusula `.eq("user_id", userId)` apaga zero linhas.
+    const { data: apagadas, error } = await supabaseAdmin
       .from("bling_connections")
       .delete()
       .eq("id", data.connectionId)
-      .eq("user_id", userId);
+      .eq("user_id", userId)
+      .select("id");
     if (error) throw new Error(error.message);
-    return { ok: true };
+    if (!apagadas || apagadas.length === 0) {
+      return {
+        ok: false as const,
+        message:
+          "Sem permissão: esta conexão Bling pertence a outro usuário. Peça para quem a conectou desconectá-la.",
+      };
+    }
+    return { ok: true as const };
   });
 
 /** Internal helper exposto p/ a rota de callback. */
@@ -297,10 +314,19 @@ export async function exchangeCodeAndStore(params: {
   // pedidos e sync_jobs referenciam bling_connections.id com ON DELETE CASCADE — se
   // cada reconexão criasse uma linha nova, o único jeito de "trocar" de conexão pela UI
   // seria desconectar a antiga primeiro, o que apagaria produtos/pedidos permanentemente.
+  //
+  // A chave da deduplicação é a INSTALAÇÃO, não o usuário. Com `.eq("user_id", ...)` cada
+  // pessoa da equipe que clicasse em "Conectar" ganhava uma conexão própria para a MESMA
+  // conta Bling (foi o que aconteceu em 21/09/2026: uma segunda linha nasceu do segundo
+  // operador). E isso não é cosmético: a chave do upsert de produtos é
+  // (bling_connection_id, bling_product_id), então a segunda conexão importaria o catálogo
+  // inteiro de novo como linhas novas — 2.859 produtos duplicados e o dobro de consumo da
+  // cota do Bling, que já é o recurso estrangulado pelo WAF. Todo o resto do sistema
+  // (pedidos, etiqueta, DANFE, NF) já trata a conexão como única: pega sempre a mais antiga
+  // conectada. Aqui é só passar a concordar com isso.
   const { data: existente } = await supabaseAdmin
     .from("bling_connections")
     .select("id")
-    .eq("user_id", st.user_id)
     .order("created_at", { ascending: true })
     .limit(1)
     .maybeSingle();
