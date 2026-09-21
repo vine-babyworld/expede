@@ -35,6 +35,12 @@ Deno.serve(async (req) => {
       headers: {
         Authorization: `Bearer ${access_token}`,
         Accept: "application/json",
+        // O Cloudflare do Bling desafia requisições de datacenter que chegam sem
+        // User-Agent reconhecível (o Deno manda o dele, "Deno/x.y.z"). Identificar a
+        // aplicação de verdade é o que separa um cliente legítimo de um scraper aos
+        // olhos do WAF — não é disfarce de navegador, é o cabeçalho que faltava.
+        "User-Agent": "EXPEDE/1.0 (+https://babyworld.expede.workers.dev; integracao Bling)",
+        "Accept-Language": "pt-BR,pt;q=0.9",
       },
     });
     const body = await res.text();
