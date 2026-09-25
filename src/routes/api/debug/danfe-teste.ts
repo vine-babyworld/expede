@@ -33,7 +33,13 @@ const MOCK: DanfeInput = {
 export const Route = createFileRoute("/api/debug/danfe-teste")({
   server: {
     handlers: {
-      GET: async () => {
+      GET: async ({ request }) => {
+        const key = request.headers.get("X-Admin-Key");
+        const expected = process.env.ADMIN_KEY;
+        if (!expected || key !== expected) {
+          return Response.json({ ok: false, error: "unauthorized" }, { status: 401 });
+        }
+
         const pdfBytes = await renderDanfePdf(MOCK);
         return new Response(new Uint8Array(pdfBytes), {
           headers: {

@@ -9,11 +9,18 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
  * a causa raiz do Erro #28 (ver 05 - Erros e Soluções.md) — mantido pra
  * diagnóstico futuro de qualquer novo problema na cadeia Shopee. `?raw=1`
  * devolve o PDF bruto em vez do JSON de diagnóstico (só quando ok=true).
+ * Exige o header `X-Admin-Key` (401 sem ele) — a etiqueta tem dado do destinatário.
  */
 export const Route = createFileRoute("/api/debug/shopee-etiqueta-teste")({
   server: {
     handlers: {
       GET: async ({ request }) => {
+        const key = request.headers.get("X-Admin-Key");
+        const expected = process.env.ADMIN_KEY;
+        if (!expected || key !== expected) {
+          return Response.json({ ok: false, error: "unauthorized" }, { status: 401 });
+        }
+
         const url = new URL(request.url);
         const orderSn = url.searchParams.get("orderSn");
         if (!orderSn) {

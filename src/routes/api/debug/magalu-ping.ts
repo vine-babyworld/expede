@@ -19,6 +19,8 @@ import { createFileRoute } from "@tanstack/react-router";
  *
  * Não grava nada, não lê banco, não toca em QZ Tray. Espelha o padrão de
  * `/api/debug/shopee-etiqueta-teste` e `/api/debug/etiqueta-teste`.
+ *
+ * Exige o header `X-Admin-Key` (401 sem ele).
  */
 
 const ALVOS = [
@@ -35,7 +37,13 @@ const TIMEOUT_MS = 8000;
 export const Route = createFileRoute("/api/debug/magalu-ping")({
   server: {
     handlers: {
-      GET: async () => {
+      GET: async ({ request }) => {
+        const key = request.headers.get("X-Admin-Key");
+        const expected = process.env.ADMIN_KEY;
+        if (!expected || key !== expected) {
+          return Response.json({ ok: false, error: "unauthorized" }, { status: 401 });
+        }
+
         const resultados = await Promise.all(
           ALVOS.map(async (alvo) => {
             const inicio = Date.now();

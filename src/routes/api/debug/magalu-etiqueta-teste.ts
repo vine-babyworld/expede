@@ -32,6 +32,8 @@ import { uint8ToBase64, zplParaPdf } from "@/lib/zpl-to-pdf";
  * não se sabe se chamar `shipping-labels` duas vezes gera duas etiquetas ou
  * dois rastreios. Usar `ambos` uma vez só, de propósito, e olhar o resultado.
  *
+ * Exige o header `X-Admin-Key` (401 sem ele) — a rota emite etiqueta de verdade.
+ *
  * Parâmetros:
  *   ?code=1570070104300104   código do pedido no Magalu (default: o 9262)
  *   ?deliveryId=<uuid>       pula a busca e usa esta entrega direto
@@ -85,6 +87,12 @@ export const Route = createFileRoute("/api/debug/magalu-etiqueta-teste")({
   server: {
     handlers: {
       GET: async ({ request }) => {
+        const key = request.headers.get("X-Admin-Key");
+        const expected = process.env.ADMIN_KEY;
+        if (!expected || key !== expected) {
+          return Response.json({ ok: false, error: "unauthorized" }, { status: 401 });
+        }
+
         const url = new URL(request.url);
         const code = url.searchParams.get("code") ?? CODE_PADRAO;
         const deliveryIdParam = url.searchParams.get("deliveryId");

@@ -17,7 +17,13 @@ async function blingGet(url: string, token: string) {
 export const Route = createFileRoute("/api/debug/etiqueta-teste")({
   server: {
     handlers: {
-      GET: async () => {
+      GET: async ({ request }) => {
+        const key = request.headers.get("X-Admin-Key");
+        const expected = process.env.ADMIN_KEY;
+        if (!expected || key !== expected) {
+          return Response.json({ ok: false, error: "unauthorized" }, { status: 401 });
+        }
+
         const { data: conn, error: connErr } = await supabaseAdmin
           .from("bling_connections")
           .select("id")
