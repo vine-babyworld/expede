@@ -15,6 +15,7 @@ import { PrinterConfig } from "@/components/PrinterConfig";
 import { ResponsiveTable, type ResponsiveColumn } from "@/components/ResponsiveTable";
 import { MobileHidden } from "@/components/MobileHidden";
 import { RepasseDialog } from "@/components/RepasseDialog";
+import { MarketplaceBadge } from "@/components/MarketplaceBadge";
 
 const IMPRESSORA_KEY = "qztray_impressora_padrao";
 const PAGE_SIZE = 50;
@@ -226,7 +227,12 @@ function PedidosPage() {
       priority: "primary",
       className: "font-mono",
       cell: (row) => (
-        <>
+        <span className="inline-flex items-center gap-2">
+          {/* Largura fixa: as logos têm proporções diferentes e, sem ela, o
+              número ficaria desalinhado de uma linha para outra. */}
+          <span className="inline-flex w-14 shrink-0 justify-center">
+            <MarketplaceBadge marketplace={row.marketplace} tamanho="xs" ocultarVazio />
+          </span>
           <button
             type="button"
             onClick={() => setRepassePedido(row)}
@@ -236,11 +242,11 @@ function PedidosPage() {
             {row.numero}
           </button>
           {row.numero_loja && row.numero_loja !== row.numero && (
-            <span className="ml-2 text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+            <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
               {row.numero_loja}
             </span>
           )}
-        </>
+        </span>
       ),
     },
     {
