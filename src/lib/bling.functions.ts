@@ -2,67 +2,10 @@ import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { getServerOrigin } from "@/lib/produtos.server";
+import { bytesToHex, encryptToken, decryptToken } from "@/lib/token-crypto";
 
 const BLING_AUTH_URL = "https://www.bling.com.br/Api/v3/oauth/authorize";
 const BLING_TOKEN_URL = "https://www.bling.com.br/Api/v3/oauth/token";
-
-// ---- Crypto via Web Crypto API (Cloudflare Workers + browser, sem node:*) ----
-// Formato bytea: [12-byte IV][ciphertext + 16-byte authTag concatenado pelo WebCrypto]
-async function getCryptoKey(): Promise<CryptoKey> {
-  const raw = process.env.BLING_ENCRYPTION_KEY;
-  if (!raw) throw new Error("BLING_ENCRYPTION_KEY não configurado");
-  const enc = new TextEncoder();
-  const hash = await globalThis.crypto.subtle.digest("SHA-256", enc.encode(raw));
-  return globalThis.crypto.subtle.importKey(
-    "raw",
-    hash,
-    { name: "AES-GCM", length: 256 },
-    false,
-    ["encrypt", "decrypt"],
-  );
-}
-
-function bytesToHex(b: Uint8Array): string {
-  let s = "";
-  for (let i = 0; i < b.length; i++) s += b[i].toString(16).padStart(2, "0");
-  return s;
-}
-function hexToBytes(hex: string): Uint8Array {
-  const out = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.substr(i * 2, 2), 16);
-  return out;
-}
-
-async function encryptToken(plain: string): Promise<string> {
-  const key = await getCryptoKey();
-  const iv = globalThis.crypto.getRandomValues(new Uint8Array(12));
-  const ctBuf = await globalThis.crypto.subtle.encrypt(
-    { name: "AES-GCM", iv },
-    key,
-    new TextEncoder().encode(plain),
-  );
-  const ct = new Uint8Array(ctBuf);
-  const out = new Uint8Array(iv.length + ct.length);
-  out.set(iv, 0);
-  out.set(ct, iv.length);
-  return "\\x" + bytesToHex(out);
-}
-
-async function decryptToken(buf: Uint8Array | string): Promise<string> {
-  const key = await getCryptoKey();
-  let b: Uint8Array;
-  if (typeof buf === "string") {
-    const hex = buf.startsWith("\\x") ? buf.slice(2) : buf;
-    b = hexToBytes(hex);
-  } else {
-    b = buf;
-  }
-  // Copia para ArrayBuffer próprio para satisfazer BufferSource estrito.
-  const iv = b.slice(0, 12);
-  const ct = b.slice(12);
-  const pt = await globalThis.crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ct);
-  return new TextDecoder().decode(pt);
-}
 
 function basicAuthHeader(): string {
   const id = process.env.BLING_CLIENT_ID!;
