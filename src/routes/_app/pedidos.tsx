@@ -228,9 +228,11 @@ function PedidosPage() {
       className: "font-mono",
       cell: (row) => (
         <span className="inline-flex items-center gap-2">
-          {/* Largura fixa: as logos têm proporções diferentes e, sem ela, o
-              número ficaria desalinhado de uma linha para outra. */}
-          <span className="inline-flex w-14 shrink-0 justify-center">
+          {/* Largura fixa na tabela: as logos têm proporções diferentes e, sem
+              ela, o número ficaria desalinhado de uma linha para outra. Alinhada
+              à direita para a logo ficar colada no número que ela identifica.
+              No cartão do celular não há coluna a alinhar, então fica solta. */}
+          <span className="inline-flex shrink-0 md:w-14 md:justify-end">
             <MarketplaceBadge marketplace={row.marketplace} tamanho="xs" ocultarVazio />
           </span>
           <button
