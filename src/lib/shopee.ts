@@ -345,7 +345,7 @@ async function getShopeeDocumentStatus(
 async function pollShopeeShippingDocumentReady(
   orderSn: string,
   accessToken: string,
-  shopId: string,
+  shopId: string | number,
 ): Promise<boolean> {
   for (let attempt = 0; attempt < 3; attempt++) {
     const status = await getShopeeDocumentStatus(orderSn, accessToken, shopId);
