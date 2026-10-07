@@ -31,7 +31,11 @@ export type QzTrayHook = {
   conectando: boolean;
   listarImpressoras: () => Promise<string[]>;
   imprimirZpl: (zpl: string, impressora: string) => Promise<void>;
-  imprimirPdf: (base64: string, impressora: string) => Promise<void>;
+  imprimirPdf: (
+    base64: string,
+    impressora: string,
+    opcoes?: { recortarA4?: boolean },
+  ) => Promise<void>;
   visualizarEtiqueta: (zpl: string) => Promise<void>;
 };
 
@@ -55,6 +59,8 @@ const LABEL_PAGE_CONFIG = {
 // etiqueta "cortada pela metade, em escala menor" reportada 2026-08). Região confirmada
 // em pedidos reais (2026-08-24): x:[0,297] y:[423,842]pt. Só recorta se a página bater
 // com A4 — PDFs já corretos (DANFE, ZPL convertido via Labelary) não são afetados.
+// `imprimirPdf(..., { recortarA4: false })` pula o recorte: usado por etiquetas A4 de
+// outro layout (ex.: Magalu, 3 etiquetas por página) que esse recorte da Shopee destruiria.
 const SHOPEE_A4_LABEL_CROP = { x: 0, y: 423, width: 297, height: 419 };
 
 async function recortarSePaginaA4(base64: string): Promise<string> {
@@ -156,10 +162,15 @@ export function useQzTray(): QzTrayHook {
   );
 
   const imprimirPdf = useCallback(
-    async (base64: string, impressora: string): Promise<void> => {
+    async (
+      base64: string,
+      impressora: string,
+      opcoes?: { recortarA4?: boolean },
+    ): Promise<void> => {
       const qz = await getQz();
       if (!qz.websocket.isActive()) await conectar();
-      const base64Recortado = await recortarSePaginaA4(base64);
+      const base64Recortado =
+        opcoes?.recortarA4 !== false ? await recortarSePaginaA4(base64) : base64;
       const config = qz.configs.create(impressora, LABEL_PAGE_CONFIG);
       await qz.print(config, [
         { type: "pixel", format: "pdf", flavor: "base64", data: base64Recortado },

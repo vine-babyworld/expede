@@ -38,6 +38,7 @@ import { playBeep } from "./beep";
 import { registrarBipagem } from "@/lib/bipagem.functions";
 import { temEanCadastrado, validarBipagem } from "@/lib/bipagem";
 import { buscarEtiquetaBling } from "@/lib/etiqueta.functions";
+import { descreverErroEtiqueta } from "@/lib/etiqueta-erros";
 import { gerarDanfeCustom } from "@/lib/danfe.functions";
 import { isPedidoFlex, marcarPedidoImpresso, nfNaoAutorizada, nfSituacaoLabel } from "@/lib/pedidos.functions";
 import { MarketplaceBadge } from "@/components/MarketplaceBadge";
@@ -373,6 +374,8 @@ export function ExpedicaoPage() {
       // Etiqueta: opcional — erro nunca bloqueia a DANFE, mas precisa avisar o operador
       // (pedido marcado como impresso sem etiqueta some da fila sem deixar rastro — Lição #18)
       let etiquetaOk = false;
+      // Motivo exibido no aviso quando a etiqueta não sai (código cru ou traduzido).
+      let motivoEtiqueta: string | null = null;
       if (etiquetaSettled.status === "fulfilled") {
         const et = etiquetaSettled.value;
         if (et.ok && et.tipo === "zpl") {
@@ -382,26 +385,34 @@ export function ExpedicaoPage() {
             etiquetaOk = true;
           } catch (err) {
             console.warn("[impressao] falha ao imprimir etiqueta:", err);
+            motivoEtiqueta = "Falha ao enviar para a impressora — verifique o QZ Tray";
           }
         } else if (et.ok && et.tipo === "pdf_base64") {
           try {
-            await qzTray.imprimirPdf(et.conteudo, impressora);
+            await qzTray.imprimirPdf(et.conteudo, impressora, { recortarA4: et.recortarA4 });
             imprimiuAlgo = true;
             etiquetaOk = true;
           } catch (err) {
             console.warn("[impressao] falha ao imprimir etiqueta PDF:", err);
+            motivoEtiqueta = "Falha ao enviar para a impressora — verifique o QZ Tray";
           }
         } else if (!et.ok) {
-          console.warn("[impressao] etiqueta não disponível:", (et as any).error);
+          console.warn("[impressao] etiqueta não disponível:", et.error);
+          motivoEtiqueta = descreverErroEtiqueta(et.error);
         }
       } else {
         console.warn("[impressao] etiqueta rejeitou:", etiquetaSettled.reason);
+        const reason = etiquetaSettled.reason;
+        motivoEtiqueta = descreverErroEtiqueta(
+          reason instanceof Error ? reason.message : String(reason),
+        );
       }
 
       if (!etiquetaOk) {
         toast.warning("Etiqueta de transporte não impressa — reimprima em Pedidos", {
           id: "etiqueta-falha",
           duration: 8000,
+          description: motivoEtiqueta ?? undefined,
         });
       }
 

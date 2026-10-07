@@ -6,8 +6,12 @@ import {
   coletarEntregas,
   detectarFormatoBinario,
   extrairDiscriminadoresDeModalidade,
+  montarCorpoEtiquetaMagalu,
   montarUrlConsentimento,
   precisaRenovar,
+  selecionarEntregasParaEtiqueta,
+  traduzirErroEtiquetaMagalu,
+  MAGALU_CHANNEL_ID,
   MAGALU_SCOPES,
 } from "../src/lib/magalu.ts";
 
@@ -179,4 +183,143 @@ test("zip e png sao distinguidos", () => {
 test("vazio e desconhecido nao viram falso positivo", () => {
   assert.equal(detectarFormatoBinario(new Uint8Array([])), "desconhecido");
   assert.equal(detectarFormatoBinario(bytes("alguma coisa qualquer")), "desconhecido");
+});
+
+// ── Etiqueta: selecao de entregas ────────────────────────────────────────────
+
+test("entrega aprovada e elegivel", () => {
+  const r = selecionarEntregasParaEtiqueta([{ id: "d1", code: "LU-9634-1", status: "approved" }]);
+  assert.deepEqual(r, { ok: true, ids: ["d1"] });
+});
+
+test("entrega faturada (invoiced) e elegivel", () => {
+  assert.deepEqual(selecionarEntregasParaEtiqueta([{ id: "d1", status: "invoiced" }]), { ok: true, ids: ["d1"] });
+});
+
+test("multiplas entregas: ignora cancelada e despachada, mantem a ordem das elegiveis", () => {
+  const r = selecionarEntregasParaEtiqueta([
+    { id: "d1", status: "approved" },
+    { id: "d2", status: "cancelled" },
+    { id: "d3", status: "invoiced" },
+    { id: "d4", status: "shipped" },
+    { id: "d1", status: "approved" },
+  ]);
+  assert.deepEqual(r, { ok: true, ids: ["d1", "d3"] });
+});
+
+test("todas canceladas devolve bloqueio de cancelamento", () => {
+  const r = selecionarEntregasParaEtiqueta([
+    { id: "d1", status: "cancelled" },
+    { id: "d2", status: "cancelled" },
+  ]);
+  assert.deepEqual(r, { ok: false, motivo: "magalu_entregas_canceladas" });
+});
+
+test("ja despachada (shipped) devolve bloqueio identificavel", () => {
+  // O caso medido no 9262: entrega shipped -> SHIPPING_LABEL_SHIPPED na API.
+  assert.deepEqual(selecionarEntregasParaEtiqueta([{ id: "d1", status: "shipped" }]), {
+    ok: false,
+    motivo: "magalu_etiqueta_ja_despachada",
+  });
+});
+
+test("delivered tambem conta como ja despachada, e vence cancelada", () => {
+  const r = selecionarEntregasParaEtiqueta([
+    { id: "d1", status: "cancelled" },
+    { id: "d2", status: "delivered" },
+  ]);
+  assert.deepEqual(r, { ok: false, motivo: "magalu_etiqueta_ja_despachada" });
+});
+
+test("frozen nao emite etiqueta", () => {
+  assert.deepEqual(selecionarEntregasParaEtiqueta([{ id: "d1", status: "frozen" }]), {
+    ok: false,
+    motivo: "magalu_entrega_congelada",
+  });
+});
+
+test("lista vazia devolve magalu_sem_entrega", () => {
+  assert.deepEqual(selecionarEntregasParaEtiqueta([]), { ok: false, motivo: "magalu_sem_entrega" });
+});
+
+test("entrega sem id nao e elegivel", () => {
+  assert.deepEqual(selecionarEntregasParaEtiqueta([{ code: "LU-9634-1", status: "approved" }]), {
+    ok: false,
+    motivo: "magalu_sem_entrega",
+  });
+});
+
+test("status desconhecido ou ausente nao e excluido: a API decide", () => {
+  assert.deepEqual(selecionarEntregasParaEtiqueta([{ id: "d1" }, { id: "d2", status: "novo_status" }]), {
+    ok: true,
+    ids: ["d1", "d2"],
+  });
+});
+
+test("status em maiusculas e normalizado", () => {
+  assert.deepEqual(selecionarEntregasParaEtiqueta([{ id: "d1", status: "SHIPPED" }]), {
+    ok: false,
+    motivo: "magalu_etiqueta_ja_despachada",
+  });
+});
+
+test("selecao funciona encadeada com coletarEntregas do GET /orders/{code}", () => {
+  const pedido = {
+    code: "1570070104300104",
+    deliveries: [{ id: "uuid-1", code: "LU-1570070104300104-1", status: "approved" }],
+  };
+  assert.deepEqual(selecionarEntregasParaEtiqueta(coletarEntregas(pedido)), { ok: true, ids: ["uuid-1"] });
+});
+
+// ── Etiqueta: corpo do POST ──────────────────────────────────────────────────
+
+test("corpo do POST usa a constante do canal, ZPL e summary", () => {
+  assert.deepEqual(montarCorpoEtiquetaMagalu(["d1"]), {
+    channel: { id: MAGALU_CHANNEL_ID, extras: {} },
+    deliveries: [{ id: "d1" }],
+    label: { format: "zpl", type: "summary", extras: {} },
+  });
+});
+
+test("corpo do POST leva todas as entregas num lote so", () => {
+  const corpo = montarCorpoEtiquetaMagalu(["d1", "d2"]);
+  assert.deepEqual(corpo.deliveries, [{ id: "d1" }, { id: "d2" }]);
+  assert.equal(corpo.channel.id, "9fe0d853-732b-4e4a-a0b0-cff988ed043d");
+});
+
+// ── Etiqueta: traducao de erro ───────────────────────────────────────────────
+
+test("SHIPPING_LABEL_SHIPPED em details vira ja despachada (formato real do 9262)", () => {
+  const corpo = {
+    slug: "BAD_REQUEST",
+    message: "Bad Request",
+    details: [{ field: "deliveries", location: "body", slug: "SHIPPING_LABEL_SHIPPED", message: "Etiqueta já despachada." }],
+  };
+  assert.equal(traduzirErroEtiquetaMagalu(400, corpo), "magalu_etiqueta_ja_despachada");
+});
+
+test("SHIPPING_LABEL_SHIPPED no topo tambem vira ja despachada", () => {
+  assert.equal(
+    traduzirErroEtiquetaMagalu(400, { slug: "SHIPPING_LABEL_SHIPPED", message: "x", details: [] }),
+    "magalu_etiqueta_ja_despachada",
+  );
+});
+
+test("outro erro usa o slug de details antes do slug de topo", () => {
+  const corpo = {
+    slug: "UNPROCESSABLE_ENTITY",
+    message: "x",
+    details: [{ field: "deliveries", location: "body", slug: "INVOICE_REQUIRED", message: "y" }],
+  };
+  assert.equal(traduzirErroEtiquetaMagalu(422, corpo), "magalu_api_error:422:INVOICE_REQUIRED");
+});
+
+test("erro so com slug de topo", () => {
+  assert.equal(traduzirErroEtiquetaMagalu(403, { slug: "FORBIDDEN", message: "x" }), "magalu_api_error:403:FORBIDDEN");
+});
+
+test("erro sem corpo JSON nao lanca", () => {
+  assert.equal(traduzirErroEtiquetaMagalu(502, null), "magalu_api_error:502:sem_slug");
+  assert.equal(traduzirErroEtiquetaMagalu(500, "texto"), "magalu_api_error:500:sem_slug");
+  assert.equal(traduzirErroEtiquetaMagalu(400, { details: [null, 42] }), "magalu_api_error:400:sem_slug");
 });

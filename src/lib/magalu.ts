@@ -212,3 +212,138 @@ export function detectarFormatoBinario(bytes: Uint8Array): FormatoEtiqueta {
 
   return "desconhecido";
 }
+
+// ── Etiqueta: seleção de entregas, corpo do POST e tradução de erro ──────────
+
+/**
+ * Status de entrega que fecham a janela da etiqueta. Medido em 15/09/2026
+ * (seção 16 da base): `shipping-labels` recusa entrega `shipped` com
+ * `400 SHIPPING_LABEL_SHIPPED`. `delivered` vem depois de `shipped` na ordem
+ * prática da seção 3 — se `shipped` já recusa, `delivered` também.
+ */
+const STATUS_ENTREGA_DESPACHADA = new Set(["shipped", "delivered"]);
+
+/**
+ * `frozen` é intermediário e sem transição definida (seção 3): "não mexe,
+ * re-consulta". Emitir etiqueta para uma entrega congelada é exatamente mexer.
+ */
+const STATUS_ENTREGA_CONGELADA = "frozen";
+const STATUS_ENTREGA_CANCELADA = "cancelled";
+
+export type SelecaoEntregasEtiqueta =
+  | { ok: true; ids: string[] }
+  | {
+      ok: false;
+      motivo:
+        | "magalu_sem_entrega"
+        | "magalu_etiqueta_ja_despachada"
+        | "magalu_entrega_congelada"
+        | "magalu_entregas_canceladas";
+    };
+
+function statusDe(entrega: unknown): string {
+  const s = entrega && typeof entrega === "object" ? (entrega as Record<string, unknown>).status : undefined;
+  return typeof s === "string" ? s.trim().toLowerCase() : "";
+}
+
+function idDe(entrega: unknown): string | null {
+  const id = entrega && typeof entrega === "object" ? (entrega as Record<string, unknown>).id : undefined;
+  return typeof id === "string" && id.trim() !== "" ? id : null;
+}
+
+/**
+ * Escolhe, entre as entregas de um pedido (saída de `coletarEntregas`), as que
+ * podem ir para `shipping-labels`. Exclui `cancelled`, `shipped`, `delivered`,
+ * `frozen` e entrega sem `id` (UUID — o `code` com prefixo `LU-` não serve).
+ *
+ * Status desconhecido/ausente NÃO é excluído: quem decide se a etiqueta sai é a
+ * API do Magalu, e o erro dela é traduzido por `traduzirErroEtiquetaMagalu`.
+ * Excluir aqui um status que não conhecemos seria recusar em silêncio uma
+ * etiqueta que talvez existisse.
+ *
+ * Quando nada é elegível, o motivo segue a ordem de utilidade para quem está
+ * no balcão: "já despachada" (não adianta tentar de novo) > "congelada"
+ * (tentar mais tarde) > "cancelada".
+ */
+export function selecionarEntregasParaEtiqueta(entregas: unknown[]): SelecaoEntregasEtiqueta {
+  if (!Array.isArray(entregas) || entregas.length === 0) return { ok: false, motivo: "magalu_sem_entrega" };
+
+  const ids: string[] = [];
+  let algumaDespachada = false;
+  let algumaCongelada = false;
+  let algumaCancelada = false;
+
+  for (const entrega of entregas) {
+    const status = statusDe(entrega);
+    if (status === STATUS_ENTREGA_CANCELADA) {
+      algumaCancelada = true;
+      continue;
+    }
+    if (STATUS_ENTREGA_DESPACHADA.has(status)) {
+      algumaDespachada = true;
+      continue;
+    }
+    if (status === STATUS_ENTREGA_CONGELADA) {
+      algumaCongelada = true;
+      continue;
+    }
+    const id = idDe(entrega);
+    if (id && !ids.includes(id)) ids.push(id);
+  }
+
+  if (ids.length > 0) return { ok: true, ids };
+  if (algumaDespachada) return { ok: false, motivo: "magalu_etiqueta_ja_despachada" };
+  if (algumaCongelada) return { ok: false, motivo: "magalu_entrega_congelada" };
+  if (algumaCancelada) return { ok: false, motivo: "magalu_entregas_canceladas" };
+  return { ok: false, motivo: "magalu_sem_entrega" };
+}
+
+export type CorpoEtiquetaMagalu = {
+  channel: { id: string; extras: Record<string, string> };
+  deliveries: Array<{ id: string }>;
+  label: { format: "zpl" | "pdf"; type: "summary" | "full"; extras: Record<string, string> };
+};
+
+/**
+ * Corpo de `POST /seller/v1/logistics/shipping-labels` (seção 4). O
+ * `channel.id` sai da constante porque a entrega real não tem nó `channel`
+ * (seção 16). N entregas no mesmo POST = uma única `signed_url` com o lote.
+ */
+export function montarCorpoEtiquetaMagalu(
+  deliveryIds: string[],
+  formato: "zpl" | "pdf" = "zpl",
+  tipo: "summary" | "full" = "summary",
+): CorpoEtiquetaMagalu {
+  return {
+    channel: { id: MAGALU_CHANNEL_ID, extras: {} },
+    deliveries: deliveryIds.map((id) => ({ id })),
+    label: { format: formato, type: tipo, extras: {} },
+  };
+}
+
+const SLUG_ETIQUETA_DESPACHADA = "SHIPPING_LABEL_SHIPPED";
+
+/**
+ * Traduz o erro da API (`{slug, message, details:[{field,location,slug,message}]}`,
+ * seção 7b/16) num código curto e estável para a tela e para o log.
+ *
+ * `SHIPPING_LABEL_SHIPPED` pode vir no topo ou só em `details[]` — no 9262
+ * veio em `details[0].slug` com `slug` de topo `BAD_REQUEST`. Para os demais, o
+ * slug mais específico vence: o primeiro de `details[]`, senão o do topo.
+ */
+export function traduzirErroEtiquetaMagalu(status: number, corpo: unknown): string {
+  const obj = corpo && typeof corpo === "object" ? (corpo as Record<string, unknown>) : {};
+  const slugTopo = typeof obj.slug === "string" ? obj.slug : "";
+  const slugsDetalhe = Array.isArray(obj.details)
+    ? obj.details
+        .map((d) => (d && typeof d === "object" ? (d as Record<string, unknown>).slug : undefined))
+        .filter((s): s is string => typeof s === "string" && s !== "")
+    : [];
+
+  if (slugTopo === SLUG_ETIQUETA_DESPACHADA || slugsDetalhe.includes(SLUG_ETIQUETA_DESPACHADA)) {
+    return "magalu_etiqueta_ja_despachada";
+  }
+
+  const slug = slugsDetalhe[0] || slugTopo || "sem_slug";
+  return `magalu_api_error:${status}:${slug}`;
+}

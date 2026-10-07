@@ -158,7 +158,7 @@ function PedidosPage() {
         }
       } else if (et.ok && et.tipo === "pdf_base64") {
         try {
-          await qzTray.imprimirPdf(et.conteudo, impressora);
+          await qzTray.imprimirPdf(et.conteudo, impressora, { recortarA4: et.recortarA4 });
           etiquetaOk = true;
         } catch (err) {
           console.warn("[reimprimir] falha ao imprimir etiqueta PDF:", err);

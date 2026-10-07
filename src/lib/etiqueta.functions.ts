@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { getDecryptedAccessToken } from "@/lib/bling.functions";
 import { buscarEtiquetaML } from "@/lib/ml.functions";
 import { buscarEtiquetaShopee } from "@/lib/shopee";
+import { buscarEtiquetaMagalu } from "@/lib/magalu-etiqueta";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 
 const BLING_ETIQUETAS_URL = "https://api.bling.com.br/Api/v3/logisticas/etiquetas";
@@ -9,7 +10,18 @@ const BLING_ETIQUETAS_URL = "https://api.bling.com.br/Api/v3/logisticas/etiqueta
 export type EtiquetaTipo = "zpl" | "pdf_url" | "pdf_base64" | "desconhecido";
 
 export type EtiquetaResult =
-  | { ok: true; tipo: EtiquetaTipo; conteudo: string }
+  | {
+      ok: true;
+      tipo: EtiquetaTipo;
+      conteudo: string;
+      /**
+       * Só faz sentido com `tipo: "pdf_base64"`. Ausente = comportamento antigo
+       * (a impressão recorta a etiqueta de dentro da página A4, layout Shopee).
+       * `false` = imprimir a página como veio — o PDF do Magalu é A4 com 3
+       * etiquetas e o recorte da Shopee o destruiria.
+       */
+      recortarA4?: boolean;
+    }
   | { ok: false; error: string };
 
 type BuscadorEtiqueta = {
@@ -28,17 +40,22 @@ const FALLBACK_POR_MARKETPLACE: Record<string, BuscadorEtiqueta | null> = {
   mercadolivre: { buscar: buscarEtiquetaML, tipo: "zpl" },
   mercadolivreflex: { buscar: buscarEtiquetaML, tipo: "zpl" },
   shopee: { buscar: buscarEtiquetaShopee, tipo: "pdf_base64" },
-  // Magalu Entregas: o Bling já resolve a etiqueta (PDF/ZPL) assim que a NF-e
-  // é emitida, então o fallback nunca deveria ser necessário. Sem buscador
-  // próprio até a Fase 2 — melhor falhar explicitamente do que cair no ML.
+  // Magalu Entregas: a premissa antiga ("o Bling resolve a etiqueta depois da
+  // NF-e") foi REFUTADA pelo pedido 9634 — o Bling não entrega etiqueta de
+  // marketplace. O Magalu não passa por esta tabela: tem ramo próprio no
+  // handler, que vai direto à API do Magalu sem chamar o Bling
+  // (`buscarEtiquetaMagalu`). O `null` fica para que o canal continue
+  // "conhecido" caso alguém chegue aqui por outro caminho.
   magalu: null,
 };
 
 async function salvarEtiqueta(pedidoId: string, conteudo: string, tipo: EtiquetaTipo) {
-  await supabaseAdmin
+  const { error } = await supabaseAdmin
     .from("pedidos")
     .update({ etiqueta_zpl: conteudo, etiqueta_tipo: tipo } as any)
     .eq("id", pedidoId);
+  // No Magalu, cache perdido = a reimpressão volta à API e pode gerar etiqueta nova.
+  if (error) console.error("[etiqueta] falha ao gravar cache da etiqueta:", pedidoId, error.message);
 }
 
 export const buscarEtiquetaBling = createServerFn({ method: "POST" })
@@ -51,15 +68,48 @@ export const buscarEtiquetaBling = createServerFn({ method: "POST" })
       .eq("bling_pedido_id", data.pedidoId)
       .maybeSingle();
 
+    const marketplace: string | null = (pedido as any)?.marketplace ?? null;
+
     if (pedido?.etiqueta_zpl) {
       const tipoCache = ((pedido as any).etiqueta_tipo as EtiquetaTipo) ?? "zpl";
+      // PDF do Magalu (A4 com 3 etiquetas) não pode passar pelo recorte da Shopee.
+      if (marketplace === "magalu" && (tipoCache === "pdf_base64" || tipoCache === "pdf_url")) {
+        return { ok: true, tipo: tipoCache, conteudo: pedido.etiqueta_zpl, recortarA4: false };
+      }
       return { ok: true, tipo: tipoCache, conteudo: pedido.etiqueta_zpl };
     }
 
     // numero_loja = id do pedido no marketplace (ML order ID, Shopee order_sn,
     // código do pedido no Magalu)
     const numeroLoja: string | null = (pedido as any)?.numero_loja ?? null;
-    const marketplace: string | null = (pedido as any)?.marketplace ?? null;
+
+    // Magalu: direto na API do Magalu, SEM passar pelo Bling (o Bling não é
+    // fonte de etiqueta de marketplace). Toda etiqueta obtida vai para o cache,
+    // seja ZPL ou PDF: cada chamada a `shipping-labels` pode gerar etiqueta
+    // nova, então reimpressão tem de sair do banco.
+    if (marketplace === "magalu") {
+      if (!numeroLoja) return { ok: false, error: "magalu_sem_numero_loja" };
+      let r: Awaited<ReturnType<typeof buscarEtiquetaMagalu>>;
+      try {
+        r = await buscarEtiquetaMagalu(numeroLoja);
+      } catch (err) {
+        console.error("[etiqueta] magalu exception:", numeroLoja, err);
+        return { ok: false, error: "magalu_exception: " + (err instanceof Error ? err.message : String(err)) };
+      }
+      if (!r.ok) {
+        console.warn("[etiqueta] magalu falhou:", numeroLoja, r.error);
+        return r;
+      }
+      // Falha ao gravar o cache não pode jogar fora uma etiqueta já gerada.
+      if (pedido?.id) {
+        try {
+          await salvarEtiqueta(pedido.id, r.conteudo, r.tipo);
+        } catch (err) {
+          console.error("[etiqueta] magalu: etiqueta obtida mas cache falhou:", numeroLoja, err);
+        }
+      }
+      return r;
+    }
 
     // 2. Tenta API do Bling
     const blingResult = await tentarBling(data.pedidoId, pedido?.id ?? null);
