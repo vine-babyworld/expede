@@ -4,6 +4,7 @@ import { getDecryptedAccessToken } from "@/lib/bling.functions";
 import { fetchNfNumeroBling, resolverProdutoDoItem } from "@/lib/pedidos.functions";
 import { encontrarPedidoPorNumeroLoja } from "@/lib/reconciliar-atendidos";
 import { marketplacePelaLojaBling } from "@/lib/nf-emissao.policy";
+import { planejarItensPedido } from "@/lib/kit-estrutura.server";
 
 const BLING_PEDIDOS_URL = "https://api.bling.com.br/Api/v3/pedidos/vendas";
 // O Bling ignora ?numeroLoja=, então a busca é uma varredura conferida no cliente.
@@ -144,18 +145,24 @@ export const Route = createFileRoute("/api/admin/importar-pedido")({
         // Upsert dos itens
         const itens: any[] = d.itens ?? [];
         if (itens.length > 0) {
+          // Planeja antes de apagar: a decisão de manter kit inteiro olha o que já está gravado.
+          // Como tudo é apagado e regravado aqui, as linhas substituídas não precisam de remoção.
+          const plano = await planejarItensPedido(upserted.id, itens, conn.id);
           await supabaseAdmin.from("pedido_itens").delete().eq("pedido_id", upserted.id);
-          const itensPrepared = await Promise.all(itens.map(async (it: any) => {
-            const { produtoId, ean } = await resolverProdutoDoItem(it, conn.id);
+          const itensPrepared = await Promise.all(plano.linhas.map(async (linha) => {
+            const it = linha.original;
+            const { produtoId, ean } = linha.explodido
+              ? { produtoId: linha.produtoId, ean: linha.ean }
+              : await resolverProdutoDoItem({ ...it, codigo: linha.sku }, conn.id);
             return {
               pedido_id:          upserted.id,
               produto_id:         produtoId,
-              bling_item_id:      it.id ?? null,
-              sku:                it.codigo ?? null,
+              bling_item_id:      linha.blingItemId,
+              sku:                linha.sku,
               ean,
-              descricao:          it.descricao ?? "",
-              quantidade:         it.quantidade ?? 1,
-              valor_unitario:     it.valor ?? null,
+              descricao:          linha.descricao,
+              quantidade:         linha.quantidade,
+              valor_unitario:     linha.valorUnitario,
               deposito_id:        it.deposito?.id ?? null,
               deposito_descricao: it.deposito?.descricao ?? null,
             };

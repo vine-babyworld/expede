@@ -3,6 +3,7 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { getDecryptedAccessToken } from "@/lib/bling.functions";
 import { lerFlagConfig, NF_CONFIG_FLEX } from "@/lib/nf-config.server";
+import { planejarItensPedido, removerLinhasDeKitSubstituidas } from "@/lib/kit-estrutura.server";
 import {
   classificarEmissaoNf,
   isPedidoFlex,
@@ -436,8 +437,26 @@ async function processarPedidoBling(
   // Monta rows de itens — kits são explodidos em componentes individuais
   const itensPrepared: any[] = [];
 
-  // Pré-carrega produto_id para itens simples em duas queries em lote (evita N subrequests por item)
+  // Itens sem "/" no SKU passam pela explosão de kits formato E (estrutura do Bling); o que
+  // não é kit sai daqui como linha simples e segue o lookup de produto/EAN abaixo.
   const itensSimples = itens.filter((it: any) => parseComponentesKit(it.codigo ?? "").length < 2);
+  const plano = await planejarItensPedido(pedidoDbId, itensSimples, connId);
+  for (const linha of plano.linhas.filter((l) => l.explodido)) {
+    itensPrepared.push({
+      pedido_id:          pedidoDbId,
+      produto_id:         linha.produtoId,
+      bling_item_id:      linha.blingItemId,
+      sku:                linha.sku,
+      ean:                linha.ean,
+      descricao:          linha.descricao,
+      quantidade:         linha.quantidade,
+      valor_unitario:     linha.valorUnitario,
+      deposito_id:        linha.original?.deposito?.id ?? null,
+      deposito_descricao: linha.original?.deposito?.descricao ?? null,
+    });
+  }
+
+  // Pré-carrega produto_id para itens simples em duas queries em lote (evita N subrequests por item)
   const todosGtins = itensSimples.map((it: any) => it.gtin).filter(Boolean) as string[];
   const todosSkus  = itensSimples.map((it: any) => it.codigo).filter(Boolean) as string[];
 
@@ -458,34 +477,38 @@ async function processarPedidoBling(
     (produtosPorSkuRows ?? []).map((r: any) => [r.sku as string, { id: r.id as string, gtin: (r.gtin ?? null) as string | null }]),
   );
 
+  for (const linha of plano.linhas.filter((l) => !l.explodido)) {
+    // Item simples — lookup no Map pré-carregado, sem subrequests por item
+    const it = linha.original;
+    const sku = linha.sku;
+    const gtin = it.gtin ?? null;
+    const lookupResult =
+      (gtin ? gtinMap.get(gtin) : undefined) ??
+      (sku  ? skuMap.get(sku)   : undefined) ??
+      null;
+    const produtoId = lookupResult?.id ?? null;
+    // usa gtin do item; se vazio, copia do produto encontrado no cadastro
+    const eanFinal = gtin ?? lookupResult?.gtin ?? null;
+
+    itensPrepared.push({
+      pedido_id:          pedidoDbId,
+      produto_id:         produtoId,
+      bling_item_id:      linha.blingItemId,
+      sku,
+      ean:                eanFinal,
+      descricao:          linha.descricao,
+      quantidade:         linha.quantidade,
+      valor_unitario:     linha.valorUnitario,
+      deposito_id:        it.deposito?.id ?? null,
+      deposito_descricao: it.deposito?.descricao ?? null,
+    });
+  }
+
   for (const it of itens) {
     const sku = it.codigo ?? null;
     const componentes = parseComponentesKit(sku ?? "");
 
-    if (componentes.length < 2) {
-      // Item simples — lookup no Map pré-carregado, sem subrequests por item
-      const gtin = it.gtin ?? null;
-      const lookupResult =
-        (gtin ? gtinMap.get(gtin) : undefined) ??
-        (sku  ? skuMap.get(sku)   : undefined) ??
-        null;
-      const produtoId = lookupResult?.id ?? null;
-      // usa gtin do item; se vazio, copia do produto encontrado no cadastro
-      const eanFinal = gtin ?? lookupResult?.gtin ?? null;
-
-      itensPrepared.push({
-        pedido_id:          pedidoDbId,
-        produto_id:         produtoId,
-        bling_item_id:      it.id ?? null,
-        sku,
-        ean:                eanFinal,
-        descricao:          it.descricao ?? "",
-        quantidade:         it.quantidade ?? 1,
-        valor_unitario:     it.valor ?? null,
-        deposito_id:        it.deposito?.id ?? null,
-        deposito_descricao: it.deposito?.descricao ?? null,
-      });
-    } else {
+    if (componentes.length >= 2) {
       // Kit — explode em componentes individuais
       for (const skuComponente of componentes) {
         if (jaExplodidosSkus.has(skuComponente)) continue; // já no DB, preserva bipagem
@@ -521,6 +544,8 @@ async function processarPedidoBling(
       .from("pedido_itens")
       .upsert(itensPrepared, { onConflict: "pedido_id,sku" });
     if (itemsErr) console.error("[processarPedido] upsert itens falhou:", itemsErr.message);
+    // Só remove a linha antiga do kit inteiro se os componentes foram gravados.
+    else await removerLinhasDeKitSubstituidas(pedidoDbId, plano.linhasDeKitSubstituidas);
   }
 
   console.log(

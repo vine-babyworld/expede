@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { getDecryptedAccessToken } from "@/lib/bling.functions";
 import { sincronizarPoliticaInicialEmissaoNf } from "@/lib/pedidos.functions";
 import { marketplacePelaLojaBling } from "@/lib/nf-emissao.policy";
+import { planejarItensPedido, removerLinhasDeKitSubstituidas } from "@/lib/kit-estrutura.server";
 
 const BLING_PEDIDOS_URL = "https://api.bling.com.br/Api/v3/pedidos/vendas";
 const DEPOSITO_ALVO = "Geral";
@@ -144,15 +145,33 @@ export const Route = createFileRoute("/api/public/hooks/bling-pedidos")({
             // Upsert por (pedido_id, sku) — nunca deleta antes de inserir. Entregas duplicadas
             // do webhook pro mesmo pedido (comum no Bling) não podem mais apagar um item que
             // outra chamada concorrente acabou de gravar (ver migration pedido-itens-unique-sku).
+            // Kits formato E viram os componentes que a expedição tem que bipar.
+            const plano = await planejarItensPedido(pedidoDbId, itens, conn.id);
             const itensPrepared = await Promise.all(
-              itens.map(async (it: any) => {
+              plano.linhas.map(async (linha) => {
+                const it = linha.original;
+                if (linha.explodido) {
+                  return {
+                    pedido_id:          pedidoDbId,
+                    produto_id:         linha.produtoId,
+                    bling_item_id:      linha.blingItemId,
+                    sku:                linha.sku,
+                    ean:                linha.ean,
+                    descricao:          linha.descricao,
+                    quantidade:         linha.quantidade,
+                    valor_unitario:     linha.valorUnitario,
+                    deposito_id:        it.deposito?.id ?? null,
+                    deposito_descricao: it.deposito?.descricao ?? null,
+                  };
+                }
+
                 let produtoId: string | null = null;
                 let produtoGtin: string | null = null;
 
                 // "" do Bling conta como ausente — senão vira um EAN vazio no item, que a
                 // conferência da expedição trata como "não cadastrado".
                 const gtin = it.gtin != null && String(it.gtin).trim() !== "" ? String(it.gtin).trim() : null;
-                const sku  = it.codigo ?? null;
+                const sku  = linha.sku;
 
                 // Tentativa de match: EAN (gtin) primeiro, SKU depois
                 if (gtin) {
@@ -186,9 +205,9 @@ export const Route = createFileRoute("/api/public/hooks/bling-pedidos")({
                   // sem isso o webhook sobrescrevia com null o EAN que a reconciliação
                   // já tinha preenchido, deixando o item sem nada pra conferir.
                   ean:                gtin ?? produtoGtin,
-                  descricao:          it.descricao ?? "",
-                  quantidade:         it.quantidade ?? 1,
-                  valor_unitario:     it.valor ?? null,
+                  descricao:          linha.descricao,
+                  quantidade:         linha.quantidade,
+                  valor_unitario:     linha.valorUnitario,
                   deposito_id:        it.deposito?.id ?? null,
                   deposito_descricao: it.deposito?.descricao ?? null,
                 };
@@ -201,6 +220,8 @@ export const Route = createFileRoute("/api/public/hooks/bling-pedidos")({
                 .upsert(itensPrepared, { onConflict: "pedido_id,sku" });
               if (itemsErr) {
                 console.error("[bling-pedidos] upsert itens falhou:", itemsErr.message);
+              } else {
+                await removerLinhasDeKitSubstituidas(pedidoDbId, plano.linhasDeKitSubstituidas);
               }
             }
           }
