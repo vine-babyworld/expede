@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { isPedidoFlex, reconciliarPedidos } from "@/lib/pedidos.functions";
+import { etiquetaMlAguardandoLiberacao } from "@/lib/despacho-ml";
 
 function brTodayRange(): { gte: string; lt: string } {
   const now = new Date();
@@ -18,12 +19,13 @@ function brTodayRange(): { gte: string; lt: string } {
 }
 
 // Pedidos que compõem o card "A expedir": ainda não impressos, não cancelados,
-// com algum item ainda não bipado, com NF do Bling emitida (exceto Flex) e
-// ainda não despachados/entregues no ML — mesmo critério da tela de Expedição
+// com algum item ainda não bipado, com NF do Bling emitida (exceto Flex),
+// ainda não despachados/entregues no ML e sem coleta futura no ML (etiqueta
+// ainda não liberada, substatus "buffered") — mesmo critério da tela de Expedição
 // (ExpedicaoPage.tsx, useMemo `pendentes`), pra o contador do Dashboard bater
 // com o que realmente aparece no Checkout por Produto.
 const PEDIDOS_A_EXPEDIR_SELECT =
-  "id, numero, numero_loja, situacao_id, marketplace, raw_json, cliente, data_pedido, total, bling_nota_fiscal_id, ml_shipment_status, pedido_itens(quantidade, quantidade_bipada)";
+  "id, numero, numero_loja, situacao_id, marketplace, raw_json, cliente, data_pedido, total, bling_nota_fiscal_id, ml_shipment_status, ml_shipment_substatus, pedido_itens(quantidade, quantidade_bipada)";
 
 export type PedidoAExpedir = {
   id: string;
@@ -37,6 +39,7 @@ export type PedidoAExpedir = {
   total: number | null;
   bling_nota_fiscal_id: number | null;
   ml_shipment_status: string | null;
+  ml_shipment_substatus: string | null;
 };
 
 async function fetchPedidosAExpedir(): Promise<PedidoAExpedir[]> {
@@ -52,6 +55,7 @@ async function fetchPedidosAExpedir(): Promise<PedidoAExpedir[]> {
   return (data ?? [])
     .filter((p: any) => (p.pedido_itens as any[]).some((it: any) => (it.quantidade_bipada ?? 0) < it.quantidade))
     .filter((p: any) => p.bling_nota_fiscal_id || isPedidoFlex(p))
+    .filter((p: any) => !etiquetaMlAguardandoLiberacao(p))
     .map(({ pedido_itens, ...p }: any) => p as PedidoAExpedir);
 }
 

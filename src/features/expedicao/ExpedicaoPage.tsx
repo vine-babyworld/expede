@@ -41,6 +41,7 @@ import { buscarEtiquetaBling } from "@/lib/etiqueta.functions";
 import { descreverErroEtiqueta } from "@/lib/etiqueta-erros";
 import { gerarDanfeCustom } from "@/lib/danfe.functions";
 import { isPedidoFlex, marcarPedidoImpresso, nfNaoAutorizada, nfSituacaoLabel } from "@/lib/pedidos.functions";
+import { categoriaDespacho, etiquetaMlAguardandoLiberacao, type CategoriaData } from "@/lib/despacho-ml";
 import { MarketplaceBadge } from "@/components/MarketplaceBadge";
 import { useQzTray } from "@/hooks/useQzTray";
 import { PrinterConfig } from "@/components/PrinterConfig";
@@ -80,6 +81,8 @@ type PedidoExpedicao = {
   printed_at: string | null;
   bling_divergente: boolean;
   ml_shipment_status: string | null;
+  ml_shipment_substatus: string | null;
+  ml_etiqueta_liberada_em: string | null;
 };
 
 function pedidoProgress(p: PedidoExpedicao) {
@@ -113,21 +116,14 @@ function hoje(): string {
   return `${year}-${month}-${day}`;
 }
 
-type CategoriaData = "hoje" | "proximos" | "atrasado" | null;
-
-function categoriaDataPrevista(rawJson: any): CategoriaData {
-  const dataPrevista: string | null = rawJson?.dataPrevista ?? null;
-  if (!dataPrevista) return null;
-  const hj = hoje();
-  if (dataPrevista === hj) return "hoje";
-  if (dataPrevista > hj) return "proximos";
-  return "atrasado";
+function categoriaDataPrevista(p: PedidoExpedicao): CategoriaData {
+  return categoriaDespacho(p, hoje());
 }
 
 type BadgeExpedicao = { label: string; cor: string } | null;
 
-function badgeDataPrevista(rawJson: any): BadgeExpedicao {
-  const categoria = categoriaDataPrevista(rawJson);
+function badgeDataPrevista(p: PedidoExpedicao): BadgeExpedicao {
+  const categoria = categoriaDataPrevista(p);
   if (categoria === "hoje") {
     return { label: "Hoje", cor: "bg-green-100 text-green-800 border-green-300" };
   }
@@ -146,7 +142,7 @@ async function fetchPedidos(): Promise<PedidoExpedicao[]> {
   const { data, error } = await supabase
     .from("pedidos")
     .select(
-      "id, bling_pedido_id, numero, numero_loja, data_pedido, cliente, bling_nota_fiscal_id, bling_nota_fiscal_numero, nf_situacao, nf_situacao_motivo, situacao_id, situacao_valor, marketplace, raw_json, printed_at, bling_divergente, ml_shipment_status, pedido_itens(id, sku, ean, descricao, quantidade, quantidade_bipada, produto:produtos(imagem_url, gtin))",
+      "id, bling_pedido_id, numero, numero_loja, data_pedido, cliente, bling_nota_fiscal_id, bling_nota_fiscal_numero, nf_situacao, nf_situacao_motivo, situacao_id, situacao_valor, marketplace, raw_json, printed_at, bling_divergente, ml_shipment_status, ml_shipment_substatus, ml_etiqueta_liberada_em, pedido_itens(id, sku, ean, descricao, quantidade, quantidade_bipada, produto:produtos(imagem_url, gtin))",
     )
     .is("printed_at", null)
     .neq("situacao_id", 12)
@@ -173,6 +169,8 @@ async function fetchPedidos(): Promise<PedidoExpedicao[]> {
     printed_at: p.printed_at ?? null,
     bling_divergente: p.bling_divergente ?? false,
     ml_shipment_status: p.ml_shipment_status ?? null,
+    ml_shipment_substatus: p.ml_shipment_substatus ?? null,
+    ml_etiqueta_liberada_em: p.ml_etiqueta_liberada_em ?? null,
     itens: (p.pedido_itens ?? []).map((i: any) => ({
       id: i.id,
       sku: i.sku ?? null,
@@ -233,19 +231,25 @@ export function ExpedicaoPage() {
   const [pedidoNfBloqueada, setPedidoNfBloqueada] = useState<PedidoExpedicao | null>(null);
   const [showPrinterConfig, setShowPrinterConfig] = useState(false);
 
-  const pendentes = useMemo(
-    () =>
-      pedidos.filter((p) => {
-        if (pedidoProgress(p).done) return false;
-        // Aguardando NF do Bling: some do Checkout até a NF ser emitida (Flex é exceção, pois normalmente não emite NF)
-        const semNf = !p.bling_nota_fiscal_id;
-        if (semNf && !isPedidoFlex(p)) return false;
-        const jaDespachadoOuEntregue = p.ml_shipment_status === "shipped" || p.ml_shipment_status === "delivered";
-        if (jaDespachadoOuEntregue) return false;
-        return true;
-      }),
-    [pedidos],
-  );
+  const { pendentes, aguardandoEtiquetaMl } = useMemo(() => {
+    const visiveis: PedidoExpedicao[] = [];
+    let aguardando = 0;
+    for (const p of pedidos) {
+      if (pedidoProgress(p).done) continue;
+      // Aguardando NF do Bling: some do Checkout até a NF ser emitida (Flex é exceção, pois normalmente não emite NF)
+      const semNf = !p.bling_nota_fiscal_id;
+      if (semNf && !isPedidoFlex(p)) continue;
+      const jaDespachadoOuEntregue = p.ml_shipment_status === "shipped" || p.ml_shipment_status === "delivered";
+      if (jaDespachadoOuEntregue) continue;
+      // Coleta futura no ML: bipar agora só imprimiria a NF. Volta no dia em que o ML libera a etiqueta.
+      if (etiquetaMlAguardandoLiberacao(p)) {
+        aguardando++;
+        continue;
+      }
+      visiveis.push(p);
+    }
+    return { pendentes: visiveis, aguardandoEtiquetaMl: aguardando };
+  }, [pedidos]);
 
   const marketplaceCounts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -258,7 +262,7 @@ export function ExpedicaoPage() {
   const dataCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const f of DATA_FILTROS) {
-      counts[f.id] = pendentes.filter((p) => categoriaDataPrevista(p.raw_json) === f.categoria).length;
+      counts[f.id] = pendentes.filter((p) => categoriaDataPrevista(p) === f.categoria).length;
     }
     return counts;
   }, [pendentes]);
@@ -269,7 +273,7 @@ export function ExpedicaoPage() {
 
     const dataFiltroDef = DATA_FILTROS.find((f) => f.id === dataFiltro);
     if (dataFiltroDef) {
-      base = base.filter((p) => categoriaDataPrevista(p.raw_json) === dataFiltroDef.categoria);
+      base = base.filter((p) => categoriaDataPrevista(p) === dataFiltroDef.categoria);
     }
 
     const q = busca.trim().toLowerCase();
@@ -537,6 +541,14 @@ export function ExpedicaoPage() {
             </Button>
           ))}
         </div>
+
+        {aguardandoEtiquetaMl > 0 && (
+          <p className="text-xs text-muted-foreground">
+            {aguardandoEtiquetaMl === 1
+              ? "1 pedido do Mercado Livre com coleta futura está oculto — aparece aqui no dia em que o ML liberar a etiqueta."
+              : `${aguardandoEtiquetaMl} pedidos do Mercado Livre com coleta futura estão ocultos — aparecem aqui no dia em que o ML liberar a etiqueta.`}
+          </p>
+        )}
       </div>
 
       {/* Lista */}
@@ -650,7 +662,7 @@ function PedidoCard({
   const isFlex = logistica?.toLowerCase().includes("flex") ?? false;
   const semNf = !pedido.bling_nota_fiscal_id;
   const blingDivergente = pedido.bling_divergente;
-  const badgeData = badgeDataPrevista(pedido.raw_json);
+  const badgeData = badgeDataPrevista(pedido);
 
   return (
     <div

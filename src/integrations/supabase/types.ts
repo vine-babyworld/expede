@@ -347,6 +347,7 @@ export type Database = {
           marketplace: string | null
           marketplace_order_id: string | null
           ml_shipment_status: string | null
+          ml_etiqueta_liberada_em: string | null
           ml_shipment_substatus: string | null
           ml_status_checked_at: string | null
           nf_situacao: number | null
@@ -398,6 +399,7 @@ export type Database = {
           marketplace?: string | null
           marketplace_order_id?: string | null
           ml_shipment_status?: string | null
+          ml_etiqueta_liberada_em?: string | null
           ml_shipment_substatus?: string | null
           ml_status_checked_at?: string | null
           nf_situacao?: number | null
@@ -449,6 +451,7 @@ export type Database = {
           marketplace?: string | null
           marketplace_order_id?: string | null
           ml_shipment_status?: string | null
+          ml_etiqueta_liberada_em?: string | null
           ml_shipment_substatus?: string | null
           ml_status_checked_at?: string | null
           nf_situacao?: number | null

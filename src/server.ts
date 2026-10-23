@@ -5,6 +5,7 @@ import { renderErrorPage } from "./lib/error-page";
 import { runSyncJob } from "./lib/produtos.functions";
 import { reconciliarPedidos, fetchNfSituacaoBling, NF_SITUACOES_AUTORIZADAS } from "./lib/pedidos.functions";
 import { checarStatusEnvioML } from "./lib/ml.functions";
+import { ML_SUBSTATUS_ETIQUETA_FUTURA } from "./lib/despacho-ml";
 import { getDecryptedAccessToken } from "./lib/bling.functions";
 import { processarFilaEmissaoNfML } from "./lib/nf-emissao.functions";
 import { supabaseAdmin } from "./integrations/supabase/client.server";
@@ -150,7 +151,7 @@ export async function cronMLStatus() {
     const baseQuery = () =>
       supabaseAdmin
         .from("pedidos")
-        .select("id, numero_loja, situacao_id, bling_pedido_id")
+        .select("id, numero_loja, situacao_id, bling_pedido_id, ml_shipment_substatus")
         .is("printed_at", null)
         .not("bling_nota_fiscal_id", "is", null)
         .eq("marketplace", "mercadolivre")
@@ -218,6 +219,15 @@ export async function cronMLStatus() {
         `situacao_id=${pedido.situacao_id} despachado=${result.despachado} divergente=${divergente}`,
       );
 
+      // Saiu do buffering ("coleta do dia X"): registra quando a etiqueta foi
+      // liberada — a Expedição conta o atraso a partir desse dia.
+      const etiquetaLiberadaAgora =
+        pedido.ml_shipment_substatus === ML_SUBSTATUS_ETIQUETA_FUTURA &&
+        result.substatus !== ML_SUBSTATUS_ETIQUETA_FUTURA;
+      if (etiquetaLiberadaAgora) {
+        console.log(`[cron-ml-status] pedido ${pedido.bling_pedido_id} ml_order=${mlOrderId} etiqueta liberada pelo ML`);
+      }
+
       await supabaseAdmin
         .from("pedidos")
         .update({
@@ -225,6 +235,7 @@ export async function cronMLStatus() {
           ml_shipment_substatus: result.substatus ?? null,
           ml_status_checked_at: new Date(now).toISOString(),
           bling_divergente: divergente,
+          ...(etiquetaLiberadaAgora ? { ml_etiqueta_liberada_em: new Date(now).toISOString() } : {}),
         } as any)
         .eq("id", pedido.id);
     }
