@@ -14,6 +14,7 @@ import { Route as AppRouteImport } from './routes/_app'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppProdutosRouteImport } from './routes/_app/produtos'
 import { Route as AppPedidosRouteImport } from './routes/_app/pedidos'
+import { Route as AppPecasDeCarroRouteImport } from './routes/_app/pecas-de-carro'
 import { Route as AppHistoricoRouteImport } from './routes/_app/historico'
 import { Route as AppExpedidosHojeRouteImport } from './routes/_app/expedidos-hoje'
 import { Route as AppExpedicaoRouteImport } from './routes/_app/expedicao'
@@ -69,6 +70,11 @@ const AppProdutosRoute = AppProdutosRouteImport.update({
 const AppPedidosRoute = AppPedidosRouteImport.update({
   id: '/pedidos',
   path: '/pedidos',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppPecasDeCarroRoute = AppPecasDeCarroRouteImport.update({
+  id: '/pecas-de-carro',
+  path: '/pecas-de-carro',
   getParentRoute: () => AppRoute,
 } as any)
 const AppHistoricoRoute = AppHistoricoRouteImport.update({
@@ -250,6 +256,7 @@ export interface FileRoutesByFullPath {
   '/expedicao': typeof AppExpedicaoRoute
   '/expedidos-hoje': typeof AppExpedidosHojeRoute
   '/historico': typeof AppHistoricoRoute
+  '/pecas-de-carro': typeof AppPecasDeCarroRoute
   '/pedidos': typeof AppPedidosRoute
   '/produtos': typeof AppProdutosRoute
   '/configuracoes/bling': typeof AppConfiguracoesBlingRoute
@@ -287,6 +294,7 @@ export interface FileRoutesByTo {
   '/expedicao': typeof AppExpedicaoRoute
   '/expedidos-hoje': typeof AppExpedidosHojeRoute
   '/historico': typeof AppHistoricoRoute
+  '/pecas-de-carro': typeof AppPecasDeCarroRoute
   '/pedidos': typeof AppPedidosRoute
   '/produtos': typeof AppProdutosRoute
   '/configuracoes/bling': typeof AppConfiguracoesBlingRoute
@@ -327,6 +335,7 @@ export interface FileRoutesById {
   '/_app/expedicao': typeof AppExpedicaoRoute
   '/_app/expedidos-hoje': typeof AppExpedidosHojeRoute
   '/_app/historico': typeof AppHistoricoRoute
+  '/_app/pecas-de-carro': typeof AppPecasDeCarroRoute
   '/_app/pedidos': typeof AppPedidosRoute
   '/_app/produtos': typeof AppProdutosRoute
   '/_app/configuracoes/bling': typeof AppConfiguracoesBlingRoute
@@ -367,6 +376,7 @@ export interface FileRouteTypes {
     | '/expedicao'
     | '/expedidos-hoje'
     | '/historico'
+    | '/pecas-de-carro'
     | '/pedidos'
     | '/produtos'
     | '/configuracoes/bling'
@@ -404,6 +414,7 @@ export interface FileRouteTypes {
     | '/expedicao'
     | '/expedidos-hoje'
     | '/historico'
+    | '/pecas-de-carro'
     | '/pedidos'
     | '/produtos'
     | '/configuracoes/bling'
@@ -443,6 +454,7 @@ export interface FileRouteTypes {
     | '/_app/expedicao'
     | '/_app/expedidos-hoje'
     | '/_app/historico'
+    | '/_app/pecas-de-carro'
     | '/_app/pedidos'
     | '/_app/produtos'
     | '/_app/configuracoes/bling'
@@ -536,6 +548,13 @@ declare module '@tanstack/react-router' {
       path: '/pedidos'
       fullPath: '/pedidos'
       preLoaderRoute: typeof AppPedidosRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/pecas-de-carro': {
+      id: '/_app/pecas-de-carro'
+      path: '/pecas-de-carro'
+      fullPath: '/pecas-de-carro'
+      preLoaderRoute: typeof AppPecasDeCarroRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/historico': {
@@ -789,6 +808,7 @@ interface AppRouteChildren {
   AppExpedicaoRoute: typeof AppExpedicaoRoute
   AppExpedidosHojeRoute: typeof AppExpedidosHojeRoute
   AppHistoricoRoute: typeof AppHistoricoRoute
+  AppPecasDeCarroRoute: typeof AppPecasDeCarroRoute
   AppPedidosRoute: typeof AppPedidosRoute
   AppProdutosRoute: typeof AppProdutosRoute
 }
@@ -800,6 +820,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppExpedicaoRoute: AppExpedicaoRoute,
   AppExpedidosHojeRoute: AppExpedidosHojeRoute,
   AppHistoricoRoute: AppHistoricoRoute,
+  AppPecasDeCarroRoute: AppPecasDeCarroRoute,
   AppPedidosRoute: AppPedidosRoute,
   AppProdutosRoute: AppProdutosRoute,
 }

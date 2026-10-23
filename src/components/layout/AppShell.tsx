@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
 import {
   LayoutDashboard, Package, ShoppingBag, Settings, LogOut,
-  ClipboardList, History, Menu,
+  ClipboardList, History, Menu, Car,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import { PEDIDOS_COM_PECA_KEY, contarPedidos, fetchPedidosComPeca } from "@/lib/pecas-estoque";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import {
@@ -12,14 +14,30 @@ import {
   DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-const items = [
+const items: { label: string; to: string; icon: typeof Car; separado?: boolean }[] = [
   { label: "Dashboard", to: "/dashboard", icon: LayoutDashboard },
   { label: "Expedição", to: "/expedicao", icon: Package },
   { label: "Histórico", to: "/historico", icon: History },
   { label: "Pedidos", to: "/pedidos", icon: ClipboardList },
   { label: "Produtos", to: "/produtos", icon: ShoppingBag },
   { label: "Configurações", to: "/configuracoes", icon: Settings },
+  // Estoque físico de peças (Rufato): abaixo de Configurações, separado — desenho do Vinicius (23/10/2026).
+  { label: "Peças", to: "/pecas-de-carro", icon: Car, separado: true },
 ];
+
+/**
+ * Selo "nova venda" do menu Peças: quantos pedidos a expedir vendem um SKU que tem
+ * saldo no estoque físico de peças. Some sozinho quando o pedido é impresso ou a
+ * quantidade da peça vai a zero.
+ */
+function usePedidosComPecaCount(): number {
+  const { data = [] } = useQuery({
+    queryKey: PEDIDOS_COM_PECA_KEY,
+    queryFn: fetchPedidosComPeca,
+    refetchInterval: 60_000,
+  });
+  return contarPedidos(data);
+}
 
 function isActive(pathname: string, to: string) {
   return pathname === to || (to !== "/" && pathname.startsWith(to));
@@ -36,6 +54,7 @@ function tituloDaRota(pathname: string): string {
  */
 function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const pedidosComPeca = usePedidosComPecaCount();
 
   return (
     <div className="flex flex-col h-full">
@@ -56,20 +75,29 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
           const active = isActive(pathname, it.to);
           const Icon = it.icon;
           return (
-            <Link
-              key={it.to}
-              to={it.to}
-              onClick={onNavigate}
-              aria-current={active ? "page" : undefined}
-              className={`flex items-center gap-3 px-6 py-3 text-sm font-medium transition-colors border-l-[3px] ${
-                active
-                  ? "bg-sidebar-active border-[#60A5FA] text-white"
-                  : "border-transparent text-white/70 hover:bg-white/5 hover:text-white"
-              }`}
-            >
-              <Icon className="h-5 w-5" />
-              {it.label}
-            </Link>
+            <div key={it.to} className={it.separado ? "mt-4 pt-4 border-t border-white/10" : undefined}>
+              <Link
+                to={it.to}
+                onClick={onNavigate}
+                aria-current={active ? "page" : undefined}
+                className={`flex items-center gap-3 px-6 py-3 text-sm font-medium transition-colors border-l-[3px] ${
+                  active
+                    ? "bg-sidebar-active border-[#60A5FA] text-white"
+                    : "border-transparent text-white/70 hover:bg-white/5 hover:text-white"
+                }`}
+              >
+                <Icon className="h-5 w-5" />
+                {it.label}
+                {it.to === "/pecas-de-carro" && pedidosComPeca > 0 && (
+                  <span
+                    className="ml-auto whitespace-nowrap rounded-full border border-emerald-400/50 bg-emerald-500/15 px-2 py-0.5 text-[11px] font-semibold text-emerald-400"
+                    title={`${pedidosComPeca} pedido(s) a expedir com peça no estoque`}
+                  >
+                    {pedidosComPeca === 1 ? "nova venda" : `${pedidosComPeca} novas vendas`}
+                  </span>
+                )}
+              </Link>
+            </div>
           );
         })}
       </nav>
@@ -101,6 +129,7 @@ export function Header() {
   const { profile, isAdmin, signOut } = useAuth();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [menuOpen, setMenuOpen] = useState(false);
+  const pedidosComPeca = usePedidosComPecaCount();
 
   // Fecha o drawer ao navegar — senão ele fica aberto por cima da página nova.
   useEffect(() => {
@@ -120,10 +149,14 @@ export function Header() {
             <Button
               variant="ghost"
               size="icon"
-              className="h-11 w-11 shrink-0"
+              className="relative h-11 w-11 shrink-0"
               aria-label="Abrir menu de navegação"
             >
               <Menu className="h-5 w-5" />
+              {/* No celular o menu fica fechado: o ponto avisa que há selo lá dentro. */}
+              {pedidosComPeca > 0 && (
+                <span className="absolute top-2 right-2 h-2.5 w-2.5 rounded-full bg-emerald-500 ring-2 ring-card" />
+              )}
             </Button>
           </SheetTrigger>
           <SheetContent

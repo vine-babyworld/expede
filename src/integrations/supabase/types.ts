@@ -231,6 +231,40 @@ export type Database = {
         }
         Relationships: []
       }
+      pecas_estoque: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          localizacao: string | null
+          nome: string
+          quantidade: number
+          sku: string
+          sku_normalizado: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          localizacao?: string | null
+          nome: string
+          quantidade?: number
+          sku: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          localizacao?: string | null
+          nome?: string
+          quantidade?: number
+          sku?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       pedido_itens: {
         Row: {
           bling_item_id: number | null
@@ -849,6 +883,23 @@ export type Database = {
           _user_id: string
         }
         Returns: boolean
+      }
+      pedidos_com_peca_em_estoque: {
+        Args: never
+        Returns: {
+          data_pedido: string | null
+          descricao: string | null
+          localizacao: string | null
+          marketplace: string | null
+          numero: string | null
+          numero_loja: string | null
+          peca_id: string
+          peca_nome: string
+          peca_quantidade: number
+          pedido_id: string
+          quantidade_pedido: number
+          sku: string
+        }[]
       }
       show_limit: { Args: never; Returns: number }
       show_trgm: { Args: { "": string }; Returns: string[] }
